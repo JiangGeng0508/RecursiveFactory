@@ -6,11 +6,13 @@ import com.zinzinc.recursivefactory.block.entity.FactoryRelay;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.world.FactoryData;
+import com.zinzinc.recursivefactory.world.FactoryDimension;
 import com.zinzinc.recursivefactory.world.FactoryTeleporter;
 import java.util.List;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
@@ -105,6 +107,11 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
         FactoryData.FactoryRecord record = data.create(owner);
         blockEntity.setFactoryId(record.id());
         data.bindEntrance(record.id(), level.dimension().location(), pos);
+
+        ServerLevel factoryLevel = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
+        if (factoryLevel != null) {
+            FactoryDimension.prepare(factoryLevel, record);
+        }
     }
 
     @Override

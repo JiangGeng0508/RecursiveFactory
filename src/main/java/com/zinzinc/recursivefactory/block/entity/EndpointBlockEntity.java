@@ -1,14 +1,21 @@
 package com.zinzinc.recursivefactory.block.entity;
 
+import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtUtils;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
@@ -20,6 +27,7 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     private static final String LOCAL_POWERED_TAG = "LocalPowered";
     private static final String REMOTE_POWERED_TAG = "RemotePowered";
     private static final String OUTPUT_DIRECTION_TAG = "OutputDirection";
+    private static final String PREVIEW_BLOCKS_TAG = "PreviewBlocks";
 
     private int factoryId = -1;
     private ItemStack pendingStack = ItemStack.EMPTY;
@@ -27,6 +35,7 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     private boolean localPowered;
     private boolean remotePowered;
     private @Nullable Direction outputDirection;
+    private List<PreviewBlock> previewBlocks = List.of();
 
     protected EndpointBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState blockState) {
         super(type, pos, blockState);
@@ -55,7 +64,7 @@ public abstract class EndpointBlockEntity extends BlockEntity {
                 return stack;
             }
 
-            int space = Math.min(stack.getMaxStackSize(), Integer.MAX_VALUE) - pendingStack.getCount();
+            int space = stack.getMaxStackSize() - pendingStack.getCount();
             int accepted = Math.min(space, stack.getCount());
             if (accepted <= 0) {
                 return stack;
@@ -127,6 +136,42 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         }
     }
 
+    public List<PreviewBlock> getPreviewBlocks() {
+        return previewBlocks;
+    }
+
+    public void updatePreview(List<PreviewBlock> updatedPreview) {
+        if (previewBlocks.equals(updatedPreview)) {
+            return;
+        }
+        previewBlocks = List.copyOf(updatedPreview);
+        setChanged();
+        if (level != null && !level.isClientSide) {
+            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
+    }
+
+    public static List<PreviewBlock> samplePreview(ServerLevel level, BlockPos center, int radius, int height) {
+        List<PreviewBlock> sampled = new ArrayList<>();
+        for (int y = -1; y < height - 1; y++) {
+            for (int x = -radius; x <= radius; x++) {
+                for (int z = -radius; z <= radius; z++) {
+                    if (x == 0 && y == 0 && z == 0) {
+                        continue;
+                    }
+
+                    BlockPos targetPos = center.offset(x, y, z);
+                    BlockState state = level.getBlockState(targetPos);
+                    if (state.isAir() || state.is(Blocks.BEDROCK)) {
+                        continue;
+                    }
+                    sampled.add(new PreviewBlock(x, y, z, state));
+                }
+            }
+        }
+        return List.copyOf(sampled);
+    }
+
     public void serverTick() {
         if (level != null && !level.isClientSide) {
             FactoryRelay.transport(this);
@@ -150,6 +195,7 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         if (outputDirection != null) {
             tag.putString(OUTPUT_DIRECTION_TAG, outputDirection.getSerializedName());
         }
+        tag.put(PREVIEW_BLOCKS_TAG, writePreviewBlocks(previewBlocks));
     }
 
     @Override
@@ -167,6 +213,7 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         outputDirection = tag.contains(OUTPUT_DIRECTION_TAG)
                 ? Direction.byName(tag.getString(OUTPUT_DIRECTION_TAG))
                 : null;
+        previewBlocks = readPreviewBlocks(tag, registries);
     }
 
     @Override
@@ -192,12 +239,40 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         loadAdditional(tag == null ? new CompoundTag() : tag, registries);
     }
 
-    public record PreviewBlock(int x, int y, int z, net.minecraft.world.level.block.state.BlockState state) {
+    private static CompoundTag writePreviewBlocks(List<PreviewBlock> blocks) {
+        CompoundTag root = new CompoundTag();
+        ListTag list = new ListTag();
+        for (PreviewBlock previewBlock : blocks) {
+            CompoundTag entry = new CompoundTag();
+            entry.putInt("X", previewBlock.x());
+            entry.putInt("Y", previewBlock.y());
+            entry.putInt("Z", previewBlock.z());
+            entry.put("State", NbtUtils.writeBlockState(previewBlock.state()));
+            list.add(entry);
+        }
+        root.put("Blocks", list);
+        return root;
     }
 
-    public interface Ticker {
-        void tick();
+    private static List<PreviewBlock> readPreviewBlocks(CompoundTag tag, HolderLookup.Provider registries) {
+        List<PreviewBlock> blocks = new ArrayList<>();
+        ListTag list = tag.getList(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND);
+        for (Tag entry : list) {
+            CompoundTag blockTag = (CompoundTag) entry;
+            BlockState state = NbtUtils.readBlockState(
+                    registries.lookupOrThrow(Registries.BLOCK),
+                    blockTag.getCompound("State")
+            );
+            blocks.add(new PreviewBlock(
+                    blockTag.getInt("X"),
+                    blockTag.getInt("Y"),
+                    blockTag.getInt("Z"),
+                    state
+            ));
+        }
+        return List.copyOf(blocks);
     }
 
-    public abstract List<PreviewBlock> getPreviewBlocks();
+    public record PreviewBlock(int x, int y, int z, BlockState state) {
+    }
 }

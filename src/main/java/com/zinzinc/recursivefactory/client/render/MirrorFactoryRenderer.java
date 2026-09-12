@@ -1,19 +1,18 @@
 package com.zinzinc.recursivefactory.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.math.Axis;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.MirrorFactoryBlockEntity;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
 import net.minecraft.client.renderer.texture.OverlayTexture;
-import net.minecraft.world.phys.Vec3;
 
 public final class MirrorFactoryRenderer implements BlockEntityRenderer<MirrorFactoryBlockEntity> {
-    private static final float PREVIEW_SCALE = 0.08F;
-    private static final float PREVIEW_Y_OFFSET = 1.05F;
+    private static final float PREVIEW_SCALE = 0.10F;
+    private static final float PREVIEW_Y_OFFSET = 0.50F;
 
     public MirrorFactoryRenderer(BlockEntityRendererProvider.Context context) {
     }
@@ -21,13 +20,16 @@ public final class MirrorFactoryRenderer implements BlockEntityRenderer<MirrorFa
     @Override
     public void render(MirrorFactoryBlockEntity blockEntity, float partialTick, PoseStack poseStack,
                        MultiBufferSource bufferSource, int packedLight, int packedOverlay) {
+        renderPreview(blockEntity, poseStack, bufferSource);
+    }
+
+    static void renderPreview(EndpointBlockEntity blockEntity, PoseStack poseStack, MultiBufferSource bufferSource) {
         if (blockEntity.getPreviewBlocks().isEmpty()) {
             return;
         }
 
         poseStack.pushPose();
         poseStack.translate(0.5D, PREVIEW_Y_OFFSET, 0.5D);
-        poseStack.mulPose(Axis.YP.rotationDegrees(getRotation(blockEntity, partialTick)));
         poseStack.scale(PREVIEW_SCALE, PREVIEW_SCALE, PREVIEW_SCALE);
 
         for (EndpointBlockEntity.PreviewBlock previewBlock : blockEntity.getPreviewBlocks()) {
@@ -41,7 +43,7 @@ public final class MirrorFactoryRenderer implements BlockEntityRenderer<MirrorFa
                     previewBlock.state(),
                     poseStack,
                     bufferSource,
-                    packedLight,
+                    LightTexture.FULL_BRIGHT,
                     OverlayTexture.NO_OVERLAY
             );
             poseStack.popPose();
@@ -51,17 +53,7 @@ public final class MirrorFactoryRenderer implements BlockEntityRenderer<MirrorFa
     }
 
     @Override
-    public boolean shouldRender(MirrorFactoryBlockEntity blockEntity, Vec3 cameraPos) {
-        return BlockEntityRenderer.super.shouldRender(blockEntity, cameraPos);
-    }
-
-    @Override
     public int getViewDistance() {
         return 128;
-    }
-
-    private static float getRotation(MirrorFactoryBlockEntity blockEntity, float partialTick) {
-        long gameTime = blockEntity.getLevel() == null ? 0L : blockEntity.getLevel().getGameTime();
-        return ((gameTime + partialTick) % 360.0F) * 0.5F;
     }
 }

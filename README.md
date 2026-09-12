@@ -8,7 +8,7 @@ Recursive Factory is a NeoForge mod for Minecraft 1.21.1. It provides a reusable
 - **Mirror factory block**: generated at the center of every factory room and can also be crafted. It is bound to the matching recursive factory block.
 - **Mirrored item transport**: items inserted through NeoForge item handlers (including vanilla hoppers and Create logistics where supported) leave the opposite face of the bound endpoint.
 - **Mirrored redstone**: weak redstone is mirrored bidirectionally, while strong/direct signal is emitted from the opposite face.
-- **Outside view**: the internal mirror renders a small live projection of the external world around the recursive factory block.
+- **Bidirectional view**: the internal mirror renders the external world, while the external recursive factory block renders its factory room.
 - **One-chunk room**: the floor is a snow block/white concrete checkerboard. Leaving the chunk exits to the position that entered that factory level.
 - **Directional entry**: sneak near the external recursive factory block to enter from the corresponding side.
 
