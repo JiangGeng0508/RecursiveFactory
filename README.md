@@ -26,4 +26,4 @@ Recursive Factory is a NeoForge mod for Minecraft 1.21.1. It provides a reusable
 .\gradlew.bat build --no-daemon --console=plain
 ```
 
-The project targets Minecraft 1.21.1 and NeoForge 21.1.249. The entrance model and texture are derived from the MIT-licensed Create: Pocket Factory reference project.
+The project targets Minecraft 1.21.1, NeoForge 21.1.249, and Create 6.0.10 or newer. The entrance model, texture, and projection renderer design are derived from the MIT-licensed Create: Pocket Factory reference project.

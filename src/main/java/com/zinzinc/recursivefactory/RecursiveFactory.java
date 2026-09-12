@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
 import com.zinzinc.recursivefactory.data.ModAttachments;
+import com.zinzinc.recursivefactory.network.ModNetworking;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -41,6 +42,7 @@ public final class RecursiveFactory {
         ModBlockEntities.register(modEventBus);
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
         CREATIVE_MODE_TABS.register(modEventBus);
+        modEventBus.addListener(ModNetworking::register);
         NeoForge.EVENT_BUS.addListener(this::onServerStarted);
         LOGGER.info("Recursive Factory initialized");
     }

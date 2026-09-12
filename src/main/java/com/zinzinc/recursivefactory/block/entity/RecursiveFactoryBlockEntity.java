@@ -21,7 +21,7 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
     @Override
     public void serverTick() {
         super.serverTick();
-        if (!(level instanceof ServerLevel serverLevel) || !hasFactoryId() || serverLevel.getServer() == null) {
+        if (!(level instanceof ServerLevel serverLevel)) {
             return;
         }
 
@@ -30,7 +30,15 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
             return;
         }
 
-        lastRefreshTick = gameTime;
+        refreshPreviewSnapshot();
+    }
+
+    public void refreshPreviewSnapshot() {
+        if (!(level instanceof ServerLevel serverLevel) || !hasFactoryId() || serverLevel.getServer() == null) {
+            return;
+        }
+
+        lastRefreshTick = serverLevel.getGameTime();
         FactoryData data = FactoryData.get(serverLevel.getServer());
         FactoryData.FactoryRecord record = data.factory(getFactoryId());
         ServerLevel factoryLevel = serverLevel.getServer().getLevel(FactoryDimension.LEVEL_KEY);

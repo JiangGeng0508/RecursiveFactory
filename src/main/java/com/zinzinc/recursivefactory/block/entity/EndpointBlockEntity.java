@@ -140,6 +140,13 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         return previewBlocks;
     }
 
+    public void acceptPreview(List<PreviewBlock> updatedPreview) {
+        previewBlocks = List.copyOf(updatedPreview);
+    }
+
+    public void refreshPreviewSnapshot() {
+    }
+
     public void updatePreview(List<PreviewBlock> updatedPreview) {
         if (previewBlocks.equals(updatedPreview)) {
             return;
@@ -153,14 +160,14 @@ public abstract class EndpointBlockEntity extends BlockEntity {
 
     public static List<PreviewBlock> samplePreview(ServerLevel level, BlockPos center, int radius, int height) {
         List<PreviewBlock> sampled = new ArrayList<>();
-        for (int y = -1; y < height - 1; y++) {
+        for (int y = 0; y < height; y++) {
             for (int x = -radius; x <= radius; x++) {
                 for (int z = -radius; z <= radius; z++) {
                     if (x == 0 && y == 0 && z == 0) {
                         continue;
                     }
 
-                    BlockPos targetPos = center.offset(x, y, z);
+                    BlockPos targetPos = center.offset(x, y - 1, z);
                     BlockState state = level.getBlockState(targetPos);
                     if (state.isAir() || state.is(Blocks.BEDROCK)) {
                         continue;
@@ -239,7 +246,7 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         loadAdditional(tag == null ? new CompoundTag() : tag, registries);
     }
 
-    private static CompoundTag writePreviewBlocks(List<PreviewBlock> blocks) {
+    public static CompoundTag writePreviewBlocks(List<PreviewBlock> blocks) {
         CompoundTag root = new CompoundTag();
         ListTag list = new ListTag();
         for (PreviewBlock previewBlock : blocks) {
@@ -254,9 +261,12 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         return root;
     }
 
-    private static List<PreviewBlock> readPreviewBlocks(CompoundTag tag, HolderLookup.Provider registries) {
+    public static List<PreviewBlock> readPreviewBlocks(CompoundTag tag, HolderLookup.Provider registries) {
         List<PreviewBlock> blocks = new ArrayList<>();
-        ListTag list = tag.getList(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND);
+        CompoundTag root = tag.contains(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND)
+                ? tag.getCompound(PREVIEW_BLOCKS_TAG)
+                : tag;
+        ListTag list = root.getList("Blocks", Tag.TAG_COMPOUND);
         for (Tag entry : list) {
             CompoundTag blockTag = (CompoundTag) entry;
             BlockState state = NbtUtils.readBlockState(

@@ -104,6 +104,13 @@ dependencies {
     // For all intends and purposes: You can treat this dependency as if it is a normal library you would use.
     implementation "net.neoforged:neoforge:${neo_version}"
 
+    implementation files(
+            '.reference/CreatePocketFactory/libs/create-1.21.1-6.0.10.jar',
+            '.reference/CreatePocketFactory/libs/flywheel-neoforge-1.21.1-1.0.6.jar',
+            '.reference/CreatePocketFactory/libs/ponder-neoforge-1.0.82+mc1.21.1.jar',
+            '.reference/CreatePocketFactory/libs/Registrate-MC1.21-1.3.0+67.jar'
+    )
+
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
     // compileOnly "mezz.jei:jei-${mc_version}-common-api:${jei_version}"
