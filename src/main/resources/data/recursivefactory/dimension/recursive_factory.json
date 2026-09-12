@@ -1,0 +1,14 @@
+{
+  "type": "recursivefactory:recursive_factory",
+  "generator": {
+    "type": "minecraft:flat",
+    "settings": {
+      "biome": "recursivefactory:recursive_factory",
+      "features": false,
+      "lakes": false,
+      "layers": [
+        { "block": "minecraft:air", "height": 1 }
+      ]
+    }
+  }
+}
