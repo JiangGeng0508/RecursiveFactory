@@ -26,7 +26,20 @@ sourceSets.main.resources {
 }
 
 repositories {
-    // Add here additional repositories if required by some of the dependencies below.
+    // Only needed for the Maven fallback of the Create runtime dependencies declared
+    // further down. In a local checkout those come from .reference/CreatePocketFactory/libs.
+    maven {
+        name = 'Create and Ponder Maven'
+        url = 'https://maven.createmod.net/'
+    }
+    maven {
+        name = 'Registrate Maven'
+        url = 'https://maven.tterrag.com/'
+    }
+    maven {
+        name = 'NeoForged Releases'
+        url = 'https://maven.neoforged.net/releases'
+    }
 }
 
 base {
@@ -95,6 +108,18 @@ configurations {
     runtimeClasspath.extendsFrom localRuntime
 }
 
+// The Create runtime libraries normally come from the local, git-ignored reference checkout.
+// CI does not have that folder (see .github/workflows/build.yml), so the build falls back to
+// the published Maven artifacts, which hold the same classes.
+def referenceLibDir = file('.reference/CreatePocketFactory/libs')
+def referenceLibCoordinates = [
+        'create-1.21.1-6.0.10.jar'            : 'com.simibubi.create:create-1.21.1:6.0.10-280',
+        'flywheel-neoforge-1.21.1-1.0.6.jar'  : 'dev.engine-room.flywheel:flywheel-neoforge-1.21.1:1.0.6',
+        'ponder-neoforge-1.0.82+mc1.21.1.jar' : 'net.createmod.ponder:ponder-neoforge:1.0.82+mc1.21.1',
+        'Registrate-MC1.21-1.3.0+67.jar'      : 'com.tterrag.registrate:Registrate:MC1.21-1.3.0+67',
+]
+def missingReferenceLibs = referenceLibCoordinates.keySet().findAll { !new File(referenceLibDir, it).exists() }
+
 dependencies {
     // Specify the version of Minecraft to use.
     // Depending on the plugin applied there are several options. We will assume you applied the userdev plugin as shown above.
@@ -104,12 +129,16 @@ dependencies {
     // For all intends and purposes: You can treat this dependency as if it is a normal library you would use.
     implementation "net.neoforged:neoforge:${neo_version}"
 
-    implementation files(
-            '.reference/CreatePocketFactory/libs/create-1.21.1-6.0.10.jar',
-            '.reference/CreatePocketFactory/libs/flywheel-neoforge-1.21.1-1.0.6.jar',
-            '.reference/CreatePocketFactory/libs/ponder-neoforge-1.0.82+mc1.21.1.jar',
-            '.reference/CreatePocketFactory/libs/Registrate-MC1.21-1.3.0+67.jar'
-    )
+    // Create itself plus its runtime libraries (Flywheel, Ponder, Registrate).
+    if (missingReferenceLibs.isEmpty()) {
+        implementation files(referenceLibCoordinates.keySet().collect { new File(referenceLibDir, it) })
+    } else {
+        logger.lifecycle("Local reference libraries missing ({}), resolving Create dependencies from Maven instead.",
+                missingReferenceLibs.join(', '))
+        referenceLibCoordinates.values().each { coordinate ->
+            implementation(coordinate) { transitive = false }
+        }
+    }
 
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime

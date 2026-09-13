@@ -1,5 +1,7 @@
 package com.zinzinc.recursivefactory.block.entity;
 
+import com.mojang.logging.LogUtils;
+import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -15,12 +17,16 @@ import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
+import net.neoforged.neoforge.network.PacketDistributor;
+import org.slf4j.Logger;
 
 public abstract class EndpointBlockEntity extends BlockEntity {
+    private static final Logger LOGGER = LogUtils.getLogger();
     private static final String FACTORY_ID_TAG = "FactoryId";
     private static final String PENDING_STACK_TAG = "PendingStack";
     private static final String PENDING_INPUT_TAG = "PendingInput";
@@ -153,9 +159,23 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         }
         previewBlocks = List.copyOf(updatedPreview);
         setChanged();
-        if (level != null && !level.isClientSide) {
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        broadcastPreview();
+    }
+
+    /**
+     * Pushes the current preview to every client that has this block's chunk loaded. Vanilla's
+     * sendBlockUpdated only reacts to block state changes, so block entity data has to be sent here.
+     */
+    protected void broadcastPreview() {
+        if (!(level instanceof ServerLevel serverLevel)) {
+            return;
         }
+        LOGGER.info("Broadcasting endpoint preview at {} with {} blocks", worldPosition, previewBlocks.size());
+        PacketDistributor.sendToPlayersTrackingChunk(
+                serverLevel,
+                new ChunkPos(worldPosition),
+                new EndpointPreviewPackets.Sync(worldPosition, writePreviewBlocks(previewBlocks))
+        );
     }
 
     public static List<PreviewBlock> samplePreview(ServerLevel level, BlockPos center, int radius, int height) {

@@ -18,13 +18,20 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      # The Create runtime libraries live in the git-ignored .reference folder, so the CI
+      # workspace does not have them. Fetch the same jars here; if this step fails,
+      # build.gradle falls back to the equivalent published Maven artifacts.
+      - name: Fetch reference libraries
+        continue-on-error: true
+        run: |
+          git clone --depth 1 https://github.com/AssestinaR/CreatePocketFactory.git /tmp/create-pocket-factory
+          mkdir -p .reference/CreatePocketFactory
+          cp -r /tmp/create-pocket-factory/libs .reference/CreatePocketFactory/libs
 
       # This is needed to be able to run ./gradlew below
-      # You can run `git update-index --chmod +x gradlew` then remove this step.
+      # You can run `git update-index --chmod=+x gradlew` then remove this step.
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
       - name: Build with Gradle
-        run: ./gradlew build
+        run: ./gradlew build --no-daemon --stacktrace
