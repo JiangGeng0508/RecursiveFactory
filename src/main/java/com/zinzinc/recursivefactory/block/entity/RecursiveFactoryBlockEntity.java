@@ -8,8 +8,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.state.BlockState;
 
 public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
-    private static final int PREVIEW_RADIUS = 4;
-    private static final int PREVIEW_HEIGHT = 5;
+    private static final int PREVIEW_RADIUS = 8;
+    private static final int PREVIEW_HEIGHT = FactoryData.CEILING_Y - FactoryData.FLOOR_Y + 1;
     private static final int REFRESH_INTERVAL = 100;
 
     private long lastRefreshTick = Long.MIN_VALUE;

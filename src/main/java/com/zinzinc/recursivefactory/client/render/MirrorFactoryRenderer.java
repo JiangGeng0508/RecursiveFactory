@@ -15,7 +15,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 public final class MirrorFactoryRenderer implements BlockEntityRenderer<MirrorFactoryBlockEntity> {
     private static final float PREVIEW_SIZE = 0.70F;
     private static final float PREVIEW_Y_OFFSET = 0.50F;
-    private static final int REQUEST_INTERVAL_TICKS = 40;
+    private static final int REQUEST_INTERVAL_TICKS = 100;
     private static final Map<EndpointBlockEntity, CachedProjection> PROJECTION_CACHE = new WeakHashMap<>();
     private static final Map<EndpointBlockEntity, Long> LAST_REQUEST_TICKS = new WeakHashMap<>();
 

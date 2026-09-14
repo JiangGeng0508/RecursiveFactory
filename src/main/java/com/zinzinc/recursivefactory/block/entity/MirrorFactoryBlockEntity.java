@@ -18,8 +18,8 @@ import org.slf4j.Logger;
 
 public final class MirrorFactoryBlockEntity extends EndpointBlockEntity {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static final int PREVIEW_RADIUS = 4;
-    private static final int PREVIEW_HEIGHT = 5;
+    private static final int PREVIEW_RADIUS = 8;
+    private static final int PREVIEW_HEIGHT = FactoryData.CEILING_Y - FactoryData.FLOOR_Y + 1;
     private static final int REFRESH_INTERVAL = 100;
     private static final int ENCLOSURE_INTERVAL = 100;
 
