@@ -41,4 +41,5 @@ repo/
 
 ### vibe coding
 .reference
-.zcode
+.zcode 
+logs/

@@ -69,7 +69,7 @@ public final class MirrorFactoryBlock extends BaseEntityBlock {
                 && level.dimension() == FactoryDimension.LEVEL_KEY
                 && level.getBlockEntity(pos) instanceof MirrorFactoryBlockEntity blockEntity
                 && blockEntity.hasFactoryId()) {
-            return FactoryTeleporter.exit(serverPlayer, blockEntity.getFactoryId(), hitResult.getDirection())
+            return FactoryTeleporter.exit(serverPlayer, blockEntity.getFactoryId())
                     ? InteractionResult.CONSUME
                     : InteractionResult.FAIL;
         }

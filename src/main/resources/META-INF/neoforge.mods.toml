@@ -31,3 +31,17 @@ type="required"
 versionRange="[6.0.10,)"
 ordering="AFTER"
 side="BOTH"
+
+[[dependencies.${mod_id}]]
+modId="immersive_portals_core"
+type="required"
+versionRange="[${immersive_portals_version},)"
+ordering="AFTER"
+side="BOTH"
+
+[[dependencies.${mod_id}]]
+modId="cloth_config"
+type="required"
+versionRange="[${cloth_config_version},)"
+ordering="AFTER"
+side="BOTH"

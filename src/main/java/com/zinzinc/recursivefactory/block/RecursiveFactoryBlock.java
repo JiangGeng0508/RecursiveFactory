@@ -7,6 +7,7 @@ import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
+import com.zinzinc.recursivefactory.world.FactoryPortal;
 import com.zinzinc.recursivefactory.world.FactoryTeleporter;
 import java.util.List;
 import javax.annotation.Nullable;
@@ -87,7 +88,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
         if (player instanceof ServerPlayer serverPlayer
                 && level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity
                 && blockEntity.hasFactoryId()) {
-            return FactoryTeleporter.enter(serverPlayer, blockEntity.getFactoryId(), hitResult.getDirection())
+            return FactoryTeleporter.enter(serverPlayer, blockEntity.getFactoryId())
                     ? InteractionResult.CONSUME
                     : InteractionResult.FAIL;
         }
@@ -112,12 +113,14 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
         if (factoryLevel != null) {
             FactoryDimension.prepare(factoryLevel, record);
         }
+        FactoryPortal.ensure(level, record.id());
     }
 
     @Override
     protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
         if (!state.is(newState.getBlock()) && !level.isClientSide() && level.getServer() != null
                 && level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity) {
+            FactoryPortal.remove(level, blockEntity.getFactoryId());
             FactoryData.get(level.getServer()).clearEntrance(
                     blockEntity.getFactoryId(),
                     level.dimension().location(),

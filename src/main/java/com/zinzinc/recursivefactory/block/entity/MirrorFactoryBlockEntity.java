@@ -23,6 +23,13 @@ public final class MirrorFactoryBlockEntity extends EndpointBlockEntity {
     private static final int REFRESH_INTERVAL = 100;
     private static final int ENCLOSURE_INTERVAL = 100;
 
+    /**
+     * The Immersive Portals pair renders the outside world now (see {@code FactoryPortal}), so the
+     * hand-rolled enclosure sampling is switched off together with its renderer and its packets. Set
+     * this back to {@code true} to restore the old shell.
+     */
+    private static final boolean ENCLOSURE_ENABLED = false;
+
     private long lastRefreshTick = Long.MIN_VALUE;
     private long lastEnclosureTick = Long.MIN_VALUE;
     private int lastEnclosureHash;
@@ -70,6 +77,9 @@ public final class MirrorFactoryBlockEntity extends EndpointBlockEntity {
     }
 
     private void tickEnclosure(ServerLevel serverLevel, long gameTime) {
+        if (!ENCLOSURE_ENABLED) {
+            return;
+        }
         if (lastEnclosureTick != Long.MIN_VALUE && gameTime - lastEnclosureTick < ENCLOSURE_INTERVAL) {
             return;
         }
@@ -96,6 +106,9 @@ public final class MirrorFactoryBlockEntity extends EndpointBlockEntity {
 
     /** Resamples the surrounding world and pushes it to a single player, used for on demand requests. */
     public void sendEnclosureTo(ServerPlayer player) {
+        if (!ENCLOSURE_ENABLED) {
+            return;
+        }
         if (!(level instanceof ServerLevel serverLevel) || !hasFactoryId() || serverLevel.getServer() == null) {
             return;
         }

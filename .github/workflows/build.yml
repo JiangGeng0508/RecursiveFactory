@@ -34,6 +34,17 @@ jobs:
           mkdir -p .reference/CreatePocketFactory
           cp -r /tmp/create-pocket-factory/libs .reference/CreatePocketFactory/libs
 
+      # Immersive Portals for NeoForge is not published to any public Maven repository, so the build
+      # cannot resolve it and the release jar has to be downloaded. The version comes from
+      # gradle.properties so there is a single place to bump it.
+      - name: Fetch Immersive Portals
+        run: |
+          VERSION=$(grep '^immersive_portals_version=' gradle.properties | cut -d= -f2)
+          mkdir -p .reference/immersive-portals
+          curl -sSL -o ".reference/immersive-portals/immersive_portals-${VERSION}-all.jar" \
+            "https://github.com/iPortalTeam/ImmersivePortalsModForNeo/releases/download/v${VERSION}/immersive_portals-${VERSION}-all.jar"
+          ls -l .reference/immersive-portals/
+
       # This is needed to be able to run ./gradlew below
       # You can run `git update-index --chmod=+x gradlew` then remove this step.
       - name: Make Gradle wrapper executable

@@ -5,7 +5,6 @@ import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.entity.MirrorFactoryBlockEntity;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
@@ -23,6 +22,11 @@ public final class FactoryDimension {
             ResourceLocation.fromNamespaceAndPath(RecursiveFactory.MODID, "recursive_factory")
     );
 
+    /** Horizontal reach of the room, measured from the middle of the mirror block. */
+    public static final double ROOM_HALF_EXTENT = 7.0D;
+    /** Horizontal reach of the landing area beside an endpoint block. */
+    public static final double BLOCK_HALF_EXTENT = 1.0D;
+
     private FactoryDimension() {
     }
 
@@ -33,6 +37,7 @@ public final class FactoryDimension {
         }
         for (FactoryData.FactoryRecord record : FactoryData.get(server).factories()) {
             prepare(level, record);
+            FactoryPortal.ensure(level, record.id());
         }
     }
 
@@ -40,6 +45,24 @@ public final class FactoryDimension {
         ChunkPos chunk = record.baseChunk();
         level.setChunkForced(chunk.x, chunk.z, true);
         generateFloor(level, record);
+        sealFloor(level, record);
+    }
+
+    /**
+     * Bedrock under the platform. The floor is the one face of the room without a portal, so it has to be
+     * sealed: otherwise the platform is a single floating layer over the void.
+     */
+    private static void sealFloor(ServerLevel level, FactoryData.FactoryRecord record) {
+        ChunkPos chunk = record.baseChunk();
+        int y = FactoryData.FLOOR_Y - 1;
+        for (int x = chunk.getMinBlockX(); x <= chunk.getMaxBlockX(); x++) {
+            for (int z = chunk.getMinBlockZ(); z <= chunk.getMaxBlockZ(); z++) {
+                BlockPos pos = new BlockPos(x, y, z);
+                if (!level.getBlockState(pos).is(Blocks.BEDROCK)) {
+                    level.setBlock(pos, Blocks.BEDROCK.defaultBlockState(), 3);
+                }
+            }
+        }
     }
 
     private static void generateFloor(ServerLevel level, FactoryData.FactoryRecord record) {
@@ -105,38 +128,59 @@ public final class FactoryDimension {
         return nearest;
     }
 
-    public static BlockPos entryPosition(FactoryData.FactoryRecord record, Direction approachDirection) {
+    /**
+     * Landing spot inside the room for a player walking in from the given position outside. The room
+     * reaches {@link #ROOM_HALF_EXTENT} blocks out from the mirror block while the area around an
+     * endpoint only reaches {@link #BLOCK_HALF_EXTENT}, so stepping in from the centre of a block's
+     * east side arrives at the centre of the room's east edge.
+     */
+    public static BlockPos entryTarget(FactoryData.FactoryRecord record, double playerX, double playerZ) {
+        BlockPos entrance = record.entrancePos();
+        double[] offset = rescaleOffset(
+                playerX - (entrance.getX() + 0.5D),
+                playerZ - (entrance.getZ() + 0.5D),
+                BLOCK_HALF_EXTENT,
+                ROOM_HALF_EXTENT
+        );
         ChunkPos chunk = record.baseChunk();
-        int x = chunk.getMiddleBlockX();
-        int z = chunk.getMiddleBlockZ();
-        switch (approachDirection) {
-            case NORTH -> z = chunk.getMinBlockZ();
-            case SOUTH -> z = chunk.getMaxBlockZ();
-            case WEST -> x = chunk.getMinBlockX();
-            case EAST -> x = chunk.getMaxBlockX();
-            default -> {
-            }
-        }
-        return new BlockPos(x, FactoryData.FLOOR_Y + 1, z);
+        return BlockPos.containing(
+                chunk.getMiddleBlockX() + 0.5D + offset[0],
+                FactoryData.FLOOR_Y + 1,
+                chunk.getMiddleBlockZ() + 0.5D + offset[1]
+        );
     }
 
-    public static BlockPos exitPosition(FactoryData.FactoryRecord record, Direction exitDirection) {
+    /**
+     * Preferred landing spot beside the entrance block for a player leaving the room from the given
+     * position inside, the reverse of {@link #entryTarget}.
+     */
+    public static BlockPos exitTarget(FactoryData.FactoryRecord record, double playerX, double playerZ) {
+        ChunkPos chunk = record.baseChunk();
+        double[] offset = rescaleOffset(
+                playerX - (chunk.getMiddleBlockX() + 0.5D),
+                playerZ - (chunk.getMiddleBlockZ() + 0.5D),
+                ROOM_HALF_EXTENT,
+                BLOCK_HALF_EXTENT
+        );
         BlockPos entrance = record.entrancePos();
-        return switch (exitDirection) {
-            case NORTH -> entrance.relative(Direction.NORTH);
-            case SOUTH -> entrance.relative(Direction.SOUTH);
-            case WEST -> entrance.relative(Direction.WEST);
-            case EAST -> entrance.relative(Direction.EAST);
-            default -> entrance.above();
+        return BlockPos.containing(
+                entrance.getX() + 0.5D + offset[0],
+                entrance.getY(),
+                entrance.getZ() + 0.5D + offset[1]
+        );
+    }
+
+    /** Rescales an offset gathered around one endpoint to the same relative offset around the other. */
+    private static double[] rescaleOffset(double offsetX, double offsetZ,
+                                          double fromHalfExtent, double toHalfExtent) {
+        double scale = toHalfExtent / fromHalfExtent;
+        return new double[] {
+                clamp(offsetX * scale, toHalfExtent),
+                clamp(offsetZ * scale, toHalfExtent)
         };
     }
 
-    public static Direction horizontalDirectionFrom(BlockPos origin, double x, double z) {
-        double deltaX = x - (origin.getX() + 0.5D);
-        double deltaZ = z - (origin.getZ() + 0.5D);
-        if (Math.abs(deltaX) > Math.abs(deltaZ)) {
-            return deltaX >= 0.0D ? Direction.EAST : Direction.WEST;
-        }
-        return deltaZ >= 0.0D ? Direction.SOUTH : Direction.NORTH;
+    private static double clamp(double value, double limit) {
+        return Math.max(-limit, Math.min(limit, value));
     }
 }

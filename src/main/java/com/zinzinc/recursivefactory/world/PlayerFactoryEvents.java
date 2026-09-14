@@ -5,7 +5,6 @@ import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import java.util.Comparator;
 import java.util.Optional;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -15,6 +14,11 @@ import net.neoforged.neoforge.event.tick.PlayerTickEvent;
 @EventBusSubscriber
 public final class PlayerFactoryEvents {
     private static final double SNEAK_ENTER_RANGE = 2.0D;
+    /**
+     * Immersive Portals now moves the player when they walk into the ring, so the sneak trigger is off
+     * to stop the two fighting over the same movement. Right-clicking the blocks still works.
+     */
+    private static final boolean SNEAK_AUTO_ENTER = false;
 
     private PlayerFactoryEvents() {
     }
@@ -37,15 +41,10 @@ public final class PlayerFactoryEvents {
             return;
         }
 
-        if (player.isShiftKeyDown() && FactoryTeleporter.canAutoEnter(player)) {
-            findNearbyFactory(player).ifPresent(entry -> {
-                Direction approachDirection = FactoryDimension.horizontalDirectionFrom(
-                        entry.pos(),
-                        player.getX(),
-                        player.getZ()
-                );
-                FactoryTeleporter.enter(player, entry.factoryId(), approachDirection);
-            });
+        if (SNEAK_AUTO_ENTER && player.isShiftKeyDown() && FactoryTeleporter.canAutoEnter(player)) {
+            findNearbyFactory(player).ifPresent(entry ->
+                    FactoryTeleporter.enter(player, entry.factoryId())
+            );
         }
     }
 

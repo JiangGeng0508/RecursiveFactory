@@ -33,6 +33,13 @@ public final class FactoryEnclosureRenderer {
     private static final float FOG_END = 140.0F;
     private static final long DRAW_LOG_INTERVAL_TICKS = 100L;
 
+    /**
+     * The Immersive Portals pair now supplies the scaled view of the other side (see
+     * {@code FactoryPortal}), so the hand-rolled shell is switched off. Kept in place until the portal
+     * view has been confirmed in game: set this back to {@code true} to restore the old shell.
+     */
+    private static final boolean ENCLOSURE_ENABLED = false;
+
     private static long lastDrawLogTick = Long.MIN_VALUE;
 
     private FactoryEnclosureRenderer() {
@@ -40,7 +47,7 @@ public final class FactoryEnclosureRenderer {
 
     @SubscribeEvent
     public static void onRenderLevelStage(RenderLevelStageEvent event) {
-        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_BLOCK_ENTITIES) {
+        if (!ENCLOSURE_ENABLED || event.getStage() != RenderLevelStageEvent.Stage.AFTER_BLOCK_ENTITIES) {
             return;
         }
 
@@ -74,7 +81,8 @@ public final class FactoryEnclosureRenderer {
             );
         }
 
-        BlockPos origin = FactoryEnclosure.origin(chunk);        Vec3 camera = event.getCamera().getPosition();
+        BlockPos origin = FactoryEnclosure.origin(chunk);
+        Vec3 camera = event.getCamera().getPosition();
         PoseStack poseStack = event.getPoseStack();
         MultiBufferSource.BufferSource bufferSource = minecraft.renderBuffers().bufferSource();
 
@@ -96,7 +104,7 @@ public final class FactoryEnclosureRenderer {
      */
     @SubscribeEvent
     public static void onRenderFog(ViewportEvent.RenderFog event) {
-        if (event.getMode() != FogRenderer.FogMode.FOG_TERRAIN) {
+        if (!ENCLOSURE_ENABLED || event.getMode() != FogRenderer.FogMode.FOG_TERRAIN) {
             return;
         }
 
