@@ -97,7 +97,8 @@ public final class FactoryData extends SavedData {
                 null,
                 BlockPos.ZERO,
                 null,
-                BlockPos.ZERO
+                BlockPos.ZERO,
+                List.of()
         );
         factories.put(factoryId, record);
         setDirty();
@@ -110,18 +111,62 @@ public final class FactoryData extends SavedData {
         return record;
     }
 
+    /** Binds a factory's first entrance cell: the room cell it stands for is its slot's chunk. */
     public void bindEntrance(int factoryId, ResourceLocation dimension, BlockPos pos) {
         FactoryRecord record = factories.get(factoryId);
         if (record != null) {
-            update(record.withEntrance(dimension, pos));
+            FactoryRecord.Cell cell = new FactoryRecord.Cell(
+                    pos,
+                    record.baseChunk().getMinBlockX(),
+                    record.baseChunk().getMinBlockZ()
+            );
+            update(record.withEntrance(dimension, pos).withCells(List.of(cell)));
         }
     }
 
+    /**
+     * Grows a factory by one entrance cell. The room cell is given rather than derived so that removing
+     * cells later never shifts the room layout: each cell keeps the room position it was placed with.
+     */
+    public void addEntrance(int factoryId, ResourceLocation dimension, BlockPos pos, int roomX, int roomZ) {
+        FactoryRecord record = factories.get(factoryId);
+        if (record != null && dimension.equals(record.entranceDimension())) {
+            List<FactoryRecord.Cell> cells = new ArrayList<>(record.cells());
+            cells.add(new FactoryRecord.Cell(pos, roomX, roomZ));
+            update(record.withCells(cells));
+        }
+    }
+
+    /**
+     * Removes one entrance cell. A factory that still has cells keeps going with the rest - the anchor
+     * moves to another cell - and only a factory with no cells left loses its entrance.
+     */
     public void clearEntrance(int factoryId, ResourceLocation dimension, BlockPos pos) {
         FactoryRecord record = factories.get(factoryId);
-        if (record != null && dimension.equals(record.entranceDimension()) && pos.equals(record.entrancePos())) {
-            update(record.withEntrance(null, BlockPos.ZERO));
+        if (record == null || !dimension.equals(record.entranceDimension())) {
+            return;
         }
+        List<FactoryRecord.Cell> remaining = new ArrayList<>(record.cells());
+        remaining.removeIf(cell -> cell.entrance().equals(pos));
+        if (remaining.isEmpty()) {
+            update(record.withEntrance(null, BlockPos.ZERO).withCells(List.of()));
+        } else {
+            BlockPos anchor = record.entrancePos().equals(pos)
+                    ? remaining.get(0).entrance()
+                    : record.entrancePos();
+            update(record.withEntrance(dimension, anchor).withCells(remaining));
+        }
+    }
+
+    /** The factory whose entrance takes up this cell, if any. */
+    @Nullable
+    public FactoryRecord factoryWithEntranceCell(ResourceLocation dimension, BlockPos pos) {
+        for (FactoryRecord record : factories.values()) {
+            if (dimension.equals(record.entranceDimension()) && record.cellAt(pos) != null) {
+                return record;
+            }
+        }
+        return null;
     }
 
     public void bindMirror(int factoryId, ResourceLocation dimension, BlockPos pos) {
@@ -140,12 +185,13 @@ public final class FactoryData extends SavedData {
 
     @Nullable
     public FactoryRecord factoryAt(BlockPos pos) {
-        int chunkX = pos.getX() >> 4;
-        int chunkZ = pos.getZ() >> 4;
         for (FactoryRecord record : factories.values()) {
-            if (record.baseChunk().x == chunkX && record.baseChunk().z == chunkZ
-                    && pos.getY() >= FLOOR_Y - 1 && pos.getY() <= CEILING_Y + 1) {
-                return record;
+            for (FactoryRecord.Cell cell : record.cells()) {
+                if (pos.getX() >= cell.roomX() && pos.getX() < cell.roomX() + 16
+                        && pos.getZ() >= cell.roomZ() && pos.getZ() < cell.roomZ() + 16
+                        && pos.getY() >= FLOOR_Y - 1 && pos.getY() <= CEILING_Y + 1) {
+                    return record;
+                }
             }
         }
         return null;
@@ -159,11 +205,31 @@ public final class FactoryData extends SavedData {
             @Nullable ResourceLocation entranceDimension,
             BlockPos entrancePos,
             @Nullable ResourceLocation mirrorDimension,
-            BlockPos mirrorPos
+            BlockPos mirrorPos,
+            List<Cell> cells
     ) {
+        /**
+         * One entrance block and the room cell it stands for. The room origin is saved per cell so the
+         * room layout never shifts when cells are removed; the layout as a whole is the entrance layout,
+         * translated, with each cell sixteen blocks across.
+         */
+        public record Cell(BlockPos entrance, int roomX, int roomZ) {
+        }
+
         public FactoryRecord {
             entrancePos = entrancePos.immutable();
             mirrorPos = mirrorPos.immutable();
+            cells = List.copyOf(cells);
+        }
+
+        @Nullable
+        public Cell cellAt(BlockPos pos) {
+            for (Cell cell : cells) {
+                if (cell.entrance().equals(pos)) {
+                    return cell;
+                }
+            }
+            return null;
         }
 
         public net.minecraft.world.level.ChunkPos baseChunk() {
@@ -174,11 +240,16 @@ public final class FactoryData extends SavedData {
         }
 
         public FactoryRecord withEntrance(@Nullable ResourceLocation dimension, BlockPos pos) {
-            return new FactoryRecord(id, owner, slotX, slotZ, dimension, pos, mirrorDimension, mirrorPos);
+            return new FactoryRecord(id, owner, slotX, slotZ, dimension, pos, mirrorDimension, mirrorPos, cells);
         }
 
         public FactoryRecord withMirror(@Nullable ResourceLocation dimension, BlockPos pos) {
-            return new FactoryRecord(id, owner, slotX, slotZ, entranceDimension, entrancePos, dimension, pos);
+            return new FactoryRecord(id, owner, slotX, slotZ, entranceDimension, entrancePos, dimension, pos, cells);
+        }
+
+        public FactoryRecord withCells(List<Cell> updatedCells) {
+            return new FactoryRecord(id, owner, slotX, slotZ, entranceDimension, entrancePos,
+                    mirrorDimension, mirrorPos, updatedCells);
         }
 
         private CompoundTag save() {
@@ -191,6 +262,17 @@ public final class FactoryData extends SavedData {
             tag.putInt("SlotZ", slotZ);
             putEndpoint(tag, "Entrance", entranceDimension, entrancePos);
             putEndpoint(tag, "Mirror", mirrorDimension, mirrorPos);
+            ListTag cellsTag = new ListTag();
+            for (Cell cell : cells) {
+                CompoundTag cellTag = new CompoundTag();
+                cellTag.putInt("X", cell.entrance().getX());
+                cellTag.putInt("Y", cell.entrance().getY());
+                cellTag.putInt("Z", cell.entrance().getZ());
+                cellTag.putInt("RoomX", cell.roomX());
+                cellTag.putInt("RoomZ", cell.roomZ());
+                cellsTag.add(cellTag);
+            }
+            tag.put("Cells", cellsTag);
             return tag;
         }
 
@@ -198,7 +280,17 @@ public final class FactoryData extends SavedData {
             UUID owner = tag.hasUUID("Owner") ? tag.getUUID("Owner") : null;
             Endpoint entrance = readEndpoint(tag, "Entrance");
             Endpoint mirror = readEndpoint(tag, "Mirror");
-            return new FactoryRecord(
+            List<Cell> cells = new ArrayList<>();
+            ListTag cellsTag = tag.getList("Cells", Tag.TAG_COMPOUND);
+            for (Tag entry : cellsTag) {
+                CompoundTag cellTag = (CompoundTag) entry;
+                cells.add(new Cell(
+                        new BlockPos(cellTag.getInt("X"), cellTag.getInt("Y"), cellTag.getInt("Z")),
+                        cellTag.getInt("RoomX"),
+                        cellTag.getInt("RoomZ")
+                ));
+            }
+            FactoryRecord record = new FactoryRecord(
                     tag.getInt("Id"),
                     owner,
                     tag.getInt("SlotX"),
@@ -206,8 +298,18 @@ public final class FactoryData extends SavedData {
                     entrance.dimension(),
                     entrance.pos(),
                     mirror.dimension(),
-                    mirror.pos()
+                    mirror.pos(),
+                    cells
             );
+            // Records saved before a factory could hold several cells: the one entrance is the one cell.
+            if (record.cells().isEmpty() && record.entranceDimension() != null) {
+                record = record.withCells(List.of(new Cell(
+                        record.entrancePos(),
+                        record.baseChunk().getMinBlockX(),
+                        record.baseChunk().getMinBlockZ()
+                )));
+            }
+            return record;
         }
 
         private static void putEndpoint(CompoundTag tag, String prefix, @Nullable ResourceLocation dimension, BlockPos pos) {

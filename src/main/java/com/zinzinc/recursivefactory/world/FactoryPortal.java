@@ -11,9 +11,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
 import qouteall.imm_ptl.core.McHelper;
@@ -159,122 +157,213 @@ public final class FactoryPortal {
         discard(factoryLevel, tag);
 
         BlockPos entrance = record.entrancePos();
-        // The doorway and room height follow the entrance block's variant: the short block's doorways are
-        // one block tall and its room half as tall. The room side is the doorway size times the scale, so
-        // the two heights always stay consistent.
+        // The anchor cell's block variant decides the doorway and room height for the whole factory: the
+        // short variant's doorways are one block tall and its rooms half as tall. The room side is the
+        // doorway size times the scale, so the two heights always stay consistent - and a run of doorways
+        // of length L comes out L x SCALE wide, which is how a grown factory's wide walls adapt.
         boolean shortEntrance = entranceLevel.getBlockState(entrance).is(ModBlocks.RECURSIVE_FACTORY_SHORT.get());
         double sidePlaneHeight = shortEntrance ? SHORT_SIDE_PLANE_HEIGHT : TALL_SIDE_PLANE_HEIGHT;
         double roomHeight = sidePlaneHeight * SCALE;
-        int openings = 0;
+        int doorways = 0;
 
-        for (Direction face : OPEN_FACES) {
-            Vec3[] axes = faceAxes(face);
-            boolean upright = face.getAxis() != Direction.Axis.Y;
-            Portal outside = createPlane(
+        for (Direction side : OPEN_FACES) {
+            for (CellRun run : boundaryRuns(record, side)) {
+                Vec3[] axes = faceAxes(side);
+                Portal outside = createPlane(
+                        entranceLevel,
+                        doorwayCentre(run, side, sidePlaneHeight),
+                        factoryLevel.dimension(),
+                        wallCentre(run, side, roomHeight),
+                        axes[0],
+                        axes[1],
+                        run.length(),
+                        sidePlaneHeight,
+                        tag,
+                        TELEPORTABLE
+                );
+                if (outside == null) {
+                    LOGGER.error("Could not create the {} doorway of factory #{}", side, factoryId);
+                    continue;
+                }
+
+                // Immersive Portals derives the room side from this one: same plane, opposite face, and the
+                // two are linked to each other. Doing it by hand is what got the orientation wrong before.
+                Portal inside = PortalManipulation.createReversePortal(outside, Portal.ENTITY_TYPE);
+                if (inside == null) {
+                    LOGGER.error("Immersive Portals returned no reverse plane for the {} doorway of factory #{}",
+                            side, factoryId);
+                    continue;
+                }
+                inside.portalTag = tag;
+                // Spelled out to match the run: the doorway's width times the scale, the room's height, and
+                // a little extra so the joints do not show a seam.
+                inside.setWidth(run.length() * SCALE + EDGE_OVERLAP);
+                inside.setHeight(roomHeight + EDGE_OVERLAP);
+                outside.setFuseView(true);
+                outside.renderingMergable = true;
+                inside.renderingMergable = true;
+                inside.setTeleportable(TELEPORTABLE);
+                inside.setTeleportChangesScale(false);
+                inside.setDoRenderPlayer(false);
+                PortalExtension.get(outside).adjustPositionAfterTeleport = true;
+                PortalExtension.get(inside).adjustPositionAfterTeleport = true;
+
+                McHelper.spawnServerEntity(outside);
+                McHelper.spawnServerEntity(inside);
+                doorways++;
+            }
+        }
+
+        // One top window per cell. It carries the player as well, but it is horizontal and Immersive
+        // Portals will not cross someone who only stands on it; crouching on it nudges them down until
+        // their feet cross (see TopWindowDescend).
+        int windows = 0;
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            Vec3[] windowAxes = faceAxes(WINDOW_FACE);
+            Portal windowOutside = createPlane(
                     entranceLevel,
-                    faceCentre(entrance, face, sidePlaneHeight),
+                    faceCentre(cell.entrance(), WINDOW_FACE, sidePlaneHeight),
                     factoryLevel.dimension(),
-                    roomFaceCentre(record, face, roomHeight),
-                    axes[0],
-                    axes[1],
+                    new Vec3(
+                            cell.roomX() + ROOM_WIDTH / 2.0D,
+                            FactoryData.FLOOR_Y + roomHeight,
+                            cell.roomZ() + ROOM_WIDTH / 2.0D
+                    ),
+                    windowAxes[0],
+                    windowAxes[1],
                     PLANE_SIZE,
-                    upright ? sidePlaneHeight : PLANE_SIZE,
+                    PLANE_SIZE,
                     tag,
                     TELEPORTABLE
             );
-            if (outside == null) {
-                LOGGER.error("Could not create the {} opening of factory #{}", face, factoryId);
+            if (windowOutside == null) {
+                LOGGER.error("Could not create the {} window of factory #{}", WINDOW_FACE, factoryId);
                 continue;
             }
-
-            // Immersive Portals derives the room side from this one: same plane, opposite face, and the
-            // two are linked to each other. Doing it by hand is what got the orientation wrong before.
-            Portal inside = PortalManipulation.createReversePortal(outside, Portal.ENTITY_TYPE);
-            if (inside == null) {
-                LOGGER.error("Immersive Portals returned no reverse plane for the {} opening of factory #{}",
-                        face, factoryId);
-                continue;
-            }
-            inside.portalTag = tag;
-            // Spelled out to match the box the destination describes: the four sides span the room's full
-            // height and the ceiling covers its whole footprint, so the five planes meet at the edges and
-            // the portals are the only way out. Oversized by EDGE_OVERLAP so the joints do not show a seam.
-            inside.setWidth(ROOM_WIDTH + EDGE_OVERLAP);
-            inside.setHeight((upright ? roomHeight : ROOM_WIDTH) + EDGE_OVERLAP);
-            // Render flags, matching the reference mod: the side you look at from outside is fused into the
-            // world view and both sides are mergeable. Left at the defaults the plane is drawn through its
-            // own pass with its own culling, and it drops out of view when the camera turns.
-            outside.setFuseView(true);
-            outside.renderingMergable = true;
-            inside.renderingMergable = true;
-            inside.setTeleportable(TELEPORTABLE);
-            inside.setTeleportChangesScale(false);
-            // When used with Iris the reverse side would otherwise render the player onto itself.
-            inside.setDoRenderPlayer(false);
-            // Nudges the player out of a block if the scaled arrival point lands inside one.
-            PortalExtension.get(outside).adjustPositionAfterTeleport = true;
-            PortalExtension.get(inside).adjustPositionAfterTeleport = true;
-
-            McHelper.spawnServerEntity(outside);
-            McHelper.spawnServerEntity(inside);
-            openings++;
-        }
-
-        // The top face carries the player as well, but it is horizontal and Immersive Portals will not
-        // cross someone who only stands on it; crouching on it nudges them down until their feet cross
-        // (see TopWindowDescend), which is how the reference mod handles entering a scale box from above.
-        Vec3[] windowAxes = faceAxes(WINDOW_FACE);
-        Portal windowOutside = createPlane(
-                entranceLevel,
-                faceCentre(entrance, WINDOW_FACE, sidePlaneHeight),
-                factoryLevel.dimension(),
-                roomFaceCentre(record, WINDOW_FACE, roomHeight),
-                windowAxes[0],
-                windowAxes[1],
-                PLANE_SIZE,
-                PLANE_SIZE,
-                tag,
-                TELEPORTABLE
-        );
-        if (windowOutside == null) {
-            LOGGER.error("Could not create the {} window of factory #{}", WINDOW_FACE, factoryId);
-        } else {
             Portal windowInside = PortalManipulation.createReversePortal(windowOutside, Portal.ENTITY_TYPE);
             if (windowInside == null) {
                 LOGGER.error("Immersive Portals returned no reverse plane for the {} window of factory #{}",
                         WINDOW_FACE, factoryId);
-            } else {
-                windowInside.portalTag = tag;
-                windowInside.setWidth(ROOM_WIDTH + EDGE_OVERLAP);
-                windowInside.setHeight(ROOM_WIDTH + EDGE_OVERLAP);
-                windowInside.setTeleportable(TELEPORTABLE);
-                windowInside.setTeleportChangesScale(false);
-                windowOutside.setFuseView(true);
-                windowOutside.renderingMergable = true;
-                windowInside.renderingMergable = true;
-                windowInside.setDoRenderPlayer(false);
-                McHelper.spawnServerEntity(windowOutside);
-                McHelper.spawnServerEntity(windowInside);
+                continue;
             }
+            windowInside.portalTag = tag;
+            windowInside.setWidth(ROOM_WIDTH + EDGE_OVERLAP);
+            windowInside.setHeight(ROOM_WIDTH + EDGE_OVERLAP);
+            windowOutside.setFuseView(true);
+            windowOutside.renderingMergable = true;
+            windowInside.renderingMergable = true;
+            windowInside.setTeleportable(TELEPORTABLE);
+            windowInside.setTeleportChangesScale(false);
+            windowInside.setDoRenderPlayer(false);
+            McHelper.spawnServerEntity(windowOutside);
+            McHelper.spawnServerEntity(windowInside);
+            windows++;
         }
 
         keepRoomLoaded(server, record);
 
-        LOGGER.info("Built factory #{} portals: {} openings between the entrance block and the room at scale {}",
-                factoryId, openings, SCALE);
+        LOGGER.info("Built factory #{} portals: {} doorways and {} windows over {} entrance cells at scale {}",
+                factoryId, doorways, windows, record.cells().size(), SCALE);
+    }
+
+    /** A straight run of boundary cells along one side of the factory. */
+    private record CellRun(List<FactoryData.FactoryRecord.Cell> cells) {
+        int length() {
+            return cells.size();
+        }
     }
 
     /**
-     * Keeps the room's chunk loaded through Immersive Portals as well as the vanilla force load. Without
-     * it, walking into a portal can be refused with "the chunk on the other side is not loaded".
+     * The boundary cells on one side, grouped into straight runs: a cell is on the boundary when the cell
+     * next to it in that direction does not belong to the same factory, and consecutive boundary cells make
+     * one run. One doorway spans each run, so a factory grown out of several entrance blocks gets one wide
+     * doorway along its side rather than one per block, and sides facing another cell of the same factory
+     * get no doorway at all - that is what merges the rooms.
+     */
+    private static List<CellRun> boundaryRuns(FactoryData.FactoryRecord record, Direction side) {
+        List<FactoryData.FactoryRecord.Cell> boundary = new ArrayList<>();
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            if (record.cellAt(cell.entrance().relative(side)) == null) {
+                boundary.add(cell);
+            }
+        }
+
+        // North and south runs lie along x, west and east runs along z.
+        boolean alongX = side == Direction.NORTH || side == Direction.SOUTH;
+        boundary.sort(alongX
+                ? java.util.Comparator.<FactoryData.FactoryRecord.Cell>comparingInt(c -> c.entrance().getZ())
+                        .thenComparingInt(c -> c.entrance().getX())
+                : java.util.Comparator.<FactoryData.FactoryRecord.Cell>comparingInt(c -> c.entrance().getX())
+                        .thenComparingInt(c -> c.entrance().getZ()));
+
+        List<CellRun> runs = new ArrayList<>();
+        List<FactoryData.FactoryRecord.Cell> current = new ArrayList<>();
+        for (FactoryData.FactoryRecord.Cell cell : boundary) {
+            if (!current.isEmpty()) {
+                FactoryData.FactoryRecord.Cell last = current.get(current.size() - 1);
+                boolean sameLine = alongX
+                        ? cell.entrance().getZ() == last.entrance().getZ()
+                        : cell.entrance().getX() == last.entrance().getX();
+                boolean consecutive = alongX
+                        ? cell.entrance().getX() == last.entrance().getX() + 1
+                        : cell.entrance().getZ() == last.entrance().getZ() + 1;
+                if (!sameLine || !consecutive) {
+                    runs.add(new CellRun(List.copyOf(current)));
+                    current.clear();
+                }
+            }
+            current.add(cell);
+        }
+        if (!current.isEmpty()) {
+            runs.add(new CellRun(List.copyOf(current)));
+        }
+        return runs;
+    }
+
+    /** The centre of a run's doorway on the entrance side: as wide as the run, bottom edge on the ground. */
+    private static Vec3 doorwayCentre(CellRun run, Direction side, double sidePlaneHeight) {
+        FactoryData.FactoryRecord.Cell first = run.cells().get(0);
+        FactoryData.FactoryRecord.Cell last = run.cells().get(run.length() - 1);
+        double y = first.entrance().getY() + sidePlaneHeight / 2.0D;
+        double xMid = (first.entrance().getX() + last.entrance().getX() + 1) / 2.0D;
+        double zMid = (first.entrance().getZ() + last.entrance().getZ() + 1) / 2.0D;
+        return switch (side) {
+            case NORTH -> new Vec3(xMid, y, first.entrance().getZ() - FACE_OFFSET);
+            case SOUTH -> new Vec3(xMid, y, first.entrance().getZ() + 1.0D + FACE_OFFSET);
+            case WEST -> new Vec3(first.entrance().getX() - FACE_OFFSET, y, zMid);
+            case EAST -> new Vec3(first.entrance().getX() + 1.0D + FACE_OFFSET, y, zMid);
+            default -> throw new IllegalArgumentException(side.name());
+        };
+    }
+
+    /** The centre of the matching stretch of the room's wall: the run's width in room blocks, at the wall. */
+    private static Vec3 wallCentre(CellRun run, Direction side, double roomHeight) {
+        FactoryData.FactoryRecord.Cell first = run.cells().get(0);
+        FactoryData.FactoryRecord.Cell last = run.cells().get(run.length() - 1);
+        double y = FactoryData.FLOOR_Y + roomHeight / 2.0D;
+        double xMid = (first.roomX() + last.roomX() + ROOM_WIDTH) / 2.0D;
+        double zMid = (first.roomZ() + last.roomZ() + ROOM_WIDTH) / 2.0D;
+        return switch (side) {
+            case NORTH -> new Vec3(xMid, y, first.roomZ());
+            case SOUTH -> new Vec3(xMid, y, first.roomZ() + ROOM_WIDTH);
+            case WEST -> new Vec3(first.roomX(), y, zMid);
+            case EAST -> new Vec3(first.roomX() + ROOM_WIDTH, y, zMid);
+            default -> throw new IllegalArgumentException(side.name());
+        };
+    }
+
+    /**
+     * Keeps every room cell's chunk loaded through Immersive Portals as well as the vanilla force load.
+     * Without it, walking into a portal can be refused with "the chunk on the other side is not loaded".
      */
     private static void keepRoomLoaded(MinecraftServer server, FactoryData.FactoryRecord record) {
-        ChunkPos chunk = record.baseChunk();
-        ChunkLoader loader = new ChunkLoader(
-                FactoryDimension.LEVEL_KEY, chunk.x, chunk.z, ROOM_CHUNK_LOAD_RADIUS
-        );
-        PortalAPI.removeGlobalChunkLoader(server, loader);
-        PortalAPI.addGlobalChunkLoader(server, loader);
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            ChunkLoader loader = new ChunkLoader(
+                    FactoryDimension.LEVEL_KEY, cell.roomX() >> 4, cell.roomZ() >> 4, ROOM_CHUNK_LOAD_RADIUS
+            );
+            PortalAPI.removeGlobalChunkLoader(server, loader);
+            PortalAPI.addGlobalChunkLoader(server, loader);
+        }
     }
 
     private static Portal createPlane(ServerLevel originLevel, Vec3 originPos, ResourceKey<Level> destDimension,
@@ -328,13 +417,6 @@ public final class FactoryPortal {
         return point;
     }
 
-    /** The centre of the matching face of the room box. */
-    private static Vec3 roomFaceCentre(FactoryData.FactoryRecord record, Direction face, double roomHeight) {
-        AABB room = roomBox(record, roomHeight);
-        Vec3 outward = Vec3.atLowerCornerOf(face.getNormal());
-        return room.getCenter().add(outward.scale(lengthAlong(room, outward) / 2.0D));
-    }
-
     /**
      * The two axes of a block face, chosen so the first is horizontal, the second is vertical (where the
      * face is upright) and their cross product is the face's outward normal, so the content is visible
@@ -350,32 +432,6 @@ public final class FactoryPortal {
             case EAST -> new Vec3[] {UNIT_NEG_Z, UNIT_Y};
             case DOWN -> new Vec3[] {UNIT_X, UNIT_Z};
         };
-    }
-
-    /**
-     * The box the openings enclose: one chunk across and the room variant's height, with its bottom on the
-     * platform floor, so that the five planes meet at the corners and leave no way out.
-     */
-    private static AABB roomBox(FactoryData.FactoryRecord record, double roomHeight) {
-        ChunkPos chunk = record.baseChunk();
-        return new AABB(
-                chunk.getMinBlockX(),
-                FactoryData.FLOOR_Y,
-                chunk.getMinBlockZ(),
-                chunk.getMinBlockX() + ROOM_WIDTH,
-                FactoryData.FLOOR_Y + roomHeight,
-                chunk.getMinBlockZ() + ROOM_WIDTH
-        );
-    }
-
-    private static double lengthAlong(AABB box, Vec3 direction) {
-        if (direction.x != 0.0D) {
-            return box.getXsize();
-        }
-        if (direction.y != 0.0D) {
-            return box.getYsize();
-        }
-        return box.getZsize();
     }
 
     private static List<Portal> tagged(ServerLevel level, String tag) {

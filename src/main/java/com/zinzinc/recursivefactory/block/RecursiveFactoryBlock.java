@@ -112,13 +112,39 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
 
         java.util.UUID owner = placer instanceof Player player ? player.getUUID() : null;
         FactoryData data = FactoryData.get(level.getServer());
+        ServerLevel factoryLevel = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
+
+        // Placing next to an existing entrance grows that factory instead of starting a new one: the room
+        // layout mirrors the entrance layout, so the new cell's room cell is the neighbour's shifted by
+        // the same offset. Any adjacent cell gives the same answer, so the first found is enough.
+        for (Direction direction : new Direction[]{Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST}) {
+            FactoryData.FactoryRecord neighbour = data.factoryWithEntranceCell(
+                    level.dimension().location(),
+                    pos.relative(direction)
+            );
+            if (neighbour == null) {
+                continue;
+            }
+            FactoryData.FactoryRecord.Cell adjacentCell = neighbour.cellAt(pos.relative(direction));
+            int roomX = adjacentCell.roomX() + (pos.getX() - adjacentCell.entrance().getX()) * 16;
+            int roomZ = adjacentCell.roomZ() + (pos.getZ() - adjacentCell.entrance().getZ()) * 16;
+            data.addEntrance(neighbour.id(), level.dimension().location(), pos, roomX, roomZ);
+            blockEntity.setFactoryId(neighbour.id());
+            FactoryData.FactoryRecord grown = data.factory(neighbour.id());
+            if (factoryLevel != null && grown != null) {
+                FactoryDimension.prepare(factoryLevel, grown);
+            }
+            FactoryPortal.ensure(level, neighbour.id());
+            return;
+        }
+
         FactoryData.FactoryRecord record = data.create(owner);
         blockEntity.setFactoryId(record.id());
         data.bindEntrance(record.id(), level.dimension().location(), pos);
 
-        ServerLevel factoryLevel = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
-        if (factoryLevel != null) {
-            FactoryDimension.prepare(factoryLevel, record);
+        FactoryData.FactoryRecord bound = data.factory(record.id());
+        if (factoryLevel != null && bound != null) {
+            FactoryDimension.prepare(factoryLevel, bound);
         }
         FactoryPortal.ensure(level, record.id());
     }
@@ -127,12 +153,16 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
     protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
         if (!state.is(newState.getBlock()) && !level.isClientSide() && level.getServer() != null
                 && level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity) {
-            FactoryPortal.remove(level, blockEntity.getFactoryId());
-            FactoryData.get(level.getServer()).clearEntrance(
-                    blockEntity.getFactoryId(),
-                    level.dimension().location(),
-                    pos
-            );
+            int factoryId = blockEntity.getFactoryId();
+            FactoryData data = FactoryData.get(level.getServer());
+            data.clearEntrance(factoryId, level.dimension().location(), pos);
+            FactoryData.FactoryRecord remaining = data.factory(factoryId);
+            if (remaining != null && !remaining.cells().isEmpty()) {
+                // The factory keeps its other cells; rebuild so the removed cell's faces become doorways.
+                FactoryPortal.ensure(level, factoryId);
+            } else {
+                FactoryPortal.remove(level, factoryId);
+            }
         }
         super.onRemove(state, level, pos, newState, movedByPiston);
     }

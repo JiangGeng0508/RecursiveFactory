@@ -43,11 +43,13 @@ public final class FactoryDimension {
     }
 
     public static void prepare(ServerLevel level, FactoryData.FactoryRecord record) {
-        ChunkPos chunk = record.baseChunk();
-        level.setChunkForced(chunk.x, chunk.z, true);
-        generateFloor(level, record);
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            ChunkPos chunk = new ChunkPos(cell.roomX() >> 4, cell.roomZ() >> 4);
+            level.setChunkForced(chunk.x, chunk.z, true);
+            generateFloor(level, record, cell);
+            sealFloor(level, cell);
+        }
         borderRoom(level, record);
-        sealFloor(level, record);
     }
 
     /**
@@ -98,51 +100,56 @@ public final class FactoryDimension {
         return FactoryData.TALL_ROOM_HEIGHT;
     }
 
+    /**
+     * A frame of randomly coloured concrete around the room's outline: a ring on the floor, a ring at the
+     * ceiling level and a post down each corner, so the room reads as one outlined volume.
+     *
+     * <p>It cannot be the faces themselves, because the sides and the ceiling are the portal planes. The
+     * frame follows the outline of the whole cell union: an edge between two cells of the same factory is
+     * interior and gets no frame, and collinear edges of neighbouring cells join into one unbroken run.
+     */
     private static void borderRoom(ServerLevel level, FactoryData.FactoryRecord record) {
-        ChunkPos chunk = record.baseChunk();
         int bottom = FactoryData.FLOOR_Y;
         int top = FactoryData.FLOOR_Y + roomHeight(level.getServer(), record) - 1;
-        int minX = chunk.getMinBlockX();
-        int maxX = chunk.getMaxBlockX();
-        int minZ = chunk.getMinBlockZ();
-        int maxZ = chunk.getMaxBlockZ();
+        ChunkPos anchor = record.baseChunk();
+        Block border = BORDER_CONCRETE[Math.floorMod(scatter(anchor.getMinBlockX(), anchor.getMinBlockZ()), BORDER_CONCRETE.length)];
 
-        // Undo the frame an earlier build left one block inside the boundary, and its lower top ring.
-        for (int x = minX + 1; x <= maxX - 1; x++) {
-            for (int z = minZ + 1; z <= maxZ - 1; z++) {
-                boolean onEdgeX = x == minX + 1 || x == maxX - 1;
-                boolean onEdgeZ = z == minZ + 1 || z == maxZ - 1;
-                if (!onEdgeX && !onEdgeZ) {
-                    continue;
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            boolean north = record.cellAt(cell.entrance().north()) == null;
+            boolean south = record.cellAt(cell.entrance().south()) == null;
+            boolean west = record.cellAt(cell.entrance().west()) == null;
+            boolean east = record.cellAt(cell.entrance().east()) == null;
+            for (int i = 0; i < 16; i++) {
+                if (north) {
+                    place(level, new BlockPos(cell.roomX() + i, bottom, cell.roomZ()), border);
+                    place(level, new BlockPos(cell.roomX() + i, top, cell.roomZ()), border);
                 }
-                place(level, new BlockPos(x, bottom, z),
-                        ((x ^ z) & 1) == 0 ? Blocks.WHITE_CONCRETE : Blocks.SNOW_BLOCK);
-                place(level, new BlockPos(x, FactoryData.CEILING_Y - 2, z), Blocks.AIR);
-                if (onEdgeX && onEdgeZ) {
-                    for (int y = bottom + 1; y < FactoryData.CEILING_Y - 2; y++) {
-                        place(level, new BlockPos(x, y, z), Blocks.AIR);
-                    }
+                if (south) {
+                    place(level, new BlockPos(cell.roomX() + i, bottom, cell.roomZ() + 15), border);
+                    place(level, new BlockPos(cell.roomX() + i, top, cell.roomZ() + 15), border);
+                }
+                if (west) {
+                    place(level, new BlockPos(cell.roomX(), bottom, cell.roomZ() + i), border);
+                    place(level, new BlockPos(cell.roomX(), top, cell.roomZ() + i), border);
+                }
+                if (east) {
+                    place(level, new BlockPos(cell.roomX() + 15, bottom, cell.roomZ() + i), border);
+                    place(level, new BlockPos(cell.roomX() + 15, top, cell.roomZ() + i), border);
                 }
             }
+            cornerPost(level, border, north && west, cell.roomX(), cell.roomZ(), bottom, top);
+            cornerPost(level, border, north && east, cell.roomX() + 15, cell.roomZ(), bottom, top);
+            cornerPost(level, border, south && west, cell.roomX(), cell.roomZ() + 15, bottom, top);
+            cornerPost(level, border, south && east, cell.roomX() + 15, cell.roomZ() + 15, bottom, top);
         }
+    }
 
-        Block border = BORDER_CONCRETE[Math.floorMod(scatter(minX, minZ), BORDER_CONCRETE.length)];
-
-        for (int x = minX; x <= maxX; x++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                boolean onEdgeX = x == minX || x == maxX;
-                boolean onEdgeZ = z == minZ || z == maxZ;
-                if (!onEdgeX && !onEdgeZ) {
-                    continue;
-                }
-                place(level, new BlockPos(x, bottom, z), border);
-                place(level, new BlockPos(x, top, z), border);
-                if (onEdgeX && onEdgeZ) {
-                    for (int y = bottom + 1; y < top; y++) {
-                        place(level, new BlockPos(x, y, z), border);
-                    }
-                }
-            }
+    private static void cornerPost(ServerLevel level, Block border, boolean atCorner, int x, int z, int bottom, int top) {
+        if (!atCorner) {
+            return;
+        }
+        for (int y = bottom + 1; y < top; y++) {
+            place(level, new BlockPos(x, y, z), border);
         }
     }
 
@@ -166,11 +173,10 @@ public final class FactoryDimension {
      * Bedrock under the platform. The floor is the one face of the room without a portal, so it has to be
      * sealed: otherwise the platform is a single floating layer over the void.
      */
-    private static void sealFloor(ServerLevel level, FactoryData.FactoryRecord record) {
-        ChunkPos chunk = record.baseChunk();
+    private static void sealFloor(ServerLevel level, FactoryData.FactoryRecord.Cell cell) {
         int y = FactoryData.FLOOR_Y - 1;
-        for (int x = chunk.getMinBlockX(); x <= chunk.getMaxBlockX(); x++) {
-            for (int z = chunk.getMinBlockZ(); z <= chunk.getMaxBlockZ(); z++) {
+        for (int x = cell.roomX(); x < cell.roomX() + 16; x++) {
+            for (int z = cell.roomZ(); z < cell.roomZ() + 16; z++) {
                 BlockPos pos = new BlockPos(x, y, z);
                 if (!level.getBlockState(pos).is(Blocks.BEDROCK)) {
                     level.setBlock(pos, Blocks.BEDROCK.defaultBlockState(), 3);
@@ -179,16 +185,16 @@ public final class FactoryDimension {
         }
     }
 
-    private static void generateFloor(ServerLevel level, FactoryData.FactoryRecord record) {
-        ChunkPos chunk = record.baseChunk();
-        BlockPos marker = new BlockPos(chunk.getMinBlockX() + 8, FactoryData.FLOOR_Y, chunk.getMinBlockZ() + 8);
+    private static void generateFloor(ServerLevel level, FactoryData.FactoryRecord record,
+                                      FactoryData.FactoryRecord.Cell cell) {
+        BlockPos marker = new BlockPos(cell.roomX() + 8, FactoryData.FLOOR_Y, cell.roomZ() + 8);
         BlockState markerState = level.getBlockState(marker);
         if (markerState.is(Blocks.SNOW_BLOCK) || markerState.is(Blocks.WHITE_CONCRETE)) {
             return;
         }
 
-        for (int x = chunk.getMinBlockX(); x <= chunk.getMaxBlockX(); x++) {
-            for (int z = chunk.getMinBlockZ(); z <= chunk.getMaxBlockZ(); z++) {
+        for (int x = cell.roomX(); x < cell.roomX() + 16; x++) {
+            for (int z = cell.roomZ(); z < cell.roomZ() + 16; z++) {
                 boolean white = ((x ^ z) & 1) == 0;
                 level.setBlock(
                         new BlockPos(x, FactoryData.FLOOR_Y, z),
@@ -198,7 +204,11 @@ public final class FactoryDimension {
             }
         }
 
-        BlockPos mirrorPos = new BlockPos(chunk.getMinBlockX() + 8, FactoryData.FLOOR_Y + 1, chunk.getMinBlockZ() + 8);
+        // One mirror per factory, in the anchor cell's centre.
+        if (!cell.entrance().equals(record.entrancePos())) {
+            return;
+        }
+        BlockPos mirrorPos = marker.above();
         if (level.getBlockState(mirrorPos).isAir()) {
             BlockState mirrorState = ModBlocks.MIRROR_FACTORY.get().defaultBlockState()
                     .setValue(BlockStateProperties.POWERED, false);
@@ -216,11 +226,16 @@ public final class FactoryDimension {
     }
 
     public static boolean contains(FactoryData.FactoryRecord record, BlockPos pos) {
-        ChunkPos chunk = record.baseChunk();
-        return (pos.getX() >> 4) == chunk.x
-                && (pos.getZ() >> 4) == chunk.z
-                && pos.getY() >= FactoryData.FLOOR_Y - 1
-                && pos.getY() <= FactoryData.CEILING_Y + 1;
+        if (pos.getY() < FactoryData.FLOOR_Y - 1 || pos.getY() > FactoryData.CEILING_Y + 1) {
+            return false;
+        }
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            if (pos.getX() >= cell.roomX() && pos.getX() < cell.roomX() + 16
+                    && pos.getZ() >= cell.roomZ() && pos.getZ() < cell.roomZ() + 16) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Nullable
