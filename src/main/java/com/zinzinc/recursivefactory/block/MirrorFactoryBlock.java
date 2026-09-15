@@ -62,17 +62,19 @@ public final class MirrorFactoryBlock extends BaseEntityBlock {
 
     @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hitResult) {
-        if (level.isClientSide()) {
-            return InteractionResult.SUCCESS;
-        }
-        if (player instanceof ServerPlayer serverPlayer
-                && level.dimension() == FactoryDimension.LEVEL_KEY
-                && level.getBlockEntity(pos) instanceof MirrorFactoryBlockEntity blockEntity
-                && blockEntity.hasFactoryId()) {
-            return FactoryTeleporter.exit(serverPlayer, blockEntity.getFactoryId())
-                    ? InteractionResult.CONSUME
-                    : InteractionResult.FAIL;
-        }
+        // Right-clicking no longer teleports: leaving is done by walking into one of the room's boundary
+        // planes, which Immersive Portals handles without a loading screen.
+        // if (level.isClientSide()) {
+        //     return InteractionResult.SUCCESS;
+        // }
+        // if (player instanceof ServerPlayer serverPlayer
+        //         && level.dimension() == FactoryDimension.LEVEL_KEY
+        //         && level.getBlockEntity(pos) instanceof MirrorFactoryBlockEntity blockEntity
+        //         && blockEntity.hasFactoryId()) {
+        //     return FactoryTeleporter.exit(serverPlayer, blockEntity.getFactoryId())
+        //             ? InteractionResult.CONSUME
+        //             : InteractionResult.FAIL;
+        // }
         return InteractionResult.PASS;
     }
 

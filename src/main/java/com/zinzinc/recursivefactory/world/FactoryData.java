@@ -20,7 +20,7 @@ import net.minecraft.world.level.saveddata.SavedData;
 public final class FactoryData extends SavedData {
     public static final String DATA_NAME = RecursiveFactory.MODID + "_factories";
     public static final int FLOOR_Y = 64;
-    public static final int CEILING_Y = 96;
+    public static final int CEILING_Y = 80;
 
     private final Map<Integer, FactoryRecord> factories = new LinkedHashMap<>();
     private int nextFactoryId = 1;

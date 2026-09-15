@@ -20,6 +20,14 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import org.slf4j.Logger;
 
+/**
+ * Player teleporting in and out of a factory.
+ *
+ * <p>Currently unused: every call site is commented out, because Immersive Portals moves the player
+ * through the room's boundary planes instead, which does not raise the level loading screen. The code is
+ * kept, including the return point stack, so the old behaviour can be restored by uncommenting the call
+ * sites in {@code PlayerFactoryEvents}, {@code RecursiveFactoryBlock} and {@code MirrorFactoryBlock}.
+ */
 public final class FactoryTeleporter {
     private static final Logger LOGGER = LogUtils.getLogger();
     /**

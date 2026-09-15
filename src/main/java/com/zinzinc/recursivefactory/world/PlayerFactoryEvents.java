@@ -29,23 +29,25 @@ public final class PlayerFactoryEvents {
             return;
         }
 
+        // Travel is Immersive Portals' job now: the room's boundary planes are its openings, so walking
+        // into one carries the player out. The triggers that used to do it are kept, commented out.
         if (player.level().dimension() == FactoryDimension.LEVEL_KEY) {
-            if (player.level().getServer() == null) {
-                return;
-            }
-            FactoryData data = FactoryData.get(player.level().getServer());
-            FactoryData.FactoryRecord record = data.factoryAt(player.blockPosition());
-            if (record == null) {
-                FactoryTeleporter.exitFromEdge(player);
-            }
+            // if (player.level().getServer() == null) {
+            //     return;
+            // }
+            // FactoryData data = FactoryData.get(player.level().getServer());
+            // FactoryData.FactoryRecord record = data.factoryAt(player.blockPosition());
+            // if (record == null) {
+            //     FactoryTeleporter.exitFromEdge(player);
+            // }
             return;
         }
 
-        if (SNEAK_AUTO_ENTER && player.isShiftKeyDown() && FactoryTeleporter.canAutoEnter(player)) {
-            findNearbyFactory(player).ifPresent(entry ->
-                    FactoryTeleporter.enter(player, entry.factoryId())
-            );
-        }
+        // if (SNEAK_AUTO_ENTER && player.isShiftKeyDown() && FactoryTeleporter.canAutoEnter(player)) {
+        //     findNearbyFactory(player).ifPresent(entry ->
+        //             FactoryTeleporter.enter(player, entry.factoryId())
+        //     );
+        // }
     }
 
     private static Optional<FactoryEntry> findNearbyFactory(ServerPlayer player) {

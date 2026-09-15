@@ -12,6 +12,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -45,7 +46,103 @@ public final class FactoryDimension {
         ChunkPos chunk = record.baseChunk();
         level.setChunkForced(chunk.x, chunk.z, true);
         generateFloor(level, record);
+        borderRoom(level, record);
         sealFloor(level, record);
+    }
+
+    /**
+     * The palette a factory's border colour is picked from. One colour is chosen for the whole frame rather
+     * than per block, and it is derived from the factory's chunk so it stays the same on every rebuild.
+     */
+    private static final Block[] BORDER_CONCRETE = {
+            Blocks.WHITE_CONCRETE,
+            Blocks.ORANGE_CONCRETE,
+            Blocks.MAGENTA_CONCRETE,
+            Blocks.LIGHT_BLUE_CONCRETE,
+            Blocks.YELLOW_CONCRETE,
+            Blocks.LIME_CONCRETE,
+            Blocks.PINK_CONCRETE,
+            Blocks.GRAY_CONCRETE,
+            Blocks.LIGHT_GRAY_CONCRETE,
+            Blocks.CYAN_CONCRETE,
+            Blocks.PURPLE_CONCRETE,
+            Blocks.BLUE_CONCRETE,
+            Blocks.BROWN_CONCRETE,
+            Blocks.GREEN_CONCRETE,
+            Blocks.RED_CONCRETE,
+            Blocks.BLACK_CONCRETE
+    };
+
+    /**
+     * A frame of randomly coloured concrete around the room box: the ring around the platform edge, a ring
+     * at the ceiling level and a post down each corner, so the box reads as one outlined volume.
+     *
+     * <p>It cannot be the faces themselves, because the four sides and the ceiling are the portal planes.
+     * The frame therefore follows the box's edges, which is what outlines the openings, and it sits right on
+     * them so the frame and the portals line up flush.
+     */
+    private static void borderRoom(ServerLevel level, FactoryData.FactoryRecord record) {
+        ChunkPos chunk = record.baseChunk();
+        int bottom = FactoryData.FLOOR_Y;
+        int top = FactoryData.CEILING_Y - 1;
+        int minX = chunk.getMinBlockX();
+        int maxX = chunk.getMaxBlockX();
+        int minZ = chunk.getMinBlockZ();
+        int maxZ = chunk.getMaxBlockZ();
+
+        // Undo the frame an earlier build left one block inside the boundary, and its lower top ring.
+        for (int x = minX + 1; x <= maxX - 1; x++) {
+            for (int z = minZ + 1; z <= maxZ - 1; z++) {
+                boolean onEdgeX = x == minX + 1 || x == maxX - 1;
+                boolean onEdgeZ = z == minZ + 1 || z == maxZ - 1;
+                if (!onEdgeX && !onEdgeZ) {
+                    continue;
+                }
+                place(level, new BlockPos(x, bottom, z),
+                        ((x ^ z) & 1) == 0 ? Blocks.WHITE_CONCRETE : Blocks.SNOW_BLOCK);
+                place(level, new BlockPos(x, FactoryData.CEILING_Y - 2, z), Blocks.AIR);
+                if (onEdgeX && onEdgeZ) {
+                    for (int y = bottom + 1; y < FactoryData.CEILING_Y - 2; y++) {
+                        place(level, new BlockPos(x, y, z), Blocks.AIR);
+                    }
+                }
+            }
+        }
+
+        Block border = BORDER_CONCRETE[Math.floorMod(scatter(minX, minZ), BORDER_CONCRETE.length)];
+
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                boolean onEdgeX = x == minX || x == maxX;
+                boolean onEdgeZ = z == minZ || z == maxZ;
+                if (!onEdgeX && !onEdgeZ) {
+                    continue;
+                }
+                place(level, new BlockPos(x, bottom, z), border);
+                place(level, new BlockPos(x, top, z), border);
+                if (onEdgeX && onEdgeZ) {
+                    for (int y = bottom + 1; y < top; y++) {
+                        place(level, new BlockPos(x, y, z), border);
+                    }
+                }
+            }
+        }
+    }
+
+    private static void place(ServerLevel level, BlockPos pos, Block block) {
+        if (!level.getBlockState(pos).is(block)) {
+            level.setBlock(pos, block.defaultBlockState(), 3);
+        }
+    }
+
+    /**
+     * Stable spread of the border colours: derived from the position rather than drawn randomly so the
+     * ring keeps the same colours every time the floor is rebuilt.
+     */
+    private static int scatter(int x, int z) {
+        int value = x * 374761393 + z * 668265263;
+        value = (value ^ (value >>> 13)) * 1274126177;
+        return value ^ (value >>> 16);
     }
 
     /**

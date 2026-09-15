@@ -13,11 +13,13 @@ public final class RecursiveFactoryRenderer implements BlockEntityRenderer<Recur
     @Override
     public void render(RecursiveFactoryBlockEntity blockEntity, float partialTick, PoseStack poseStack,
                        MultiBufferSource bufferSource, int packedLight, int packedOverlay) {
-        if (blockEntity.getLevel() == null) {
-            return;
-        }
-        MirrorFactoryRenderer.requestPreview(blockEntity);
-        MirrorFactoryRenderer.renderPreview(blockEntity, poseStack, bufferSource);
+        // The entrance block is invisible now, its faces being the portal planes, so the miniature preview
+        // would just float inside those planes. Kept, commented out, in case the preview is wanted again.
+        // if (blockEntity.getLevel() == null) {
+        //     return;
+        // }
+        // MirrorFactoryRenderer.requestPreview(blockEntity);
+        // MirrorFactoryRenderer.renderPreview(blockEntity, poseStack, bufferSource);
     }
 
     @Override

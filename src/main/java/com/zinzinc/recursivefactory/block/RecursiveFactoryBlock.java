@@ -62,17 +62,22 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
 
     @Override
     protected RenderShape getRenderShape(BlockState state) {
-        return RenderShape.MODEL;
+        // Nothing is drawn in the world any more: the block's faces are the portal planes, so its model would
+        // only sit inside them. The item model still points at the block model, which is what keeps its icon.
+        return RenderShape.INVISIBLE;
     }
 
     @Override
     protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        // Kept for the selection outline, which is what keeps the block breakable.
         return SHAPE;
     }
 
     @Override
     protected VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
-        return SHAPE;
+        // No collision: the side planes pass through the block's own cell, so a solid block would push the
+        // player out of its portals.
+        return Shapes.empty();
     }
 
     @Override
@@ -82,16 +87,18 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
 
     @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hitResult) {
-        if (level.isClientSide()) {
-            return InteractionResult.SUCCESS;
-        }
-        if (player instanceof ServerPlayer serverPlayer
-                && level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity
-                && blockEntity.hasFactoryId()) {
-            return FactoryTeleporter.enter(serverPlayer, blockEntity.getFactoryId())
-                    ? InteractionResult.CONSUME
-                    : InteractionResult.FAIL;
-        }
+        // Right-clicking no longer teleports: entering is done by walking into one of the block's portal
+        // planes, which Immersive Portals handles without a loading screen.
+        // if (level.isClientSide()) {
+        //     return InteractionResult.SUCCESS;
+        // }
+        // if (player instanceof ServerPlayer serverPlayer
+        //         && level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity
+        //         && blockEntity.hasFactoryId()) {
+        //     return FactoryTeleporter.enter(serverPlayer, blockEntity.getFactoryId())
+        //             ? InteractionResult.CONSUME
+        //             : InteractionResult.FAIL;
+        // }
         return InteractionResult.PASS;
     }
 

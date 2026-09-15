@@ -44,14 +44,23 @@ public final class FactoryPortal {
     private static final Logger LOGGER = LogUtils.getLogger();
 
     /**
-     * How many blocks of the world one block of the room stands in for.
+     * How many blocks of the world one block of the room stands in for: the far side of every portal looks
+     * this many times smaller, which is what makes the factory the shrunk side of the relationship.
      *
-     * <p>It is also what sizes the room side: Immersive Portals derives the far plane from the entrance
-     * block's one block face, so the far plane comes out this many blocks across. Sixteen makes the four
-     * room walls exactly the room's width, so the four walls and the ceiling meet at the corners and form
-     * one closed box sitting on the platform floor.
+     * <p>It also sizes the room side, because Immersive Portals derives that plane from the entrance
+     * block's face: the derived plane is always the face size multiplied by this.
      */
     public static final double SCALE = 16.0D;
+
+    /** The room is one chunk across and {@code FLOOR_Y..CEILING_Y} tall, and its openings span all of it. */
+    private static final double ROOM_WIDTH = 16.0D;
+    /**
+     * The room's height, which has to match what Immersive Portals derives for the room side. It derives
+     * that plane from the entrance block's one block face, so the plane comes out {@code PLANE_SIZE * SCALE}
+     * = 16 blocks, and the box has to be that tall for the four sides and the ceiling to meet with no gaps.
+     * That is why the ceiling is at y=80: raising this means growing the entrance block's side faces too.
+     */
+    private static final double ROOM_HEIGHT = FactoryData.CEILING_Y - FactoryData.FLOOR_Y;
 
     /** Whether walking into a plane moves the player. */
     public static final boolean TELEPORTABLE = true;
@@ -61,15 +70,19 @@ public final class FactoryPortal {
             Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST, Direction.UP
     };
 
-    /** The entrance block is one block, so each of its faces is one block square. */
+    /** The entrance block is one block, so every one of its faces is one block square. */
     private static final double PLANE_SIZE = 1.0D;
+    /**
+     * Room side planes are grown by this much beyond the box.
+     *
+     * <p>The box's edges fall exactly on the chunk boundary and on the ceiling level, which is where the
+     * border blocks are, so a plane that stops exactly at the box edge shares its edge with a block face and
+     * the two eat a hairline out of each other. Growing each plane slightly tucks its edge inside the border
+     * blocks, out of sight, and stretches the view by about a third of a percent, which does not show.
+     */
+    private static final double EDGE_OVERLAP = 0.05D;
     /** Pushes a plane just clear of the block face it belongs to instead of z-fighting with it. */
     private static final double FACE_OFFSET = 0.001D;
-    /**
-     * The side planes are lifted by the height of the ring's arms (4/16 of a block) so that they rest on
-     * top of the arms instead of covering the block's texture and running through its collision shape.
-     */
-    private static final double SIDE_FACE_Y_OFFSET = 0.25D;
 
     private static final Vec3 UNIT_X = new Vec3(1.0D, 0.0D, 0.0D);
     private static final Vec3 UNIT_NEG_X = new Vec3(-1.0D, 0.0D, 0.0D);
@@ -141,6 +154,7 @@ public final class FactoryPortal {
 
         for (Direction face : OPEN_FACES) {
             Vec3[] axes = faceAxes(face);
+            boolean upright = face.getAxis() != Direction.Axis.Y;
             Portal outside = createPlane(
                     entranceLevel,
                     faceCentre(entrance, face),
@@ -148,6 +162,8 @@ public final class FactoryPortal {
                     roomFaceCentre(record, face),
                     axes[0],
                     axes[1],
+                    PLANE_SIZE,
+                    PLANE_SIZE,
                     tag,
                     TELEPORTABLE
             );
@@ -165,6 +181,17 @@ public final class FactoryPortal {
                 continue;
             }
             inside.portalTag = tag;
+            // Spelled out to match the box the destination describes: the four sides span the room's full
+            // height and the ceiling covers its whole footprint, so the five planes meet at the edges and
+            // the portals are the only way out. Oversized by EDGE_OVERLAP so the joints do not show a seam.
+            inside.setWidth(ROOM_WIDTH + EDGE_OVERLAP);
+            inside.setHeight((upright ? ROOM_HEIGHT : ROOM_WIDTH) + EDGE_OVERLAP);
+            // Render flags, matching the reference mod: the side you look at from outside is fused into the
+            // world view and both sides are mergeable. Left at the defaults the plane is drawn through its
+            // own pass with its own culling, and it drops out of view when the camera turns.
+            outside.setFuseView(true);
+            outside.renderingMergable = true;
+            inside.renderingMergable = true;
             inside.setTeleportable(TELEPORTABLE);
             inside.setTeleportChangesScale(false);
             // When used with Iris the reverse side would otherwise render the player onto itself.
@@ -198,7 +225,8 @@ public final class FactoryPortal {
     }
 
     private static Portal createPlane(ServerLevel originLevel, Vec3 originPos, ResourceKey<Level> destDimension,
-                                      Vec3 destPos, Vec3 axisW, Vec3 axisH, String tag, boolean teleportable) {
+                                      Vec3 destPos, Vec3 axisW, Vec3 axisH, double width, double height,
+                                      String tag, boolean teleportable) {
         Portal portal = Portal.ENTITY_TYPE.create(originLevel);
         if (portal == null) {
             return null;
@@ -207,8 +235,8 @@ public final class FactoryPortal {
         portal.setDestinationDimension(destDimension);
         portal.setDestination(destPos);
         portal.setOrientation(axisW, axisH);
-        portal.setWidth(PLANE_SIZE);
-        portal.setHeight(PLANE_SIZE);
+        portal.setWidth(width);
+        portal.setHeight(height);
         portal.setScaling(SCALE);
         // Portal defaults to changing the traveller's body size, which made the room look eight times
         // too big once inside. The scale belongs to the view only.
@@ -221,14 +249,18 @@ public final class FactoryPortal {
         return portal;
     }
 
-    /** The centre of one face of a block's cell, pushed just clear of the block. */
+    /**
+     * The centre of one face of a block's cell, pushed just clear of the block.
+     *
+     * <p>It stays centred on the face on purpose. Lifting the side planes clear of the ring's arms looks
+     * tidier, but the room side is derived from this plane at {@link #SCALE} times its size, so any lift here
+     * comes back multiplied: a quarter block lift put the world seen through the walls four room blocks below
+     * the world seen through the ceiling, which is what made the ceiling look misplaced. Keeping the plane
+     * centred is what makes the five views line up.
+     */
     private static Vec3 faceCentre(BlockPos block, Direction face) {
         Vec3 centre = new Vec3(block.getX() + 0.5D, block.getY() + 0.5D, block.getZ() + 0.5D);
-        Vec3 point = centre.add(Vec3.atLowerCornerOf(face.getNormal()).scale(0.5D + FACE_OFFSET));
-        if (face.getAxis() != Direction.Axis.Y) {
-            point = point.add(0.0D, SIDE_FACE_Y_OFFSET, 0.0D);
-        }
-        return point;
+        return centre.add(Vec3.atLowerCornerOf(face.getNormal()).scale(0.5D + FACE_OFFSET));
     }
 
     /** The centre of the matching face of the room box. */
@@ -256,8 +288,8 @@ public final class FactoryPortal {
     }
 
     /**
-     * The box the openings enclose: one chunk across and {@link #SCALE} blocks tall with its bottom on
-     * the platform floor, because the planes Immersive Portals derives are one block times the scale.
+     * The box the openings enclose: one chunk across and the room's full height, with its bottom on the
+     * platform floor, so that the five planes meet at the corners and leave no way out.
      */
     private static AABB roomBox(FactoryData.FactoryRecord record) {
         ChunkPos chunk = record.baseChunk();
@@ -265,9 +297,9 @@ public final class FactoryPortal {
                 chunk.getMinBlockX(),
                 FactoryData.FLOOR_Y,
                 chunk.getMinBlockZ(),
-                chunk.getMinBlockX() + 16.0D,
-                FactoryData.FLOOR_Y + SCALE,
-                chunk.getMinBlockZ() + 16.0D
+                chunk.getMinBlockX() + ROOM_WIDTH,
+                FactoryData.FLOOR_Y + ROOM_HEIGHT,
+                chunk.getMinBlockZ() + ROOM_WIDTH
         );
     }
 

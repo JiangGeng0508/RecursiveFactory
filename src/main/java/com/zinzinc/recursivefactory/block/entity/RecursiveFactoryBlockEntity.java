@@ -12,6 +12,13 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
     private static final int PREVIEW_HEIGHT = FactoryData.CEILING_Y - FactoryData.FLOOR_Y + 1;
     private static final int REFRESH_INTERVAL = 100;
 
+    /**
+     * The block's miniature preview is off: the block draws nothing in the world now, its faces being the
+     * portal planes, so a preview would only float inside them. The sampling below is kept for when it is
+     * wanted again.
+     */
+    private static final boolean PREVIEW_ENABLED = false;
+
     private long lastRefreshTick = Long.MIN_VALUE;
 
     public RecursiveFactoryBlockEntity(BlockPos pos, BlockState state) {
@@ -21,6 +28,9 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
     @Override
     public void serverTick() {
         super.serverTick();
+        if (!PREVIEW_ENABLED) {
+            return;
+        }
         if (!(level instanceof ServerLevel serverLevel)) {
             return;
         }
