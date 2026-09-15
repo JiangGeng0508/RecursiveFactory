@@ -81,10 +81,27 @@ public final class FactoryDimension {
      * The frame therefore follows the box's edges, which is what outlines the openings, and it sits right on
      * them so the frame and the portals line up flush.
      */
+    /**
+     * The room's height in blocks, from which entrance block variant it was placed from: the short entrance
+     * makes a half height room. Has to match what FactoryPortal derives, the doorway height times the scale.
+     */
+    public static int roomHeight(MinecraftServer server, FactoryData.FactoryRecord record) {
+        if (record.entranceDimension() != null) {
+            ServerLevel entranceLevel = server.getLevel(
+                    ResourceKey.create(Registries.DIMENSION, record.entranceDimension())
+            );
+            if (entranceLevel != null
+                    && entranceLevel.getBlockState(record.entrancePos()).is(ModBlocks.RECURSIVE_FACTORY_SHORT.get())) {
+                return FactoryData.SHORT_ROOM_HEIGHT;
+            }
+        }
+        return FactoryData.TALL_ROOM_HEIGHT;
+    }
+
     private static void borderRoom(ServerLevel level, FactoryData.FactoryRecord record) {
         ChunkPos chunk = record.baseChunk();
         int bottom = FactoryData.FLOOR_Y;
-        int top = FactoryData.CEILING_Y - 1;
+        int top = FactoryData.FLOOR_Y + roomHeight(level.getServer(), record) - 1;
         int minX = chunk.getMinBlockX();
         int maxX = chunk.getMaxBlockX();
         int minZ = chunk.getMinBlockZ();

@@ -2,6 +2,7 @@ package com.zinzinc.recursivefactory.world;
 
 import com.mojang.logging.LogUtils;
 import com.zinzinc.recursivefactory.RecursiveFactory;
+import com.zinzinc.recursivefactory.block.ModBlocks;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.core.BlockPos;
@@ -52,26 +53,34 @@ public final class FactoryPortal {
      */
     public static final double SCALE = 16.0D;
 
-    /** The room is one chunk across and {@code FLOOR_Y..CEILING_Y} tall, and its openings span all of it. */
+    /** The room is one chunk across, and its openings span it whole. */
     private static final double ROOM_WIDTH = 16.0D;
+    /** The entrance block's faces are one block square. */
+    private static final double PLANE_SIZE = 1.0D;
     /**
-     * The room's height, which has to match what Immersive Portals derives for the room side. It derives
-     * that plane from the entrance block's one block face, so the plane comes out {@code PLANE_SIZE * SCALE}
-     * = 16 blocks, and the box has to be that tall for the four sides and the ceiling to meet with no gaps.
-     * That is why the ceiling is at y=80: raising this means growing the entrance block's side faces too.
+     * Doorway heights for the two entrance block variants. The room side is derived from the block's face,
+     * so it comes out the face size times the scale: the short block's one by one doorway gives a square
+     * 16 by 16 room side and a half height room, the tall block's one by two gives 16 by 32. Every doorway's
+     * bottom edge sits on the ground the block rests on, so it reads as a doorway standing on the block.
      */
-    private static final double ROOM_HEIGHT = FactoryData.CEILING_Y - FactoryData.FLOOR_Y;
+    private static final double TALL_SIDE_PLANE_HEIGHT = 2.0D;
+    private static final double SHORT_SIDE_PLANE_HEIGHT = PLANE_SIZE;
 
     /** Whether walking into a plane moves the player. */
     public static final boolean TELEPORTABLE = true;
 
-    /** Faces of the entrance block that open into the room. No bottom face: the floor is bedrock. */
+    /** Faces of the entrance block that carry you into the room. No bottom face: the floor is bedrock. */
     private static final Direction[] OPEN_FACES = {
-            Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST, Direction.UP
+            Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST
     };
+    /**
+     * The top face is the way in from above. It is horizontal, and Immersive Portals will not carry an
+     * entity that only stands on it: the feet have to cross the plane, so crouching on the window nudges
+     * the player down until they do (see {@code TopWindowDescend}) - the same trick the reference mod uses
+     * for dropping into a scale box.
+     */
+    private static final Direction WINDOW_FACE = Direction.UP;
 
-    /** The entrance block is one block, so every one of its faces is one block square. */
-    private static final double PLANE_SIZE = 1.0D;
     /**
      * Room side planes are grown by this much beyond the box.
      *
@@ -150,6 +159,12 @@ public final class FactoryPortal {
         discard(factoryLevel, tag);
 
         BlockPos entrance = record.entrancePos();
+        // The doorway and room height follow the entrance block's variant: the short block's doorways are
+        // one block tall and its room half as tall. The room side is the doorway size times the scale, so
+        // the two heights always stay consistent.
+        boolean shortEntrance = entranceLevel.getBlockState(entrance).is(ModBlocks.RECURSIVE_FACTORY_SHORT.get());
+        double sidePlaneHeight = shortEntrance ? SHORT_SIDE_PLANE_HEIGHT : TALL_SIDE_PLANE_HEIGHT;
+        double roomHeight = sidePlaneHeight * SCALE;
         int openings = 0;
 
         for (Direction face : OPEN_FACES) {
@@ -157,13 +172,13 @@ public final class FactoryPortal {
             boolean upright = face.getAxis() != Direction.Axis.Y;
             Portal outside = createPlane(
                     entranceLevel,
-                    faceCentre(entrance, face),
+                    faceCentre(entrance, face, sidePlaneHeight),
                     factoryLevel.dimension(),
-                    roomFaceCentre(record, face),
+                    roomFaceCentre(record, face, roomHeight),
                     axes[0],
                     axes[1],
                     PLANE_SIZE,
-                    PLANE_SIZE,
+                    upright ? sidePlaneHeight : PLANE_SIZE,
                     tag,
                     TELEPORTABLE
             );
@@ -185,7 +200,7 @@ public final class FactoryPortal {
             // height and the ceiling covers its whole footprint, so the five planes meet at the edges and
             // the portals are the only way out. Oversized by EDGE_OVERLAP so the joints do not show a seam.
             inside.setWidth(ROOM_WIDTH + EDGE_OVERLAP);
-            inside.setHeight((upright ? ROOM_HEIGHT : ROOM_WIDTH) + EDGE_OVERLAP);
+            inside.setHeight((upright ? roomHeight : ROOM_WIDTH) + EDGE_OVERLAP);
             // Render flags, matching the reference mod: the side you look at from outside is fused into the
             // world view and both sides are mergeable. Left at the defaults the plane is drawn through its
             // own pass with its own culling, and it drops out of view when the camera turns.
@@ -203,6 +218,44 @@ public final class FactoryPortal {
             McHelper.spawnServerEntity(outside);
             McHelper.spawnServerEntity(inside);
             openings++;
+        }
+
+        // The top face carries the player as well, but it is horizontal and Immersive Portals will not
+        // cross someone who only stands on it; crouching on it nudges them down until their feet cross
+        // (see TopWindowDescend), which is how the reference mod handles entering a scale box from above.
+        Vec3[] windowAxes = faceAxes(WINDOW_FACE);
+        Portal windowOutside = createPlane(
+                entranceLevel,
+                faceCentre(entrance, WINDOW_FACE, sidePlaneHeight),
+                factoryLevel.dimension(),
+                roomFaceCentre(record, WINDOW_FACE, roomHeight),
+                windowAxes[0],
+                windowAxes[1],
+                PLANE_SIZE,
+                PLANE_SIZE,
+                tag,
+                TELEPORTABLE
+        );
+        if (windowOutside == null) {
+            LOGGER.error("Could not create the {} window of factory #{}", WINDOW_FACE, factoryId);
+        } else {
+            Portal windowInside = PortalManipulation.createReversePortal(windowOutside, Portal.ENTITY_TYPE);
+            if (windowInside == null) {
+                LOGGER.error("Immersive Portals returned no reverse plane for the {} window of factory #{}",
+                        WINDOW_FACE, factoryId);
+            } else {
+                windowInside.portalTag = tag;
+                windowInside.setWidth(ROOM_WIDTH + EDGE_OVERLAP);
+                windowInside.setHeight(ROOM_WIDTH + EDGE_OVERLAP);
+                windowInside.setTeleportable(TELEPORTABLE);
+                windowInside.setTeleportChangesScale(false);
+                windowOutside.setFuseView(true);
+                windowOutside.renderingMergable = true;
+                windowInside.renderingMergable = true;
+                windowInside.setDoRenderPlayer(false);
+                McHelper.spawnServerEntity(windowOutside);
+                McHelper.spawnServerEntity(windowInside);
+            }
         }
 
         keepRoomLoaded(server, record);
@@ -258,14 +311,26 @@ public final class FactoryPortal {
      * the world seen through the ceiling, which is what made the ceiling look misplaced. Keeping the plane
      * centred is what makes the five views line up.
      */
-    private static Vec3 faceCentre(BlockPos block, Direction face) {
+    private static Vec3 faceCentre(BlockPos block, Direction face, double sidePlaneHeight) {
         Vec3 centre = new Vec3(block.getX() + 0.5D, block.getY() + 0.5D, block.getZ() + 0.5D);
-        return centre.add(Vec3.atLowerCornerOf(face.getNormal()).scale(0.5D + FACE_OFFSET));
+        Vec3 point = centre.add(Vec3.atLowerCornerOf(face.getNormal()).scale(0.5D + FACE_OFFSET));
+        if (face.getAxis() != Direction.Axis.Y) {
+            // The side planes may be taller than the block: rest the plane's bottom edge on the ground the
+            // block sits on and let it grow upwards, so it reads as a doorway standing on the block.
+            point = point.add(0.0D, (sidePlaneHeight - PLANE_SIZE) / 2.0D, 0.0D);
+        } else if (face == Direction.UP) {
+            // The window belongs at the top of the doorway frame, not at the top of the block. The room is
+            // sidePlaneHeight * SCALE deep, so the factory floor lines up with the ground around the entrance
+            // only when looked at from that height: one block lower and the whole room appears one block
+            // sunk into the ground.
+            point = point.add(0.0D, sidePlaneHeight - PLANE_SIZE, 0.0D);
+        }
+        return point;
     }
 
     /** The centre of the matching face of the room box. */
-    private static Vec3 roomFaceCentre(FactoryData.FactoryRecord record, Direction face) {
-        AABB room = roomBox(record);
+    private static Vec3 roomFaceCentre(FactoryData.FactoryRecord record, Direction face, double roomHeight) {
+        AABB room = roomBox(record, roomHeight);
         Vec3 outward = Vec3.atLowerCornerOf(face.getNormal());
         return room.getCenter().add(outward.scale(lengthAlong(room, outward) / 2.0D));
     }
@@ -288,17 +353,17 @@ public final class FactoryPortal {
     }
 
     /**
-     * The box the openings enclose: one chunk across and the room's full height, with its bottom on the
+     * The box the openings enclose: one chunk across and the room variant's height, with its bottom on the
      * platform floor, so that the five planes meet at the corners and leave no way out.
      */
-    private static AABB roomBox(FactoryData.FactoryRecord record) {
+    private static AABB roomBox(FactoryData.FactoryRecord record, double roomHeight) {
         ChunkPos chunk = record.baseChunk();
         return new AABB(
                 chunk.getMinBlockX(),
                 FactoryData.FLOOR_Y,
                 chunk.getMinBlockZ(),
                 chunk.getMinBlockX() + ROOM_WIDTH,
-                FactoryData.FLOOR_Y + ROOM_HEIGHT,
+                FactoryData.FLOOR_Y + roomHeight,
                 chunk.getMinBlockZ() + ROOM_WIDTH
         );
     }

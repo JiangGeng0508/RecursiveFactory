@@ -20,7 +20,22 @@ import net.minecraft.world.level.saveddata.SavedData;
 public final class FactoryData extends SavedData {
     public static final String DATA_NAME = RecursiveFactory.MODID + "_factories";
     public static final int FLOOR_Y = 64;
-    public static final int CEILING_Y = 80;
+    public static final int CEILING_Y = 96;
+    /**
+     * Room heights for the two entrance block variants. Has to match what FactoryPortal derives for the
+     * room side planes: the doorway height times the portal scale.
+     */
+    public static final int TALL_ROOM_HEIGHT = CEILING_Y - FLOOR_Y;
+    public static final int SHORT_ROOM_HEIGHT = TALL_ROOM_HEIGHT / 2;
+    /**
+     * How far apart neighbouring factory rooms sit, in blocks. Thirty two chunks keeps one room's portals
+     * and forced chunk well clear of the next one's.
+     *
+     * <p>Room positions are derived from this at run time rather than saved per factory, so changing it
+     * moves every existing factory to a fresh platform and leaves whatever was built in the old rooms
+     * behind at the old coordinates.
+     */
+    public static final int SLOT_SPACING_BLOCKS = 32 * 16;
 
     private final Map<Integer, FactoryRecord> factories = new LinkedHashMap<>();
     private int nextFactoryId = 1;
@@ -153,8 +168,8 @@ public final class FactoryData extends SavedData {
 
         public net.minecraft.world.level.ChunkPos baseChunk() {
             return new net.minecraft.world.level.ChunkPos(
-                    (16 + slotX * 64) >> 4,
-                    (16 + slotZ * 64) >> 4
+                    (16 + slotX * SLOT_SPACING_BLOCKS) >> 4,
+                    (16 + slotZ * SLOT_SPACING_BLOCKS) >> 4
             );
         }
 

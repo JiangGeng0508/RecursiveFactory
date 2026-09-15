@@ -30,6 +30,16 @@ public final class ModBlocks {
             () -> new RecursiveFactoryBlock(FACTORY_PROPERTIES)
     );
 
+    /**
+     * The short entrance: same block, but its doorways are one block tall instead of two, so its room is
+     * half as tall (see {@code FactoryPortal}). Registered as a separate block so both can sit next to
+     * each other and be compared.
+     */
+    public static final DeferredBlock<RecursiveFactoryBlock> RECURSIVE_FACTORY_SHORT = BLOCKS.register(
+            "recursive_factory_short",
+            () -> new RecursiveFactoryBlock(FACTORY_PROPERTIES)
+    );
+
     public static final DeferredBlock<MirrorFactoryBlock> MIRROR_FACTORY = BLOCKS.register(
             "mirror_factory",
             () -> new MirrorFactoryBlock(FACTORY_PROPERTIES)
@@ -38,6 +48,11 @@ public final class ModBlocks {
     public static final DeferredItem<BlockItem> RECURSIVE_FACTORY_ITEM = ITEMS.registerSimpleBlockItem(
             "recursive_factory",
             RECURSIVE_FACTORY
+    );
+
+    public static final DeferredItem<BlockItem> RECURSIVE_FACTORY_SHORT_ITEM = ITEMS.registerSimpleBlockItem(
+            "recursive_factory_short",
+            RECURSIVE_FACTORY_SHORT
     );
 
     public static final DeferredItem<BlockItem> MIRROR_FACTORY_ITEM = ITEMS.registerSimpleBlockItem(

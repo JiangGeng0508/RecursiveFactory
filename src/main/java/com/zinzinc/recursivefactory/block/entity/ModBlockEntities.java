@@ -21,7 +21,8 @@ public final class ModBlockEntities {
                     "recursive_factory",
                     () -> BlockEntityType.Builder.of(
                             RecursiveFactoryBlockEntity::new,
-                            ModBlocks.RECURSIVE_FACTORY.get()
+                            ModBlocks.RECURSIVE_FACTORY.get(),
+                            ModBlocks.RECURSIVE_FACTORY_SHORT.get()
                     ).build(null)
             );
 

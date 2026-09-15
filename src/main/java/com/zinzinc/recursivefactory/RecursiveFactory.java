@@ -33,6 +33,7 @@ public final class RecursiveFactory {
                     .icon(() -> ModBlocks.RECURSIVE_FACTORY_ITEM.get().getDefaultInstance())
                     .displayItems((parameters, output) -> {
                         output.accept(ModBlocks.RECURSIVE_FACTORY_ITEM.get());
+                        output.accept(ModBlocks.RECURSIVE_FACTORY_SHORT_ITEM.get());
                         output.accept(ModBlocks.MIRROR_FACTORY_ITEM.get());
                     })
                     .build());
