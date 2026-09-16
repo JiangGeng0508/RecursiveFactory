@@ -22,8 +22,10 @@ import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import qouteall.imm_ptl.core.ClientWorldLoader;
 import qouteall.imm_ptl.core.IPGlobal;
+import qouteall.imm_ptl.core.chunk_loading.PerformanceLevel;
 import qouteall.imm_ptl.core.miscellaneous.ClientPerformanceMonitor;
 import qouteall.imm_ptl.core.render.PortalEntityRenderer;
+import qouteall.imm_ptl.core.render.context_management.PortalRendering;
 import qouteall.imm_ptl.core.render.context_management.RenderStates;
 import qouteall.imm_ptl.core.render.renderer.PortalRenderer;
 
@@ -83,6 +85,19 @@ public final class RecursiveFactoryClient {
             RecursiveFactory.LOGGER.info("Immersive Portals lag protection turned off again after it was re-enabled");
         }
 
+        // Immersive Portals only recomputes this from MixinMinecraft's snooper hook, which in practice never
+        // runs, so the level stays at its static default of medium for a whole session. VisibleSectionDiscovery
+        // passes it through getPortalRenderingDistance, and medium halves the view distance of a portal's inner
+        // world; for a scaled doorway, whose virtual camera sits scaling times further into the room than the
+        // player stands from the entrance, that drops the room out of view about sixteen blocks away.
+        if (ClientPerformanceMonitor.level != PerformanceLevel.good) {
+            RecursiveFactory.LOGGER.info(
+                    "Immersive Portals client performance level was {}; forcing good so the portal world's view "
+                            + "distance is not halved", ClientPerformanceMonitor.level
+            );
+            ClientPerformanceMonitor.level = PerformanceLevel.good;
+        }
+
         if (!DEBUG_PORTAL_RANGE) {
             return;
         }
@@ -128,11 +143,68 @@ public final class RecursiveFactoryClient {
         ResourceKey<Level> destDimension = nearest.getDestDim();
         BlockPos destPos = BlockPos.containing(nearest.getDestPos());
         ClientLevel destLevel = destDimension == null ? null : ClientWorldLoader.getWorld(destDimension);
-        boolean destChunkLoaded = destLevel != null
-                && destLevel.getChunkSource().hasChunk(destPos.getX() >> 4, destPos.getZ() >> 4);
-        RecursiveFactory.LOGGER.info(
-                "Portal view: nearest doorway {} is {} blocks away, destination {} {} loaded on the client={}",
-                nearest.portalTag, String.format("%.1f", nearestDistance), destDimension, destPos, destChunkLoaded
+
+        // PortalRenderer.getPortalRenderDistance is private, so the same sum is repeated here, and then fed to
+        // the performance level the way VisibleSectionDiscovery does: the result is how far the inner world is
+        // rendered, and for a scaled doorway that is measured from a virtual camera pushed into the room.
+        double estimate = nearest.getDestAreaRadiusEstimation();
+        int renderDistanceChunks = minecraft.options.getEffectiveRenderDistance();
+        int portalRenderDistance = nearest.getScale() > 2.0
+                ? Math.max((int) (Math.min(estimate * 1.4, 512.0) / 16.0), renderDistanceChunks)
+                : (IPGlobal.reducedPortalRendering ? renderDistanceChunks / 3 : renderDistanceChunks);
+        int innerViewDistance = PerformanceLevel.getPortalRenderingDistance(
+                ClientPerformanceMonitor.level, portalRenderDistance
         );
+
+        RecursiveFactory.LOGGER.info(
+                "Portal view: nearest doorway {} is {} blocks away, scaling={}, fuseView={}, valid={}, "
+                        + "visible={}, roughlyVisible={}",
+                nearest.portalTag, String.format("%.1f", nearestDistance), nearest.getScale(),
+                nearest.isFuseView(), nearest.isPortalValid(), nearest.isVisible(),
+                nearest.isRoughlyVisibleTo(camera)
+        );
+        RecursiveFactory.LOGGER.info(
+                "Portal view: inner world is rendered {} chunks out (portal render distance {} chunks, estimate "
+                        + "{}, level {}); the virtual camera sits {} blocks from the room; the client holds {}/9 "
+                        + "room chunks and {}/5 room probes are solid; portal layer={}",
+                innerViewDistance, portalRenderDistance, String.format("%.0f", estimate),
+                ClientPerformanceMonitor.level, String.format("%.1f", nearest.transformPoint(camera)
+                        .distanceTo(nearest.getDestPos())),
+                countLoadedChunks(destLevel, destPos), countSolidProbes(destLevel, destPos),
+                PortalRendering.getPortalLayer()
+        );
+    }
+
+    /** How many of the nine chunks around the destination the client actually holds. */
+    private static int countLoadedChunks(ClientLevel level, BlockPos pos) {
+        if (level == null) {
+            return 0;
+        }
+        int chunkX = pos.getX() >> 4;
+        int chunkZ = pos.getZ() >> 4;
+        int found = 0;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                if (level.getChunkSource().hasChunk(chunkX + dx, chunkZ + dz)) {
+                    found++;
+                }
+            }
+        }
+        return found;
+    }
+
+    /** Samples the room itself, since a loaded chunk says nothing about what is inside it. */
+    private static int countSolidProbes(ClientLevel level, BlockPos pos) {
+        if (level == null) {
+            return 0;
+        }
+        int found = 0;
+        int[][] offsets = {{0, 0}, {8, 0}, {-8, 0}, {0, 8}, {0, -8}};
+        for (int[] offset : offsets) {
+            if (!level.getBlockState(pos.offset(offset[0], 0, offset[1])).isAir()) {
+                found++;
+            }
+        }
+        return found;
     }
 }
