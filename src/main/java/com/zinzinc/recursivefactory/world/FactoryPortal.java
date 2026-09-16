@@ -268,7 +268,7 @@ public final class FactoryPortal {
 
                 // Immersive Portals derives the room side from this one: same plane, opposite face, and the
                 // two are linked to each other. Doing it by hand is what got the orientation wrong before.
-                Portal inside = PortalManipulation.createReversePortal(outside, Portal.ENTITY_TYPE);
+                Portal inside = PortalManipulation.createReversePortal(outside, ModEntities.factoryPortal());
                 if (inside == null) {
                     LOGGER.error("Immersive Portals returned no reverse plane for the {} doorway of factory #{}",
                             side, factoryId);
@@ -325,7 +325,7 @@ public final class FactoryPortal {
                 LOGGER.error("Could not create the {} window of factory #{}", WINDOW_FACE, factoryId);
                 continue;
             }
-            Portal windowInside = PortalManipulation.createReversePortal(windowOutside, Portal.ENTITY_TYPE);
+            Portal windowInside = PortalManipulation.createReversePortal(windowOutside, ModEntities.factoryPortal());
             if (windowInside == null) {
                 LOGGER.error("Immersive Portals returned no reverse plane for the {} window of factory #{}",
                         WINDOW_FACE, factoryId);
@@ -454,7 +454,7 @@ public final class FactoryPortal {
     private static Portal createPlane(ServerLevel originLevel, Vec3 originPos, ResourceKey<Level> destDimension,
                                       Vec3 destPos, Vec3 axisW, Vec3 axisH, double width, double height,
                                       String tag, boolean teleportable) {
-        Portal portal = Portal.ENTITY_TYPE.create(originLevel);
+        Portal portal = ModEntities.factoryPortal().create(originLevel);
         if (portal == null) {
             return null;
         }

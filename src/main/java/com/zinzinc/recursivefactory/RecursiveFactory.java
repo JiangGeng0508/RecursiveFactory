@@ -6,6 +6,7 @@ import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
 import com.zinzinc.recursivefactory.data.ModAttachments;
 import com.zinzinc.recursivefactory.network.ModNetworking;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
+import com.zinzinc.recursivefactory.world.ModEntities;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.CreativeModeTab;
@@ -41,6 +42,7 @@ public final class RecursiveFactory {
     public RecursiveFactory(IEventBus modEventBus) {
         ModBlocks.register(modEventBus);
         ModBlockEntities.register(modEventBus);
+        ModEntities.register(modEventBus);
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
         CREATIVE_MODE_TABS.register(modEventBus);
         modEventBus.addListener(ModNetworking::register);
