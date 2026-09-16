@@ -14,8 +14,14 @@ public final class ModEntities {
             DeferredRegister.create(Registries.ENTITY_TYPE, RecursiveFactory.MODID);
 
     /**
-     * Sized and tracked like the reference mod's portal: the plane's own size is set per portal and is
-     * what collision and rendering use, so the entity's box only has to exist.
+     * Sized like the reference mod's portal, and tracked like Immersive Portals' own.
+     *
+     * <p>The plane's own size is set per portal and is what collision and rendering use, so the entity's box
+     * only has to exist. The tracking range is the one number that must not be copied from the reference mod:
+     * it tracks its portal six chunks out because its box is something you stand next to, while Immersive
+     * Portals uses 96 for its own portals ({@code Portal.createPortalEntityType}, checked in the jar) - and a
+     * portal entity that is out of tracking range is simply not on the client any more, so the doorway went
+     * blank beyond 96 blocks no matter how far the view behind it reached.
      */
     private static final DeferredHolder<EntityType<?>, EntityType<?>> FACTORY_PORTAL =
             ENTITY_TYPES.register("factory_portal", () -> EntityType.Builder
@@ -23,7 +29,7 @@ public final class ModEntities {
                     .sized(1.0F, 1.0F)
                     .fireImmune()
                     .updateInterval(20)
-                    .clientTrackingRange(6)
+                    .clientTrackingRange(96)
                     .build(RecursiveFactory.MODID + ":factory_portal"));
 
     private ModEntities() {
