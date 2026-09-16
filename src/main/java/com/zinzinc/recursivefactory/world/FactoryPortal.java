@@ -10,6 +10,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
@@ -73,9 +74,9 @@ public final class FactoryPortal {
     };
     /**
      * The top face is the way in from above. It is horizontal, and Immersive Portals will not carry an
-     * entity that only stands on it: the feet have to cross the plane, so crouching on the window nudges
-     * the player down until they do (see {@code TopWindowDescend}) - the same trick the reference mod uses
-     * for dropping into a scale box.
+     * entity that only stands on it: the feet have to cross the plane. Crouching in or over the entrance
+     * cell answers that with an explicit teleport (see {@code FactoryPortal.descend}); falling onto the
+     * window with speed sometimes crosses on its own.
      */
     private static final Direction WINDOW_FACE = Direction.UP;
 
@@ -126,14 +127,90 @@ public final class FactoryPortal {
         }
         MinecraftServer server = serverEntrance.getServer();
         String tag = tag(factoryId);
-        int removed = discard(serverEntrance, tag);
+        FactoryData.FactoryRecord record = FactoryData.get(server).factory(factoryId);
         ServerLevel factoryLevel = server.getLevel(FactoryDimension.LEVEL_KEY);
+        if (record != null && factoryLevel != null) {
+            loadPortalChunks(serverEntrance, factoryLevel, record);
+        }
+        int removed = discard(serverEntrance, tag);
         if (factoryLevel != null) {
             removed += discard(factoryLevel, tag);
         }
         if (removed > 0) {
             LOGGER.info("Removed {} portal(s) of factory #{}", removed, factoryId);
         }
+    }
+
+    /**
+     * Loads the chunks this factory's portals live in.
+     *
+     * <p>The saved portal entities sit in the room's chunks and in the entrance's chunk, and
+     * {@link #discard} only sees entities in loaded chunks. At server start the room's chunks have only
+     * just been ticketed and are not in yet, so without this the discard finds nothing and every restart
+     * stacked a fresh set of planes on top of the saved ones - which is what made the doorways drop out
+     * of the view at so many angles.
+     */
+    private static void loadPortalChunks(ServerLevel entranceLevel, ServerLevel factoryLevel,
+                                         FactoryData.FactoryRecord record) {
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            factoryLevel.getChunk(cell.roomX() >> 4, cell.roomZ() >> 4);
+        }
+        if (record.entranceDimension() != null
+                && record.entranceDimension().equals(entranceLevel.dimension().location())) {
+            BlockPos entrance = record.entrancePos();
+            entranceLevel.getChunk(entrance.getX() >> 4, entrance.getZ() >> 4);
+        }
+    }
+
+    /**
+     * Drops a player who is crouching in or over an entrance cell into the room, through its top window.
+     *
+     * <p>The reference mod's version of this nudges the player down until their feet cross the plane, but
+     * that needs something solid to hold the player level with the plane: its entrance is a whole solid
+     * box. Ours is a single collisionless block, so the crouch is answered with an explicit teleport
+     * through Immersive Portals instead, which is seamless and does not depend on the crossing check. The
+     * arrival is the mapped position just under the room's ceiling, mirroring what falling through the
+     * window would give.
+     */
+    public static void descend(ServerPlayer player, BlockPos entrance, int factoryId) {
+        try {
+            descendInternal(player, entrance, factoryId);
+        } catch (RuntimeException exception) {
+            LOGGER.error("Could not drop the player into factory #{}", factoryId, exception);
+        }
+    }
+
+    private static void descendInternal(ServerPlayer player, BlockPos entrance, int factoryId) {
+        MinecraftServer server = player.getServer();
+        if (server == null) {
+            return;
+        }
+        FactoryData.FactoryRecord record = FactoryData.get(server).factory(factoryId);
+        ServerLevel factoryLevel = server.getLevel(FactoryDimension.LEVEL_KEY);
+        if (record == null || factoryLevel == null
+                || !player.level().dimension().location().equals(record.entranceDimension())) {
+            return;
+        }
+        FactoryData.FactoryRecord.Cell cell = record.cellAt(entrance);
+        if (cell == null) {
+            return;
+        }
+
+        // The anchor cell's variant decides the room height, the same as when the portals are built.
+        boolean shortEntrance = player.level().getBlockState(record.entrancePos()).is(ModBlocks.RECURSIVE_FACTORY_SHORT.get());
+        double roomHeight = (shortEntrance ? SHORT_SIDE_PLANE_HEIGHT : TALL_SIDE_PLANE_HEIGHT) * SCALE;
+
+        // The window maps its cell onto the room's ceiling at the scale, so the arrival keeps the player's
+        // offset from the cell's centre, just under the ceiling.
+        Vec3 target = new Vec3(
+                cell.roomX() + ROOM_WIDTH / 2.0D + (player.getX() - (entrance.getX() + 0.5D)) * SCALE,
+                FactoryData.FLOOR_Y + roomHeight - 0.2D,
+                cell.roomZ() + ROOM_WIDTH / 2.0D + (player.getZ() - (entrance.getZ() + 0.5D)) * SCALE
+        );
+        player.setDeltaMovement(Vec3.ZERO);
+        LOGGER.info("Dropping {} into factory #{} through the top window at {}",
+                player.getName().getString(), factoryId, target);
+        PortalAPI.teleportEntity(player, factoryLevel, target);
     }
 
     private static void ensureInternal(ServerLevel entranceLevel, int factoryId) {
@@ -151,7 +228,10 @@ public final class FactoryPortal {
         }
 
         // Rebuild from scratch so the portals always match the geometry in this class. Portals left
-        // behind by an earlier build would otherwise never be corrected or cleaned up.
+        // behind by an earlier build would otherwise never be corrected or cleaned up. The chunks are
+        // loaded first: the saved portal entities live in them, and the discard only sees loaded chunks -
+        // skipping this stacked a new set of planes on the saved ones on every server start.
+        loadPortalChunks(entranceLevel, factoryLevel, record);
         String tag = tag(factoryId);
         discard(entranceLevel, tag);
         discard(factoryLevel, tag);
@@ -199,6 +279,11 @@ public final class FactoryPortal {
                 // a little extra so the joints do not show a seam.
                 inside.setWidth(run.length() * SCALE + EDGE_OVERLAP);
                 inside.setHeight(roomHeight + EDGE_OVERLAP);
+                // Fuse view is what turns the fog off for this portal's rendering: Immersive Portals
+                // scales the fog of a normal portal by nothing, so at this scale the room would sit deep
+                // inside the fog from a few blocks away and vanish (the nether portal gets away with it
+                // because its scale is one). Fuse view portals get their fog disabled instead, which is
+                // why the reference mod enables it on its entrances.
                 outside.setFuseView(true);
                 outside.renderingMergable = true;
                 inside.renderingMergable = true;
@@ -215,8 +300,8 @@ public final class FactoryPortal {
         }
 
         // One top window per cell. It carries the player as well, but it is horizontal and Immersive
-        // Portals will not cross someone who only stands on it; crouching on it nudges them down until
-        // their feet cross (see TopWindowDescend).
+        // Portals will not cross someone who only stands on it; crouching in or over the cell answers with
+        // an explicit teleport instead (see descend).
         int windows = 0;
         for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
             Vec3[] windowAxes = faceAxes(WINDOW_FACE);

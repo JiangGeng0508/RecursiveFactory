@@ -29,6 +29,27 @@ public final class PlayerFactoryEvents {
             return;
         }
 
+        // Crouching in or over an entrance block drops the player into the room through its top window.
+        // The reference mod nudges the player down until their feet cross the plane, but that only works
+        // when something solid holds them level with it; here the entrance block has no collision, so the
+        // entry is done explicitly instead, through Immersive Portals' own teleport. This runs before the
+        // factory dimension check on purpose: an entrance placed inside a room is a nested factory.
+        if (player.isShiftKeyDown()) {
+            BlockPos feet = player.blockPosition();
+            BlockPos[] nearby = {feet, feet.below(), feet.below(2)};
+            for (BlockPos candidate : nearby) {
+                if (!player.level().getBlockState(candidate).is(ModBlocks.RECURSIVE_FACTORY.get())
+                        && !player.level().getBlockState(candidate).is(ModBlocks.RECURSIVE_FACTORY_SHORT.get())) {
+                    continue;
+                }
+                if (player.level().getBlockEntity(candidate) instanceof RecursiveFactoryBlockEntity factory
+                        && factory.hasFactoryId()) {
+                    FactoryPortal.descend(player, candidate.immutable(), factory.getFactoryId());
+                }
+                break;
+            }
+        }
+
         // Travel is Immersive Portals' job now: the room's boundary planes are its openings, so walking
         // into one carries the player out. The triggers that used to do it are kept, commented out.
         if (player.level().dimension() == FactoryDimension.LEVEL_KEY) {

@@ -16,6 +16,8 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import qouteall.imm_ptl.core.mc_utils.ServerTaskList;
+import qouteall.q_misc_util.my_util.MyTaskList;
 
 public final class FactoryDimension {
     public static final ResourceKey<Level> LEVEL_KEY = ResourceKey.create(
@@ -38,7 +40,34 @@ public final class FactoryDimension {
         }
         for (FactoryData.FactoryRecord record : FactoryData.get(server).factories()) {
             prepare(level, record);
-            FactoryPortal.ensure(level, record.id());
+        }
+
+        // The portal rebuild is deferred, not run here. Two things go wrong with rebuilding at server
+        // start: the saved portal entities only become visible to the discard once the force loaded
+        // chunks have reached entity loading, a few ticks in - rebuilding right now empties the discard
+        // and stacks duplicates - and the rebuild has to run in each record's entrance dimension, which
+        // may not be this one.
+        ServerTaskList.of(server).addTask(MyTaskList.withDelay(
+                PORTAL_REBUILD_DELAY_TICKS,
+                MyTaskList.oneShotTask(() -> rebuildAllPortals(server))
+        ));
+    }
+
+    /** How long after server start the portals are rebuilt, in ticks. */
+    private static final int PORTAL_REBUILD_DELAY_TICKS = 40;
+
+    /** Rebuilds every factory's portals, in each factory's own entrance dimension. */
+    private static void rebuildAllPortals(MinecraftServer server) {
+        for (FactoryData.FactoryRecord record : FactoryData.get(server).factories()) {
+            if (record.entranceDimension() == null) {
+                continue;
+            }
+            ServerLevel entranceLevel = server.getLevel(
+                    ResourceKey.create(Registries.DIMENSION, record.entranceDimension())
+            );
+            if (entranceLevel != null) {
+                FactoryPortal.ensure(entranceLevel, record.id());
+            }
         }
     }
 
