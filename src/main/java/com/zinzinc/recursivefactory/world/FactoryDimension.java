@@ -25,6 +25,16 @@ public final class FactoryDimension {
             ResourceLocation.fromNamespaceAndPath(RecursiveFactory.MODID, "recursive_factory")
     );
 
+    /**
+     * The room's dimension type, which is also the id its dimension effects are registered under.
+     *
+     * <p>A dimension type names its effects by resource location, so this has to match the {@code effects}
+     * entry in {@code data/recursivefactory/dimension_type/recursive_factory.json}, and the client class
+     * registered for it is {@code client.render.FactoryDimensionEffects}.
+     */
+    public static final ResourceLocation DIMENSION_TYPE_ID =
+            ResourceLocation.fromNamespaceAndPath(RecursiveFactory.MODID, "recursive_factory");
+
     /** Horizontal reach of the room, measured from the middle of the mirror block. */
     public static final double ROOM_HALF_EXTENT = 7.0D;
     /** Horizontal reach of the landing area beside an endpoint block. */
