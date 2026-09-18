@@ -11,6 +11,11 @@ description='''
 A recursively reusable pocket factory dimension with mirrored item and redstone endpoints.
 '''
 
+# Widens the section radius Immersive Portals uses while drawing the room into a doorway, which its own
+# 512-block ceiling otherwise caps at about 31 blocks of viewing distance. See the mixin for the details.
+[[mixins]]
+config="recursivefactory.mixins.json"
+
 [[dependencies.${mod_id}]]
 modId="neoforge"
 type="required"

@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8.5",
+  "package": "com.zinzinc.recursivefactory.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [],
+  "client": [
+    "client.VisibleSectionDiscoveryMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

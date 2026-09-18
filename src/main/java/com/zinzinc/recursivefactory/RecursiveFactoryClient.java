@@ -1,6 +1,7 @@
 package com.zinzinc.recursivefactory;
 
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
+import com.zinzinc.recursivefactory.client.FactoryRoomRenderRange;
 import com.zinzinc.recursivefactory.client.render.FactoryDimensionEffects;
 import com.zinzinc.recursivefactory.client.render.MirrorFactoryRenderer;
 import com.zinzinc.recursivefactory.client.render.RecursiveFactoryRenderer;
@@ -209,6 +210,17 @@ public final class RecursiveFactoryClient {
                 countLoadedChunks(destLevel, destPos), countSolidProbes(destLevel, destPos),
                 PortalRendering.getPortalLayer()
         );
+        // Only the doorway is scaled by 16, so only its pass gets the wider radius; a doorway is also the
+        // direction the room disappears in, because 16 x distance is what pushes the room out of reach.
+        if (nearest.getScale() > 2.0D) {
+            RecursiveFactory.LOGGER.info(
+                    "Portal view: the room is drawn out to {} chunks because of this mod's mixin (Immersive "
+                            + "Portals on its own allows {}); the mixin last wrote {} (-1 = it never ran, so "
+                            + "the distance is still Immersive Portals' own)",
+                    Math.max(innerViewDistance, FactoryRoomRenderRange.CHUNKS), innerViewDistance,
+                    FactoryRoomRenderRange.lastApplied
+            );
+        }
     }
 
     /**
