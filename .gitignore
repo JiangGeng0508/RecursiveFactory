@@ -43,3 +43,5 @@ repo/
 .reference
 .zcode 
 logs/
+.agents/
+AGENTS.md
