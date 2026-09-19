@@ -8,7 +8,7 @@ import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import com.zinzinc.recursivefactory.world.FactoryTeleporter;
-import java.util.List;
+import java.util.UUID;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -35,6 +35,11 @@ import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
+/**
+ * The factory's entrance block. Placing one next to another entrance block grows that factory's room
+ * instead of starting a second one, so a bigger factory is built by laying entrance blocks out and
+ * letting the room follow the same shape.
+ */
 public final class RecursiveFactoryBlock extends BaseEntityBlock {
     public static final MapCodec<RecursiveFactoryBlock> CODEC = simpleCodec(RecursiveFactoryBlock::new);
     private static final VoxelShape SHAPE = Shapes.or(
@@ -80,14 +85,15 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
     }
 
     @Override
-    protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player, BlockHitResult hitResult) {
+    protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
+                                               BlockHitResult hitResult) {
         if (level.isClientSide()) {
             return InteractionResult.SUCCESS;
         }
         if (player instanceof ServerPlayer serverPlayer
                 && level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity
                 && blockEntity.hasFactoryId()) {
-            return FactoryTeleporter.enter(serverPlayer, blockEntity.getFactoryId(), hitResult.getDirection())
+            return FactoryTeleporter.enter(serverPlayer, blockEntity.getFactoryId(), pos)
                     ? InteractionResult.CONSUME
                     : InteractionResult.FAIL;
         }
@@ -102,27 +108,70 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
             return;
         }
 
-        java.util.UUID owner = placer instanceof Player player ? player.getUUID() : null;
+        UUID owner = placer instanceof Player player ? player.getUUID() : null;
         FactoryData data = FactoryData.get(level.getServer());
+        ServerLevel factoryLevel = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
+
+        // Next to an existing entrance, this block grows that factory: the room layout mirrors the
+        // entrance layout, so the new cell's room cell is the neighbour's shifted by the same offset.
+        // Any adjacent cell gives the same answer, so the first one found is enough.
+        for (Direction direction : Direction.Plane.HORIZONTAL) {
+            BlockPos neighbourPos = pos.relative(direction);
+            FactoryData.FactoryRecord neighbour = data.factoryWithEntranceCell(
+                    level.dimension().location(),
+                    neighbourPos
+            );
+            if (neighbour == null) {
+                continue;
+            }
+            FactoryData.FactoryRecord.Cell adjacentCell = neighbour.cellAt(neighbourPos);
+            int roomX = adjacentCell.roomX()
+                    + (pos.getX() - adjacentCell.entrance().getX()) * FactoryData.CELL_SIZE;
+            int roomZ = adjacentCell.roomZ()
+                    + (pos.getZ() - adjacentCell.entrance().getZ()) * FactoryData.CELL_SIZE;
+            data.addEntrance(neighbour.id(), level.dimension().location(), pos, roomX, roomZ);
+            blockEntity.setFactoryId(neighbour.id());
+
+            FactoryData.FactoryRecord grown = data.factory(neighbour.id());
+            if (factoryLevel != null && grown != null) {
+                FactoryDimension.prepare(factoryLevel, grown);
+            }
+            FactoryRelay.updateFromNeighbours(blockEntity);
+            return;
+        }
+
         FactoryData.FactoryRecord record = data.create(owner);
         blockEntity.setFactoryId(record.id());
         data.bindEntrance(record.id(), level.dimension().location(), pos);
 
-        ServerLevel factoryLevel = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
-        if (factoryLevel != null) {
-            FactoryDimension.prepare(factoryLevel, record);
+        FactoryData.FactoryRecord bound = data.factory(record.id());
+        if (factoryLevel != null && bound != null) {
+            FactoryDimension.prepare(factoryLevel, bound);
         }
+        // A lever or a dust line may already be waiting next to the block it was placed against.
+        FactoryRelay.updateFromNeighbours(blockEntity);
     }
 
     @Override
     protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
         if (!state.is(newState.getBlock()) && !level.isClientSide() && level.getServer() != null
                 && level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity) {
-            FactoryData.get(level.getServer()).clearEntrance(
-                    blockEntity.getFactoryId(),
-                    level.dimension().location(),
-                    pos
-            );
+            int factoryId = blockEntity.getFactoryId();
+            FactoryData data = FactoryData.get(level.getServer());
+            FactoryData.FactoryRecord before = data.factory(factoryId);
+            FactoryData.FactoryRecord.Cell removed = before == null ? null : before.cellAt(pos);
+
+            data.clearEntrance(factoryId, level.dimension().location(), pos);
+
+            ServerLevel factoryLevel = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
+            FactoryData.FactoryRecord remaining = data.factory(factoryId);
+            if (factoryLevel != null && removed != null) {
+                // The room shrinks: drop the shell around the cell that left, then rebuild the rest.
+                FactoryDimension.clearShellAround(factoryLevel, removed);
+                if (remaining != null && !remaining.cells().isEmpty()) {
+                    FactoryDimension.prepare(factoryLevel, remaining);
+                }
+            }
         }
         super.onRemove(state, level, pos, newState, movedByPiston);
     }
@@ -132,11 +181,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
                                    BlockPos neighborPos, boolean movedByPiston) {
         super.neighborChanged(state, level, pos, neighborBlock, neighborPos, movedByPiston);
         if (!level.isClientSide && level.getBlockEntity(pos) instanceof EndpointBlockEntity endpoint) {
-            FactoryRelay.syncPower(
-                    endpoint,
-                    level.hasNeighborSignal(pos),
-                    FactoryRelay.strongestInputDirection(level, pos)
-            );
+            FactoryRelay.updateFromNeighbours(endpoint);
         }
     }
 
@@ -147,15 +192,12 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
 
     @Override
     protected int getSignal(BlockState state, BlockGetter level, BlockPos pos, Direction direction) {
-        return state.getValue(BlockStateProperties.POWERED) ? 15 : 0;
+        return FactoryRelay.emittedSignal(state, level.getBlockEntity(pos), direction);
     }
 
     @Override
     protected int getDirectSignal(BlockState state, BlockGetter level, BlockPos pos, Direction direction) {
-        if (!state.getValue(BlockStateProperties.POWERED) || !(level.getBlockEntity(pos) instanceof EndpointBlockEntity endpoint)) {
-            return 0;
-        }
-        return endpoint.getOutputDirection() == direction.getOpposite() ? 15 : 0;
+        return FactoryRelay.emittedSignal(state, level.getBlockEntity(pos), direction);
     }
 
     @Override
@@ -164,9 +206,11 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
     }
 
     @Override
-    public @Nullable <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state, BlockEntityType<T> type) {
+    public @Nullable <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level level, BlockState state,
+                                                                           BlockEntityType<T> type) {
         return type == ModBlockEntities.RECURSIVE_FACTORY.get()
-                ? (tickerLevel, tickerPos, tickerState, blockEntity) -> ((EndpointBlockEntity) blockEntity).serverTick()
+                ? (tickerLevel, tickerPos, tickerState, blockEntity) ->
+                        ((EndpointBlockEntity) blockEntity).serverTick()
                 : null;
     }
 }

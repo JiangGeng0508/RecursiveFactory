@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "powered=false": { "model": "recursivefactory:block/factory_barrier" },
+    "powered=true": { "model": "recursivefactory:block/factory_barrier" }
+  }
+}

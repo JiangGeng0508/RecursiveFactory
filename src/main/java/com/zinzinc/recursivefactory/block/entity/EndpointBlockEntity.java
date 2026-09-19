@@ -178,15 +178,21 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         );
     }
 
-    public static List<PreviewBlock> samplePreview(ServerLevel level, BlockPos center, int radius, int height) {
+    /**
+     * Samples a box of {@code size} columns square around {@code center}, {@code height} blocks tall and
+     * starting with the block below the centre. Row {@code y} of the sample maps to
+     * {@code center.offset(x, y - 1, z)}, so {@code y == 0} is the block under the centre and the box
+     * grows upwards from there. The columns run from {@code -size / 2} to {@code size / 2 - 1}: for a box
+     * one room cell across, centred on the block whose minimum corner sits on the middle of that cell,
+     * that is exactly the cell, edge to edge. Air and bedrock are dropped; anything else that should stay
+     * hidden (a room's barrier shell, for example) is the caller's to filter.
+     */
+    public static List<PreviewBlock> samplePreview(ServerLevel level, BlockPos center, int size, int height) {
         List<PreviewBlock> sampled = new ArrayList<>();
+        int half = size / 2;
         for (int y = 0; y < height; y++) {
-            for (int x = -radius; x <= radius; x++) {
-                for (int z = -radius; z <= radius; z++) {
-                    if (x == 0 && y == 0 && z == 0) {
-                        continue;
-                    }
-
+            for (int x = -half; x < size - half; x++) {
+                for (int z = -half; z < size - half; z++) {
                     BlockPos targetPos = center.offset(x, y - 1, z);
                     BlockState state = level.getBlockState(targetPos);
                     if (state.isAir() || state.is(Blocks.BEDROCK)) {

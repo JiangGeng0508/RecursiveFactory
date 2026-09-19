@@ -1,0 +1,10 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "pattern": ["OOO", "OIO", "OOO"],
+  "key": {
+    "O": { "item": "minecraft:obsidian" },
+    "I": { "item": "minecraft:iron_ingot" }
+  },
+  "result": { "id": "recursivefactory:factory_barrier", "count": 8 }
+}

@@ -2,38 +2,48 @@ package com.zinzinc.recursivefactory.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
-import com.zinzinc.recursivefactory.block.entity.MirrorFactoryBlockEntity;
 import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
+import com.zinzinc.recursivefactory.world.FactoryData;
 import java.util.Map;
 import java.util.WeakHashMap;
 import net.minecraft.client.renderer.MultiBufferSource;
-import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
-import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
 import net.minecraft.world.level.Level;
 import net.neoforged.neoforge.network.PacketDistributor;
 
-public final class MirrorFactoryRenderer implements BlockEntityRenderer<MirrorFactoryBlockEntity> {
-    private static final float PREVIEW_SIZE = 0.70F;
-    private static final float PREVIEW_Y_OFFSET = 0.50F;
-    private static final int REQUEST_INTERVAL_TICKS = 100;
+/**
+ * Draws an endpoint block's face preview: the sampled blocks of the far side, scaled down and laid on
+ * the block's surface. Shared by every endpoint block, so the block entity renderers stay thin.
+ */
+public final class EndpointPreviewRenderer {
+    /**
+     * One room cell is drawn one block across, so a preview covers the whole face of the block it stands
+     * for. The sample is centred on the cell, and a cell is sixteen blocks across, so this mapping puts
+     * the cell's footprint exactly on the block's face and neighbouring cells line up block for block.
+     */
+    private static final float PREVIEW_SCALE = 1.0F / FactoryData.CELL_SIZE;
+    /**
+     * Height is not part of that mapping: a room is much taller than it is wide, so the sample is scaled
+     * the same way and simply reaches up out of the block. This is where the room's floor ends up: on top
+     * of the block's own model, which stands 4 pixels high, so the miniature sits on the block instead of
+     * cutting into it.
+     */
+    private static final float PREVIEW_Y_OFFSET = 0.25F;
+    /**
+     * How often the client asks again when nothing was pushed to it. The server pushes every change, so
+     * this is only a safety net for a broadcast that was missed while the block's chunk was unloaded.
+     */
+    private static final int REQUEST_INTERVAL_TICKS = 40;
     private static final Map<EndpointBlockEntity, CachedProjection> PROJECTION_CACHE = new WeakHashMap<>();
     private static final Map<EndpointBlockEntity, Long> LAST_REQUEST_TICKS = new WeakHashMap<>();
 
-    public MirrorFactoryRenderer(BlockEntityRendererProvider.Context context) {
-    }
-
-    @Override
-    public void render(MirrorFactoryBlockEntity blockEntity, float partialTick, PoseStack poseStack,
-                       MultiBufferSource bufferSource, int packedLight, int packedOverlay) {
-        requestPreview(blockEntity);
-        renderPreview(blockEntity, poseStack, bufferSource);
+    private EndpointPreviewRenderer() {
     }
 
     /**
      * Asks the server for a fresh snapshot on a slow interval, so outside changes reach clients even
      * when a broadcast was missed, for example while the block's chunk was unloaded.
      */
-    static void requestPreview(EndpointBlockEntity blockEntity) {
+    public static void requestPreview(EndpointBlockEntity blockEntity) {
         Level level = blockEntity.getLevel();
         if (level == null) {
             LAST_REQUEST_TICKS.remove(blockEntity);
@@ -48,7 +58,8 @@ public final class MirrorFactoryRenderer implements BlockEntityRenderer<MirrorFa
         PacketDistributor.sendToServer(new EndpointPreviewPackets.Request(blockEntity.getBlockPos()));
     }
 
-    static void renderPreview(EndpointBlockEntity blockEntity, PoseStack poseStack, MultiBufferSource bufferSource) {
+    public static void renderPreview(EndpointBlockEntity blockEntity, PoseStack poseStack,
+                                     MultiBufferSource bufferSource) {
         FactoryProjectionCache cache = getProjectionCache(blockEntity);
         if (cache == null) {
             return;
@@ -56,16 +67,11 @@ public final class MirrorFactoryRenderer implements BlockEntityRenderer<MirrorFa
 
         poseStack.pushPose();
         poseStack.translate(0.5D, PREVIEW_Y_OFFSET, 0.5D);
-        float scale = (float) (PREVIEW_SIZE / Math.max(
-                cache.getBounds().getXsize(),
-                Math.max(cache.getBounds().getYsize(), cache.getBounds().getZsize())
-        ));
-        poseStack.scale(scale, scale, scale);
-        poseStack.translate(
-                -cache.getBounds().getCenter().x,
-                -cache.getBounds().getCenter().y,
-                -cache.getBounds().getCenter().z
-        );
+        poseStack.scale(PREVIEW_SCALE, PREVIEW_SCALE, PREVIEW_SCALE);
+        // Sample coordinates are offsets from the centre of the cell, so local (0, y, 0) is the middle of
+        // the cell's footprint and the preview comes out centred on the block no matter how lopsided the
+        // sampled room is. Only the height is taken from the bounds, to sit the floor on the block.
+        poseStack.translate(0.0D, -cache.getBounds().minY, 0.0D);
         cache.render(poseStack, bufferSource);
         poseStack.popPose();
     }
@@ -88,11 +94,6 @@ public final class MirrorFactoryRenderer implements BlockEntityRenderer<MirrorFa
         );
         PROJECTION_CACHE.put(blockEntity, new CachedProjection(hash, rebuilt));
         return rebuilt;
-    }
-
-    @Override
-    public int getViewDistance() {
-        return 128;
     }
 
     private record CachedProjection(int hash, FactoryProjectionCache cache) {

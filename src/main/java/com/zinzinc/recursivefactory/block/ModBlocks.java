@@ -2,8 +2,6 @@ package com.zinzinc.recursivefactory.block;
 
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.MapColor;
@@ -25,14 +23,20 @@ public final class ModBlocks {
             .noOcclusion()
             .pushReaction(PushReaction.BLOCK);
 
+    private static final BlockBehaviour.Properties BARRIER_PROPERTIES = BlockBehaviour.Properties.of()
+            .mapColor(MapColor.METAL)
+            .strength(5.0F, 1200.0F)
+            .sound(SoundType.METAL)
+            .pushReaction(PushReaction.BLOCK);
+
     public static final DeferredBlock<RecursiveFactoryBlock> RECURSIVE_FACTORY = BLOCKS.register(
             "recursive_factory",
             () -> new RecursiveFactoryBlock(FACTORY_PROPERTIES)
     );
 
-    public static final DeferredBlock<MirrorFactoryBlock> MIRROR_FACTORY = BLOCKS.register(
-            "mirror_factory",
-            () -> new MirrorFactoryBlock(FACTORY_PROPERTIES)
+    public static final DeferredBlock<FactoryBarrierBlock> FACTORY_BARRIER = BLOCKS.register(
+            "factory_barrier",
+            () -> new FactoryBarrierBlock(BARRIER_PROPERTIES)
     );
 
     public static final DeferredItem<BlockItem> RECURSIVE_FACTORY_ITEM = ITEMS.registerSimpleBlockItem(
@@ -40,9 +44,9 @@ public final class ModBlocks {
             RECURSIVE_FACTORY
     );
 
-    public static final DeferredItem<BlockItem> MIRROR_FACTORY_ITEM = ITEMS.registerSimpleBlockItem(
-            "mirror_factory",
-            MIRROR_FACTORY
+    public static final DeferredItem<BlockItem> FACTORY_BARRIER_ITEM = ITEMS.registerSimpleBlockItem(
+            "factory_barrier",
+            FACTORY_BARRIER
     );
 
     private ModBlocks() {

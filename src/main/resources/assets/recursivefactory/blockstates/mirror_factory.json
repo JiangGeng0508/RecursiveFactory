@@ -1,6 +1,0 @@
-{
-  "variants": {
-    "powered=false": { "model": "recursivefactory:block/mirror_factory" },
-    "powered=true": { "model": "recursivefactory:block/mirror_factory" }
-  }
-}

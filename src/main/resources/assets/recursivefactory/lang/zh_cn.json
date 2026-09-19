@@ -1,7 +1,7 @@
 {
   "itemGroup.recursivefactory.main": "递归工厂",
   "block.recursivefactory.recursive_factory": "递归工厂",
-  "block.recursivefactory.mirror_factory": "镜像工厂",
+  "block.recursivefactory.factory_barrier": "工厂屏障",
   "message.recursivefactory.entered": "已进入递归工厂 #%s。",
   "message.recursivefactory.exited": "已离开递归工厂 #%s。",
   "message.recursivefactory.missing": "该递归工厂已不存在。"

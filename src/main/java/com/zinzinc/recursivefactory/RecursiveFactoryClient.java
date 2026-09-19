@@ -1,7 +1,6 @@
 package com.zinzinc.recursivefactory;
 
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
-import com.zinzinc.recursivefactory.client.render.MirrorFactoryRenderer;
 import com.zinzinc.recursivefactory.client.render.RecursiveFactoryRenderer;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
@@ -16,6 +15,5 @@ public final class RecursiveFactoryClient {
 
     private void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerBlockEntityRenderer(ModBlockEntities.RECURSIVE_FACTORY.get(), RecursiveFactoryRenderer::new);
-        event.registerBlockEntityRenderer(ModBlockEntities.MIRROR_FACTORY.get(), MirrorFactoryRenderer::new);
     }
 }

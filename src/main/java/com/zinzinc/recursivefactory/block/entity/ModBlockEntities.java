@@ -25,12 +25,12 @@ public final class ModBlockEntities {
                     ).build(null)
             );
 
-    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<MirrorFactoryBlockEntity>> MIRROR_FACTORY =
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<FactoryBarrierBlockEntity>> FACTORY_BARRIER =
             BLOCK_ENTITY_TYPES.register(
-                    "mirror_factory",
+                    "factory_barrier",
                     () -> BlockEntityType.Builder.of(
-                            MirrorFactoryBlockEntity::new,
-                            ModBlocks.MIRROR_FACTORY.get()
+                            FactoryBarrierBlockEntity::new,
+                            ModBlocks.FACTORY_BARRIER.get()
                     ).build(null)
             );
 
@@ -44,7 +44,7 @@ public final class ModBlockEntities {
 
     private static void registerCapabilities(RegisterCapabilitiesEvent event) {
         registerEndpoint(event, RECURSIVE_FACTORY.get());
-        registerEndpoint(event, MIRROR_FACTORY.get());
+        registerEndpoint(event, FACTORY_BARRIER.get());
     }
 
     private static void registerEndpoint(RegisterCapabilitiesEvent event, BlockEntityType<? extends EndpointBlockEntity> type) {
