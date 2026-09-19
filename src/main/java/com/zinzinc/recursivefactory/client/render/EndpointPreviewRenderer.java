@@ -59,7 +59,7 @@ public final class EndpointPreviewRenderer {
     }
 
     public static void renderPreview(EndpointBlockEntity blockEntity, PoseStack poseStack,
-                                     MultiBufferSource bufferSource) {
+                                     MultiBufferSource bufferSource, float partialTick) {
         FactoryProjectionCache cache = getProjectionCache(blockEntity);
         if (cache == null) {
             return;
@@ -73,16 +73,22 @@ public final class EndpointPreviewRenderer {
         // sampled room is. Only the height is taken from the bounds, to sit the floor on the block.
         poseStack.translate(0.0D, -cache.getBounds().minY, 0.0D);
         cache.render(poseStack, bufferSource);
+        cache.renderBlockEntities(poseStack, bufferSource, partialTick);
+        cache.renderEntities(poseStack, bufferSource, partialTick);
         poseStack.popPose();
     }
 
     private static FactoryProjectionCache getProjectionCache(EndpointBlockEntity blockEntity) {
-        if (blockEntity.getLevel() == null || blockEntity.getPreviewBlocks().isEmpty()) {
+        if (blockEntity.getLevel() == null
+                || blockEntity.getPreviewBlocks().isEmpty()
+                        && blockEntity.getPreviewEntities().isEmpty()
+                        && blockEntity.getPreviewBlockEntities().isEmpty()) {
             PROJECTION_CACHE.remove(blockEntity);
             return null;
         }
 
-        int hash = blockEntity.getPreviewBlocks().hashCode();
+        int hash = 31 * blockEntity.getPreviewBlocks().hashCode() + blockEntity.getPreviewEntities().hashCode();
+        hash = 31 * hash + blockEntity.getPreviewBlockEntities().hashCode();
         CachedProjection cached = PROJECTION_CACHE.get(blockEntity);
         if (cached != null && cached.hash() == hash) {
             return cached.cache();
@@ -90,7 +96,9 @@ public final class EndpointPreviewRenderer {
 
         FactoryProjectionCache rebuilt = new FactoryProjectionCache(
                 blockEntity.getLevel(),
-                blockEntity.getPreviewBlocks()
+                blockEntity.getPreviewBlocks(),
+                blockEntity.getPreviewEntities(),
+                blockEntity.getPreviewBlockEntities()
         );
         PROJECTION_CACHE.put(blockEntity, new CachedProjection(hash, rebuilt));
         return rebuilt;

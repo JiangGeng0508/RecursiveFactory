@@ -10,18 +10,23 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.DoubleTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.Tag;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.slf4j.Logger;
 
@@ -34,6 +39,24 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     private static final String REMOTE_POWERED_TAG = "RemotePowered";
     private static final String OUTPUT_DIRECTION_TAG = "OutputDirection";
     private static final String PREVIEW_BLOCKS_TAG = "PreviewBlocks";
+    private static final String PREVIEW_BLOCKS_LIST_TAG = "Blocks";
+    private static final String PREVIEW_ENTITIES_LIST_TAG = "Entities";
+    private static final String PREVIEW_BLOCK_ENTITIES_LIST_TAG = "BlockEntities";
+    /** Entities travel as full NBT, so a busy room would otherwise send an unbounded preview. */
+    private static final int MAX_PREVIEW_ENTITIES = 24;
+    /**
+     * Block entities travel as NBT too, and some of them are big (a machine's inventory, a contraption),
+     * so both how many are taken and how large a single one may be are capped.
+     */
+    private static final int MAX_PREVIEW_BLOCK_ENTITIES = 32;
+    private static final int MAX_PREVIEW_BLOCK_ENTITY_BYTES = 16384;
+    /**
+     * Tags that exist for physics only. Dropping them keeps the payload small and, more importantly, keeps
+     * an entity that is standing still from looking changed: every one of these is rewritten every tick.
+     */
+    private static final List<String> VOLATILE_ENTITY_TAGS = List.of(
+            "Motion", "FallDistance", "OnGround", "PortalCooldown", "Air", "Fire", "UUID"
+    );
 
     private int factoryId = -1;
     private ItemStack pendingStack = ItemStack.EMPTY;
@@ -42,6 +65,8 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     private boolean remotePowered;
     private @Nullable Direction outputDirection;
     private List<PreviewBlock> previewBlocks = List.of();
+    private List<CompoundTag> previewEntities = List.of();
+    private List<CompoundTag> previewBlockEntities = List.of();
 
     protected EndpointBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState blockState) {
         super(type, pos, blockState);
@@ -146,35 +171,73 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         return previewBlocks;
     }
 
-    public void acceptPreview(List<PreviewBlock> updatedPreview) {
+    public List<CompoundTag> getPreviewEntities() {
+        return previewEntities;
+    }
+
+    public List<CompoundTag> getPreviewBlockEntities() {
+        return previewBlockEntities;
+    }
+
+    public void acceptPreview(List<PreviewBlock> updatedPreview, List<CompoundTag> updatedEntities,
+                              List<CompoundTag> updatedBlockEntities) {
         previewBlocks = List.copyOf(updatedPreview);
+        previewEntities = List.copyOf(updatedEntities);
+        previewBlockEntities = List.copyOf(updatedBlockEntities);
     }
 
     public void refreshPreviewSnapshot() {
     }
 
-    public void updatePreview(List<PreviewBlock> updatedPreview) {
-        if (previewBlocks.equals(updatedPreview)) {
+    public void updatePreview(List<PreviewBlock> updatedPreview, List<CompoundTag> updatedEntities,
+                              List<CompoundTag> updatedBlockEntities) {
+        if (previewBlocks.equals(updatedPreview)
+                && previewEntities.equals(updatedEntities)
+                && previewBlockEntities.equals(updatedBlockEntities)) {
             return;
         }
+        boolean blocksChanged = !previewBlocks.equals(updatedPreview);
         previewBlocks = List.copyOf(updatedPreview);
+        previewEntities = List.copyOf(updatedEntities);
+        previewBlockEntities = List.copyOf(updatedBlockEntities);
         setChanged();
-        broadcastPreview();
+        broadcastPreview(blocksChanged);
     }
 
     /**
      * Pushes the current preview to every client that has this block's chunk loaded. Vanilla's
      * sendBlockUpdated only reacts to block state changes, so block entity data has to be sent here.
      */
-    protected void broadcastPreview() {
+    protected void broadcastPreview(boolean blocksChanged) {
         if (!(level instanceof ServerLevel serverLevel)) {
             return;
         }
-        LOGGER.info("Broadcasting endpoint preview at {} with {} blocks", worldPosition, previewBlocks.size());
+        // An entity that walks around changes the preview every tick; only a change to the blocks is worth a
+        // line at info, the rest would flood the log. Both still go out on the wire.
+        if (blocksChanged) {
+            LOGGER.info(
+                    "Broadcasting endpoint preview at {} with {} blocks, {} entities and {} block entities",
+                    worldPosition,
+                    previewBlocks.size(),
+                    previewEntities.size(),
+                    previewBlockEntities.size()
+            );
+        } else {
+            LOGGER.debug(
+                    "Broadcasting endpoint preview at {} with {} blocks, {} entities and {} block entities",
+                    worldPosition,
+                    previewBlocks.size(),
+                    previewEntities.size(),
+                    previewBlockEntities.size()
+            );
+        }
         PacketDistributor.sendToPlayersTrackingChunk(
                 serverLevel,
                 new ChunkPos(worldPosition),
-                new EndpointPreviewPackets.Sync(worldPosition, writePreviewBlocks(previewBlocks))
+                new EndpointPreviewPackets.Sync(
+                        worldPosition,
+                        writePreview(previewBlocks, previewEntities, previewBlockEntities)
+                )
         );
     }
 
@@ -205,6 +268,91 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         return List.copyOf(sampled);
     }
 
+    /**
+     * Collects the entities inside the same box {@link #samplePreview} covers, as full NBT so that items,
+     * named mobs and the like come back on the client the way they are. Positions are rebased on the centre
+     * of the sample, the local frame the blocks use. Players are left out: their entity type refuses to be
+     * rebuilt from NBT on the client, and the person looking at the preview is not its subject anyway.
+     */
+    public static List<CompoundTag> samplePreviewEntities(ServerLevel level, BlockPos center, int size, int height) {
+        int half = size / 2;
+        AABB box = new AABB(
+                center.getX() - half,
+                center.getY() - 1,
+                center.getZ() - half,
+                center.getX() - half + size,
+                center.getY() - 1 + height,
+                center.getZ() - half + size
+        );
+        List<CompoundTag> sampled = new ArrayList<>();
+        for (Entity entity : level.getEntitiesOfClass(Entity.class, box, EndpointBlockEntity::isPreviewable)) {
+            if (sampled.size() >= MAX_PREVIEW_ENTITIES) {
+                break;
+            }
+            CompoundTag tag = new CompoundTag();
+            entity.saveWithoutId(tag);
+            // saveWithoutId deliberately leaves the type id out (its NBT is not meant to be recreated from),
+            // and EntityType.create looks the type up by exactly this key, so it has to be put back in.
+            tag.putString("id", EntityType.getKey(entity.getType()).toString());
+            for (String volatileTag : VOLATILE_ENTITY_TAGS) {
+                tag.remove(volatileTag);
+            }
+            tag.put("Pos", newDoubleList(
+                    entity.getX() - center.getX(),
+                    entity.getY() - center.getY() + 1,
+                    entity.getZ() - center.getZ()
+            ));
+            sampled.add(tag);
+        }
+        return List.copyOf(sampled);
+    }
+
+    private static boolean isPreviewable(Entity entity) {
+        return !(entity instanceof Player) && !entity.isSpectator() && !entity.isRemoved();
+    }
+
+    private static ListTag newDoubleList(double... values) {
+        ListTag list = new ListTag();
+        for (double value : values) {
+            list.add(DoubleTag.valueOf(value));
+        }
+        return list;
+    }
+
+    /**
+     * Collects the NBT of every block entity among the sampled blocks, so the client can build them again
+     * and let their renderers draw: a chest holds items, a bell has a swinging part, a sign has text, and
+     * none of that lives in the block state. The position in the tag is rebased on the sample centre like
+     * everything else the preview carries. Blocks the caller already filtered out (the barrier shell) are
+     * not looked at, so the shell's block entities never travel.
+     */
+    public static List<CompoundTag> samplePreviewBlockEntities(ServerLevel level, BlockPos center,
+                                                              List<PreviewBlock> blocks) {
+        List<CompoundTag> sampled = new ArrayList<>();
+        for (PreviewBlock block : blocks) {
+            if (sampled.size() >= MAX_PREVIEW_BLOCK_ENTITIES) {
+                break;
+            }
+            if (!block.state().hasBlockEntity()) {
+                continue;
+            }
+            BlockEntity blockEntity = level.getBlockEntity(center.offset(block.x(), block.y() - 1, block.z()));
+            if (blockEntity == null) {
+                continue;
+            }
+            CompoundTag tag = blockEntity.saveWithId(level.registryAccess());
+            if (tag.sizeInBytes() > MAX_PREVIEW_BLOCK_ENTITY_BYTES) {
+                LOGGER.debug("Skipping oversized block entity {} in the endpoint preview", blockEntity.getType());
+                continue;
+            }
+            tag.putInt("x", block.x());
+            tag.putInt("y", block.y());
+            tag.putInt("z", block.z());
+            sampled.add(tag);
+        }
+        return List.copyOf(sampled);
+    }
+
     public void serverTick() {
         if (level != null && !level.isClientSide) {
             FactoryRelay.transport(this);
@@ -228,7 +376,7 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         if (outputDirection != null) {
             tag.putString(OUTPUT_DIRECTION_TAG, outputDirection.getSerializedName());
         }
-        tag.put(PREVIEW_BLOCKS_TAG, writePreviewBlocks(previewBlocks));
+        tag.put(PREVIEW_BLOCKS_TAG, writePreview(previewBlocks, previewEntities, previewBlockEntities));
     }
 
     @Override
@@ -247,6 +395,8 @@ public abstract class EndpointBlockEntity extends BlockEntity {
                 ? Direction.byName(tag.getString(OUTPUT_DIRECTION_TAG))
                 : null;
         previewBlocks = readPreviewBlocks(tag, registries);
+        previewEntities = readPreviewEntities(tag);
+        previewBlockEntities = readPreviewBlockEntities(tag);
     }
 
     @Override
@@ -272,7 +422,8 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         loadAdditional(tag == null ? new CompoundTag() : tag, registries);
     }
 
-    public static CompoundTag writePreviewBlocks(List<PreviewBlock> blocks) {
+    public static CompoundTag writePreview(List<PreviewBlock> blocks, List<CompoundTag> entities,
+                                           List<CompoundTag> blockEntities) {
         CompoundTag root = new CompoundTag();
         ListTag list = new ListTag();
         for (PreviewBlock previewBlock : blocks) {
@@ -283,7 +434,17 @@ public abstract class EndpointBlockEntity extends BlockEntity {
             entry.put("State", NbtUtils.writeBlockState(previewBlock.state()));
             list.add(entry);
         }
-        root.put("Blocks", list);
+        root.put(PREVIEW_BLOCKS_LIST_TAG, list);
+        ListTag entityList = new ListTag();
+        for (CompoundTag entity : entities) {
+            entityList.add(entity.copy());
+        }
+        root.put(PREVIEW_ENTITIES_LIST_TAG, entityList);
+        ListTag blockEntityList = new ListTag();
+        for (CompoundTag blockEntity : blockEntities) {
+            blockEntityList.add(blockEntity.copy());
+        }
+        root.put(PREVIEW_BLOCK_ENTITIES_LIST_TAG, blockEntityList);
         return root;
     }
 
@@ -292,7 +453,7 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         CompoundTag root = tag.contains(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND)
                 ? tag.getCompound(PREVIEW_BLOCKS_TAG)
                 : tag;
-        ListTag list = root.getList("Blocks", Tag.TAG_COMPOUND);
+        ListTag list = root.getList(PREVIEW_BLOCKS_LIST_TAG, Tag.TAG_COMPOUND);
         for (Tag entry : list) {
             CompoundTag blockTag = (CompoundTag) entry;
             BlockState state = NbtUtils.readBlockState(
@@ -307,6 +468,30 @@ public abstract class EndpointBlockEntity extends BlockEntity {
             ));
         }
         return List.copyOf(blocks);
+    }
+
+    public static List<CompoundTag> readPreviewEntities(CompoundTag tag) {
+        CompoundTag root = tag.contains(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND)
+                ? tag.getCompound(PREVIEW_BLOCKS_TAG)
+                : tag;
+        ListTag list = root.getList(PREVIEW_ENTITIES_LIST_TAG, Tag.TAG_COMPOUND);
+        List<CompoundTag> entities = new ArrayList<>();
+        for (Tag entry : list) {
+            entities.add(((CompoundTag) entry).copy());
+        }
+        return List.copyOf(entities);
+    }
+
+    public static List<CompoundTag> readPreviewBlockEntities(CompoundTag tag) {
+        CompoundTag root = tag.contains(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND)
+                ? tag.getCompound(PREVIEW_BLOCKS_TAG)
+                : tag;
+        ListTag list = root.getList(PREVIEW_BLOCK_ENTITIES_LIST_TAG, Tag.TAG_COMPOUND);
+        List<CompoundTag> blockEntities = new ArrayList<>();
+        for (Tag entry : list) {
+            blockEntities.add(((CompoundTag) entry).copy());
+        }
+        return List.copyOf(blockEntities);
     }
 
     public record PreviewBlock(int x, int y, int z, BlockState state) {

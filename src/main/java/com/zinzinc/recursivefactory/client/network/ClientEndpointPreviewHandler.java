@@ -26,10 +26,28 @@ public final class ClientEndpointPreviewHandler {
                 previewTag,
                 level.registryAccess()
         );
+        List<CompoundTag> entities = EndpointBlockEntity.readPreviewEntities(previewTag);
+        List<CompoundTag> blockEntities = EndpointBlockEntity.readPreviewBlockEntities(previewTag);
         if (!blocks.equals(endpoint.getPreviewBlocks())) {
-            LOGGER.info("Received endpoint preview at {} with {} blocks", pos, blocks.size());
+            LOGGER.info(
+                    "Received endpoint preview at {} with {} blocks, {} entities and {} block entities",
+                    pos,
+                    blocks.size(),
+                    entities.size(),
+                    blockEntities.size()
+            );
+        } else if (!entities.equals(endpoint.getPreviewEntities())
+                || !blockEntities.equals(endpoint.getPreviewBlockEntities())) {
+            // Moving entities change the preview every tick, so only the first sighting is worth a line.
+            LOGGER.debug(
+                    "Received endpoint preview at {} with {} blocks, {} entities and {} block entities",
+                    pos,
+                    blocks.size(),
+                    entities.size(),
+                    blockEntities.size()
+            );
         }
-        endpoint.acceptPreview(blocks);
+        endpoint.acceptPreview(blocks, entities, blockEntities);
     }
 
     public static void handle(EndpointPreviewPackets.Sync packet) {

@@ -1,5 +1,6 @@
 package com.zinzinc.recursivefactory.client.render;
 
+import com.mojang.logging.LogUtils;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
@@ -21,23 +22,37 @@ import net.createmod.catnip.render.SuperByteBuffer;
 import net.createmod.catnip.render.TemplateMesh;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.ItemBlockRenderTypes;
+import net.minecraft.client.renderer.LightTexture;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.block.BlockRenderDispatcher;
 import net.minecraft.client.renderer.block.ModelBlockRenderer;
+import net.minecraft.client.renderer.blockentity.BlockEntityRenderDispatcher;
+import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
+import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.client.resources.model.BakedModel;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.client.model.data.ModelData;
+import org.slf4j.Logger;
 
 public final class FactoryProjectionCache {
+    private static final Logger LOGGER = LogUtils.getLogger();
     private static final ThreadLocal<ThreadLocalObjects> THREAD_LOCAL_OBJECTS =
             ThreadLocal.withInitial(ThreadLocalObjects::new);
     private static final ByteBufferBuilder FLUID_BUFFER_BUILDER = new ByteBufferBuilder(1536);
@@ -47,9 +62,12 @@ public final class FactoryProjectionCache {
     private final List<BlockPos> fluidPositions = new ArrayList<>();
     private final Map<RenderType, SuperByteBuffer> bufferCache = new LinkedHashMap<>();
     private final Map<RenderType, SuperByteBuffer> fluidBufferCache = new LinkedHashMap<>();
+    private final List<Entity> entities = new ArrayList<>();
+    private final List<BlockEntity> blockEntities = new ArrayList<>();
     private final AABB bounds;
 
-    public FactoryProjectionCache(Level level, List<EndpointBlockEntity.PreviewBlock> previewBlocks) {
+    public FactoryProjectionCache(Level level, List<EndpointBlockEntity.PreviewBlock> previewBlocks,
+                                  List<CompoundTag> previewEntities, List<CompoundTag> previewBlockEntities) {
         int minX = Integer.MAX_VALUE;
         int minY = Integer.MAX_VALUE;
         int minZ = Integer.MAX_VALUE;
@@ -96,6 +114,26 @@ public final class FactoryProjectionCache {
         }
 
         renderWorld.runLightEngine();
+        for (CompoundTag tag : previewEntities) {
+            try {
+                EntityType.create(tag, renderWorld).ifPresentOrElse(
+                        this::prepareEntity,
+                        () -> LOGGER.warn(
+                                "Skipping entity {} in the endpoint preview: unknown or disabled type",
+                                tag.getString("id")
+                        )
+                );
+            } catch (RuntimeException exception) {
+                LOGGER.warn("Skipping entity in the endpoint preview", exception);
+            }
+        }
+        for (CompoundTag tag : previewBlockEntities) {
+            try {
+                createBlockEntity(tag);
+            } catch (RuntimeException exception) {
+                LOGGER.warn("Skipping block entity in the endpoint preview", exception);
+            }
+        }
         bounds = previewBlocks.isEmpty()
                 ? new AABB(BlockPos.ZERO)
                 : new AABB(minX, minY, minZ, maxX + 1, maxY + 1, maxZ + 1);
@@ -124,6 +162,111 @@ public final class FactoryProjectionCache {
                 poseStack,
                 bufferSource.getBuffer(layer)
         ));
+    }
+
+    /**
+     * Draws the room's entities on top of the blocks, in the same local frame and at the same scale, so a
+     * mob or a dropped item stands exactly where it stands in the room. Called from a block entity renderer,
+     * so a renderer that throws is logged and skipped instead of taking the frame down with it.
+     */
+    public void renderEntities(PoseStack poseStack, MultiBufferSource bufferSource, float partialTick) {
+        if (entities.isEmpty()) {
+            return;
+        }
+        EntityRenderDispatcher dispatcher = Minecraft.getInstance().getEntityRenderDispatcher();
+        for (Entity entity : entities) {
+            try {
+                dispatcher.render(
+                        entity,
+                        entity.getX(),
+                        entity.getY(),
+                        entity.getZ(),
+                        0.0F,
+                        partialTick,
+                        poseStack,
+                        bufferSource,
+                        LightTexture.FULL_BRIGHT
+                );
+            } catch (RuntimeException exception) {
+                LOGGER.warn("Skipping entity render in the endpoint preview", exception);
+            }
+        }
+    }
+
+    /**
+     * The NBT carries the position already rebased on the sample centre, which is the frame the preview is
+     * drawn in, so the entity only needs its old position and its body yaw pulled in line: an entity that
+     * has never ticked would otherwise be interpolated in from the origin, facing south.
+     */
+    private void prepareEntity(Entity entity) {
+        entity.setOldPosAndRot();
+        if (entity instanceof LivingEntity living) {
+            float yaw = living.getYRot();
+            living.yBodyRot = yaw;
+            living.yBodyRotO = yaw;
+            living.yHeadRot = yaw;
+            living.yHeadRotO = yaw;
+        }
+        entities.add(entity);
+    }
+
+    /**
+     * Builds a block entity again in the virtual world so its renderer can draw what the block state
+     * cannot say: the items in a chest, the swinging part of a bell, the text on a sign. The tag carries the
+     * type id and a position already rebased on the sample centre, the frame the preview is drawn in.
+     */
+    private void createBlockEntity(CompoundTag tag) {
+        String id = tag.getString("id");
+        BlockEntityType<?> type = BuiltInRegistries.BLOCK_ENTITY_TYPE.get(ResourceLocation.tryParse(id));
+        if (type == null) {
+            LOGGER.warn("Skipping block entity {} in the endpoint preview: unknown type", id);
+            return;
+        }
+        BlockPos pos = BlockEntity.getPosFromTag(tag);
+        BlockEntity blockEntity = type.create(pos, renderWorld.getBlockState(pos));
+        if (blockEntity == null) {
+            LOGGER.warn("Skipping block entity {} in the endpoint preview: it cannot be created", id);
+            return;
+        }
+        blockEntity.setLevel(renderWorld);
+        blockEntity.loadWithComponents(tag, renderWorld.registryAccess());
+        renderWorld.setBlockEntity(blockEntity);
+        blockEntities.add(blockEntity);
+    }
+
+    /**
+     * Draws the room's block entities on top of the blocks they stand on. Their renderers are called
+     * directly instead of through the dispatcher's render(): that one culls by the distance from the real
+     * camera to the block entity, and these sit at the preview's local coordinates, so everything would be
+     * culled away. A renderer that throws is logged and skipped, exactly as with the entities.
+     */
+    public void renderBlockEntities(PoseStack poseStack, MultiBufferSource bufferSource, float partialTick) {
+        if (blockEntities.isEmpty()) {
+            return;
+        }
+        BlockEntityRenderDispatcher dispatcher = Minecraft.getInstance().getBlockEntityRenderDispatcher();
+        for (BlockEntity blockEntity : blockEntities) {
+            BlockEntityRenderer<BlockEntity> renderer = dispatcher.getRenderer(blockEntity);
+            if (renderer == null) {
+                continue;
+            }
+            BlockPos pos = blockEntity.getBlockPos();
+            poseStack.pushPose();
+            poseStack.translate(pos.getX(), pos.getY(), pos.getZ());
+            try {
+                renderer.render(
+                        blockEntity,
+                        partialTick,
+                        poseStack,
+                        bufferSource,
+                        LightTexture.FULL_BRIGHT,
+                        OverlayTexture.NO_OVERLAY
+                );
+            } catch (RuntimeException exception) {
+                LOGGER.warn("Skipping block entity render in the endpoint preview", exception);
+            }
+            poseStack.popPose();
+        }
     }
 
     private void redraw() {

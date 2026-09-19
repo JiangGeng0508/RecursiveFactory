@@ -17,7 +17,7 @@ public final class RecursiveFactoryRenderer implements BlockEntityRenderer<Recur
             return;
         }
         EndpointPreviewRenderer.requestPreview(blockEntity);
-        EndpointPreviewRenderer.renderPreview(blockEntity, poseStack, bufferSource);
+        EndpointPreviewRenderer.renderPreview(blockEntity, poseStack, bufferSource, partialTick);
     }
 
     @Override

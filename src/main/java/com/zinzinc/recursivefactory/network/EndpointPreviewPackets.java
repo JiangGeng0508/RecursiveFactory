@@ -39,7 +39,11 @@ public final class EndpointPreviewPackets {
                 endpoint.refreshPreviewSnapshot();
                 PacketDistributor.sendToPlayer(player, new Sync(
                         packet.pos(),
-                        EndpointBlockEntity.writePreviewBlocks(endpoint.getPreviewBlocks())
+                        EndpointBlockEntity.writePreview(
+                                endpoint.getPreviewBlocks(),
+                                endpoint.getPreviewEntities(),
+                                endpoint.getPreviewBlockEntities()
+                        )
                 ));
             });
         }

@@ -86,18 +86,20 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
             cell = record.anchorCell();
         }
         if (factoryLevel == null || cell == null) {
-            updatePreview(List.of());
+            updatePreview(List.of(), List.of(), List.of());
             return;
         }
 
-        // The barrier shell is not part of the preview: only the room's free space is drawn.
-        updatePreview(samplePreview(
-                factoryLevel,
-                cell.center(),
-                PREVIEW_SIZE,
-                PREVIEW_HEIGHT
-        ).stream()
+        // The barrier shell is not part of the preview: only the room's free space is drawn. Its block
+        // entities are dropped with it, so the shell's own block entities never travel either.
+        List<PreviewBlock> blocks = samplePreview(factoryLevel, cell.center(), PREVIEW_SIZE, PREVIEW_HEIGHT)
+                .stream()
                 .filter(block -> !block.state().is(ModBlocks.FACTORY_BARRIER.get()))
-                .toList());
+                .toList();
+        updatePreview(
+                blocks,
+                samplePreviewEntities(factoryLevel, cell.center(), PREVIEW_SIZE, PREVIEW_HEIGHT),
+                samplePreviewBlockEntities(factoryLevel, cell.center(), blocks)
+        );
     }
 }
