@@ -3,8 +3,11 @@ package com.zinzinc.recursivefactory.world;
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.entity.FactoryBarrierBlockEntity;
+import java.util.ArrayList;
+import java.util.List;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
@@ -61,41 +64,55 @@ public final class FactoryDimension {
     }
 
     /**
-     * The one barrier block of a factory that carries the return half of its link to the outside: items
-     * put into the entrance block come out here, and its face is what the entrance block's redstone
-     * output faces. Every other barrier block carries the other direction (see FactoryRelay).
+     * The room's barriers that a link coming in through one face of an entrance block ends at: the shell
+     * columns of {@code cell} on the side the thing came in through, at the height a player stands at.
      *
-     * <p>It is derived rather than saved, from the anchor cell's x and the north edge of the union, so
-     * it moves with the room instead of going stale.
+     * <p>Every column of the cell's edge is walked outwards until it leaves the room, so what comes back
+     * is the wall of the union rather than of the cell alone: a room that has grown past its anchor cell
+     * answers on its outer wall, and an L shaped room on the walls of its step as well.
+     *
+     * <p>Up and down answer on the ceiling and on the base layer instead, one row across the middle of the
+     * cell, which are barriers there as well.
+     *
+     * <p>The whole side is answered on rather than a single block, so that a hopper or a dust line built
+     * anywhere along that wall picks the link up instead of the player having to find one exact spot.
      */
-    @Nullable
-    public static BlockPos portPos(FactoryData.FactoryRecord record) {
-        FactoryData.FactoryRecord.Cell anchor = record.anchorCell();
-        if (anchor == null) {
-            return null;
+    public static List<BlockPos> wallLine(FactoryData.FactoryRecord record, FactoryData.FactoryRecord.Cell cell,
+                                          Direction direction) {
+        BlockPos center = cell.center();
+        if (direction.getAxis().isVertical()) {
+            int y = direction == Direction.UP ? FactoryData.CEILING_Y : FactoryData.BASE_Y;
+            List<BlockPos> row = new ArrayList<>();
+            for (int x = cell.roomX(); x < cell.roomX() + FactoryData.CELL_SIZE; x++) {
+                if (record.roomContains(x, center.getZ())) {
+                    row.add(new BlockPos(x, y, center.getZ()));
+                }
+            }
+            return row;
         }
-        int minZ = Integer.MAX_VALUE;
-        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
-            minZ = Math.min(minZ, cell.roomZ());
-        }
-        // The port stands on a column of the room that lies on its north edge. The anchor's column is one,
-        // unless the room holds cells that do not touch - losing a cell in the middle leaves the anchor's
-        // column outside the room - in which case the middle of a cell that is on that edge is used, so
-        // the port never ends up floating in the void with no block to stand on.
-        int portX = anchor.roomX() + FactoryData.CELL_SIZE / 2;
-        if (!record.roomContains(portX, minZ)) {
-            for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
-                if (cell.roomZ() == minZ) {
-                    portX = cell.roomX() + FactoryData.CELL_SIZE / 2;
-                    break;
+
+        boolean alongX = direction.getAxis() == Direction.Axis.X;
+        int start = direction == Direction.EAST || direction == Direction.SOUTH
+                ? FactoryData.CELL_SIZE - 1
+                : 0;
+        List<BlockPos> wall = new ArrayList<>();
+        for (int offset = 0; offset < FactoryData.CELL_SIZE; offset++) {
+            BlockPos cursor = alongX
+                    ? new BlockPos(cell.roomX() + start, FactoryData.FLOOR_Y + 1, cell.roomZ() + offset)
+                    : new BlockPos(cell.roomX() + offset, FactoryData.FLOOR_Y + 1, cell.roomZ() + start);
+            BlockPos last = null;
+            while (record.roomContains(cursor)) {
+                last = cursor;
+                cursor = cursor.relative(direction);
+            }
+            if (last != null) {
+                BlockPos landed = new BlockPos(last.getX(), FactoryData.FLOOR_Y + 1, last.getZ());
+                if (!wall.contains(landed)) {
+                    wall.add(landed);
                 }
             }
         }
-        return new BlockPos(
-                portX,
-                FactoryData.FLOOR_Y + 1,
-                minZ
-        );
+        return wall;
     }
 
     /** Where a player arriving through this entrance cell lands: the middle of its room cell. */

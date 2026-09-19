@@ -64,6 +64,8 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     private boolean localPowered;
     private boolean remotePowered;
     private @Nullable Direction outputDirection;
+    /** The face {@link #noteBlockedTransport} last reported; see there. Not saved on purpose. */
+    private @Nullable Direction lastBlockedFace;
     private List<PreviewBlock> previewBlocks = List.of();
     private List<CompoundTag> previewEntities = List.of();
     private List<CompoundTag> previewBlockEntities = List.of();
@@ -128,6 +130,20 @@ public abstract class EndpointBlockEntity extends BlockEntity {
             pendingInput = null;
         }
         setChanged();
+    }
+
+    /**
+     * Remembers the face the last transport attempt found nothing to push into, so that a stack waiting to
+     * get into the room (or back out of it) is reported once per face instead of on every one of its ticks.
+     * Passing {@code null} clears the mark; the return value is true when the face is new, which is when the
+     * wait is worth a line. Not saved: it only exists to keep the log readable.
+     */
+    public boolean noteBlockedTransport(@Nullable Direction face) {
+        if (face == lastBlockedFace) {
+            return false;
+        }
+        lastBlockedFace = face;
+        return face != null;
     }
 
     public boolean isLocalPowered() {

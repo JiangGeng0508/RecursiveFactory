@@ -9,8 +9,8 @@
     "powered=false,facing=west": { "model": "recursivefactory:block/recursive_factory" },
     "powered=true,facing=west": { "model": "recursivefactory:block/recursive_factory_on", "y": 270 },
     "powered=false,facing=up": { "model": "recursivefactory:block/recursive_factory" },
-    "powered=true,facing=up": { "model": "recursivefactory:block/recursive_factory_on", "x": 270 },
+    "powered=true,facing=up": { "model": "recursivefactory:block/recursive_factory_on_up" },
     "powered=false,facing=down": { "model": "recursivefactory:block/recursive_factory" },
-    "powered=true,facing=down": { "model": "recursivefactory:block/recursive_factory_on", "x": 90 }
+    "powered=true,facing=down": { "model": "recursivefactory:block/recursive_factory_on_down" }
   }
 }
