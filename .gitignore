@@ -42,3 +42,8 @@ repo/
 ### vibe coding
 .reference
 .zcode
+
+### Local agent workspace and scratch logs: never part of the mod
+.agents/
+AGENTS.md
+logs/

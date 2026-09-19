@@ -6,6 +6,7 @@ import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import javax.annotation.Nullable;
@@ -16,8 +17,10 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -34,9 +37,15 @@ import org.slf4j.Logger;
  * a hopper feeding the entrance block outside drops its items beside the room's wall on the same side
  * (see {@link #resolveRemotes}).
  *
- * <p>Redstone is mirrored the same way, and each end only ever drives the one face the signal is leaving
- * through. Only the far end drives it: the end the signal went in through lights up and passes it on, but
- * emits nothing itself, so a signal fed into the entrance block from outside never comes back out of it.
+ * <p>Redstone is mirrored the same way, and an end drives exactly the faces a signal is leaving through:
+ * fed from two sides at once, an entrance block answers on both of the room's sides. Only the far end
+ * drives them - the end the signal went in through lights up and passes it on, but emits nothing itself,
+ * so a signal fed into the entrance block from outside never comes back out of it.
+ *
+ * <p>It is mirrored the way redstone dust does it, strength and all: every face carries its own level
+ * (see {@link EndpointBlockEntity#getInputPower}), the link between the two ends counts as one dust block,
+ * and a dust sitting against either end is charged as if it were sitting against that one dust (see
+ * {@link #readInputs}).
  *
  * <p>The entrance block's far end is a whole side of the room rather than one block: anything built along
  * the wall the thing came in through picks the link up, so the player does not have to find the one block
@@ -87,61 +96,55 @@ public final class FactoryRelay {
         }
     }
 
-    public static void syncPower(EndpointBlockEntity local, boolean localPowered, @Nullable Direction inputDirection) {
+    /**
+     * Hands the far end what each face of this end is being fed with now, and takes back the faces that
+     * went quiet. {@code inputPower} is the whole picture, not a change: an entrance block fed from two
+     * sides at once keeps both, which is what stops one of them from silently going dark.
+     *
+     * <p>The faces this end was already driving are kept in the block entity, so the far end can still be
+     * found - and turned back off - after the input that chose it has gone away.
+     */
+    public static void syncPower(EndpointBlockEntity local, int[] inputPower) {
         boolean wasPowered = local.isOutputPowered();
-        Direction previous = local.getOutputDirection();
-        // The way the link runs: the opposite of the face a signal is coming in through, and the face this
-        // end was already driving once the input is gone. Keeping it in the block entity is what lets the
-        // far end still be found - and turned back off - after the input that chose it has gone away.
-        Direction driven = localPowered && inputDirection != null
-                ? inputDirection.getOpposite()
-                : previous;
-        local.setLocalPowered(localPowered);
-        if (localPowered && inputDirection != null) {
-            local.setOutputDirection(driven);
-        } else if (!localPowered && !local.isRemotePowered()) {
-            local.setOutputDirection(null);
-        }
+        int[] previous = local.getInputPowers();
+        local.setInputPowers(inputPower);
         updateOutputState(local);
         if (local.isOutputPowered() != wasPowered) {
-            LOGGER.info("Relayed redstone at {}: powered={}, input={}, output face={}", local.getBlockPos(),
-                    local.isOutputPowered(), inputDirection, local.getOutputDirection());
+            LOGGER.info("Relayed redstone at {}: powered={}, in={}, out={}", local.getBlockPos(),
+                    local.isOutputPowered(), describe(inputPower), describe(local.getOutputPowers()));
+        } else if (!Arrays.equals(previous, inputPower)) {
+            LOGGER.debug("Relayed redstone strength at {}: in={}, out={}", local.getBlockPos(),
+                    describe(inputPower), describe(local.getOutputPowers()));
         }
 
         if (!(local.getLevel() instanceof ServerLevel localLevel)) {
             return;
         }
 
-        // The side the link answers on moved while the input stayed on: let go of the old one first, or
-        // the whole wall it used to light up would stay lit for good.
-        if (previous != null && previous != driven
-                && local.getBlockState().getBlock() instanceof RecursiveFactoryBlock) {
-            clearRemotes(localLevel, local, previous.getOpposite());
-        }
-
-        for (RemoteEndpoint remote : resolveRemotes(localLevel, local,
-                driven == null ? null : driven.getOpposite())) {
-            if (remote.level().getBlockEntity(remote.pos()) instanceof EndpointBlockEntity remoteEndpoint) {
-                remoteEndpoint.setRemotePowered(localPowered);
-                if (localPowered && driven != null) {
-                    remoteEndpoint.setOutputDirection(driven);
-                } else if (!localPowered && !remoteEndpoint.isLocalPowered()) {
-                    remoteEndpoint.setOutputDirection(null);
-                }
-                updateOutputState(remoteEndpoint);
+        // A side that stopped being fed (or that was swapped for another one) lets go of its wall first,
+        // or the whole side it used to light up would stay lit for good. Every side is handled on its own,
+        // at its own strength: losing one input must not take the other one's wall down with it.
+        for (Direction input : Direction.values()) {
+            int was = previous[input.ordinal()];
+            int now = inputPower[input.ordinal()];
+            if (was != now) {
+                driveRemotes(localLevel, local, input, now);
             }
         }
     }
 
-    /** Lets go of one side of a room, used when an entrance block answers on a different face instead. */
-    private static void clearRemotes(ServerLevel localLevel, EndpointBlockEntity local,
-                                     @Nullable Direction inputFace) {
+    /**
+     * Drives the far end of one side of a link with {@code power}, or lets go of it when that is zero.
+     * {@code inputFace} is the face of this end the redstone is coming in through, and it is what picks
+     * the side of the room the link answers on: the far end is driven on the opposite face, and every
+     * barrier of that side's wall is set to the same strength.
+     */
+    private static void driveRemotes(ServerLevel localLevel, EndpointBlockEntity local, Direction inputFace,
+                                     int power) {
+        Direction driven = inputFace.getOpposite();
         for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace)) {
             if (remote.level().getBlockEntity(remote.pos()) instanceof EndpointBlockEntity endpoint) {
-                if (!endpoint.isLocalPowered()) {
-                    endpoint.setOutputDirection(null);
-                }
-                endpoint.setRemotePowered(false);
+                endpoint.setOutputPower(driven, power);
                 updateOutputState(endpoint);
             }
         }
@@ -158,25 +161,19 @@ public final class FactoryRelay {
             return;
         }
 
-        // The face we are driving cannot be an input: whatever is sitting there (dust, a repeater, ...)
-        // reports that power straight back, and reading it back would latch us on. An end that is only
-        // passing something on drives nothing, so for it there is no face to skip.
-        Direction emitting = local.isRemotePowered() ? local.getOutputDirection() : null;
-        Direction input = strongestInputDirection(level, pos, emitting);
-        boolean powered = input != null;
-        boolean unchanged = powered == local.isLocalPowered()
-                && (!powered || input.getOpposite() == local.getOutputDirection());
-        if (unchanged) {
+        int[] inputs = readInputs(level, pos, local);
+        if (Arrays.equals(inputs, local.getInputPowers())) {
             return;
         }
-        syncPower(local, powered, input);
+        syncPower(local, inputs);
     }
 
     /**
      * The signal an end emits in {@code direction}. Only the far end of a link emits: the end a signal went
      * in through lights up and passes it on, but drives nothing itself, so a signal fed into the entrance
      * block from outside does not come back out of it and the wall never drives its own input. Beyond that
-     * it is a diode and only ever drives the one face it is wired to output on; emitting on every face
+     * it only drives the faces it is wired to output on - one per side the signal came in through, each at
+     * the strength it was fed with (see {@link EndpointBlockEntity#getOutputPower}); emitting on every face
      * would light up the rest of the wall and relay the whole room back into itself.
      */
     public static int emittedSignal(BlockState state, @Nullable BlockEntity blockEntity, Direction direction) {
@@ -186,12 +183,60 @@ public final class FactoryRelay {
                 || !state.getValue(BlockStateProperties.POWERED)) {
             return 0;
         }
-        return endpoint.getOutputDirection() == direction.getOpposite() ? 15 : 0;
+        return endpoint.getOutputPower(direction.getOpposite());
     }
 
     /**
-     * Mirrors the end's state onto its block: whether it is lit, and the face it outputs on. The face
-     * is part of the block state as well so the block model can point at it.
+     * The strength feeding every face of this end, worked out the way a dust block works out its own
+     * level: a dust hands the next dust one less than its own power - the link between the two ends
+     * counts as one such dust, so a signal crossing it is worth exactly one dust block - while anything
+     * else (a repeater, a torch, a lever, a redstone block) comes through at the strength it reports.
+     *
+     * <p>What is skipped: the faces this end is driving, because whatever sits there reports our own power
+     * straight back and reading it back would latch us on; and neighbours that are themselves an end (a
+     * barrier or an entrance block), because a closed wall of barriers would otherwise relay its own
+     * signal around the ring of the room and stay lit for good. An end that is only passing something on
+     * drives nothing, so for it there is nothing to skip.
+     */
+    private static int[] readInputs(Level level, BlockPos pos, EndpointBlockEntity local) {
+        int[] inputs = new int[Direction.values().length];
+        for (Direction direction : Direction.values()) {
+            if (local.getOutputPower(direction) > 0) {
+                continue;
+            }
+            BlockPos neighbourPos = pos.relative(direction);
+            BlockState neighbourState = level.getBlockState(neighbourPos);
+            if (isRelay(neighbourState)) {
+                continue;
+            }
+            int power = level.getSignal(neighbourPos, direction);
+            if (neighbourState.is(Blocks.REDSTONE_WIRE)) {
+                power--;
+            }
+            inputs[direction.ordinal()] = Mth.clamp(power, 0, 15);
+        }
+        return inputs;
+    }
+
+    /** The live faces of a strength table, for the log lines. */
+    private static String describe(int[] powers) {
+        StringBuilder builder = new StringBuilder("[");
+        for (Direction direction : Direction.values()) {
+            int power = powers[direction.ordinal()];
+            if (power > 0) {
+                if (builder.length() > 1) {
+                    builder.append(' ');
+                }
+                builder.append(direction.getSerializedName()).append('=').append(power);
+            }
+        }
+        return builder.append(']').toString();
+    }
+
+    /**
+     * Mirrors the end's state onto its block: whether it is lit, and the face its marker sits on. Only one
+     * face fits in the block state, so an end that emits on several marks the strongest of them (see
+     * {@link EndpointBlockEntity#markerFace()}); the redstone itself is not limited to it.
      */
     public static void updateOutputState(EndpointBlockEntity endpoint) {
         Level level = endpoint.getLevel();
@@ -206,7 +251,7 @@ public final class FactoryRelay {
         if (state.hasProperty(BlockStateProperties.POWERED) && state.getValue(BlockStateProperties.POWERED) != desired) {
             updated = updated.setValue(BlockStateProperties.POWERED, desired);
         }
-        Direction face = endpoint.getOutputDirection();
+        Direction face = endpoint.markerFace();
         if (face != null && state.hasProperty(BlockStateProperties.FACING)
                 && state.getValue(BlockStateProperties.FACING) != face) {
             updated = updated.setValue(BlockStateProperties.FACING, face);
@@ -214,33 +259,6 @@ public final class FactoryRelay {
         if (updated != state) {
             level.setBlock(pos, updated, 3);
         }
-    }
-
-    /**
-     * The direction of the strongest signal driving this position, or {@code null} when nothing does.
-     * {@code ignoredFace} is skipped, and so is every neighbour that is itself an end (a barrier or an
-     * entrance block): a closed wall of barriers would otherwise relay its own signal around the ring
-     * of the room and stay lit forever.
-     */
-    public static @Nullable Direction strongestInputDirection(Level level, BlockPos pos,
-                                                              @Nullable Direction ignoredFace) {
-        Direction strongestDirection = null;
-        int strongestSignal = 0;
-        for (Direction direction : Direction.values()) {
-            if (direction == ignoredFace) {
-                continue;
-            }
-            BlockPos neighbourPos = pos.relative(direction);
-            if (isRelay(level.getBlockState(neighbourPos))) {
-                continue;
-            }
-            int signal = level.getSignal(neighbourPos, direction);
-            if (signal > strongestSignal) {
-                strongestDirection = direction;
-                strongestSignal = signal;
-            }
-        }
-        return strongestDirection;
     }
 
     private static boolean isRelay(BlockState state) {

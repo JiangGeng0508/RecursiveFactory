@@ -3,6 +3,7 @@ package com.zinzinc.recursivefactory.block.entity;
 import com.mojang.logging.LogUtils;
 import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
@@ -22,10 +23,12 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.util.Mth;
 import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.slf4j.Logger;
@@ -35,9 +38,17 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     private static final String FACTORY_ID_TAG = "FactoryId";
     private static final String PENDING_STACK_TAG = "PendingStack";
     private static final String PENDING_INPUT_TAG = "PendingInput";
-    private static final String LOCAL_POWERED_TAG = "LocalPowered";
-    private static final String REMOTE_POWERED_TAG = "RemotePowered";
-    private static final String OUTPUT_DIRECTION_TAG = "OutputDirection";
+    private static final int FACE_COUNT = Direction.values().length;
+    private static final int MAX_POWER = 15;
+    private static final int POWER_BITS = 4;
+    private static final String INPUT_POWER_TAG = "InputPower";
+    private static final String OUTPUT_POWER_TAG = "OutputPower";
+    /** Saves from when a link stored which faces were live instead of how strong each of them is. */
+    private static final String LEGACY_INPUT_FACES_TAG = "InputFaces";
+    private static final String LEGACY_OUTPUT_FACES_TAG = "OutputFaces";
+    /** Saves from when a link could only ever drive one face, and only ever at full strength. */
+    private static final String LEGACY_OUTPUT_DIRECTION_TAG = "OutputDirection";
+    private static final String LEGACY_REMOTE_POWERED_TAG = "RemotePowered";
     private static final String PREVIEW_BLOCKS_TAG = "PreviewBlocks";
     private static final String PREVIEW_BLOCKS_LIST_TAG = "Blocks";
     private static final String PREVIEW_ENTITIES_LIST_TAG = "Entities";
@@ -61,9 +72,14 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     private int factoryId = -1;
     private ItemStack pendingStack = ItemStack.EMPTY;
     private @Nullable Direction pendingInput;
-    private boolean localPowered;
-    private boolean remotePowered;
-    private @Nullable Direction outputDirection;
+    /**
+     * Strength fed into each face, 0-15, indexed by {@link Direction#ordinal()}. Several faces can be fed
+     * at once - an entrance block wired from two sides drives both of the room's walls - and every face
+     * keeps its own strength, the way each dust block in a line keeps the level it was fed with.
+     */
+    private final int[] inputPower = new int[FACE_COUNT];
+    /** Strength emitted from each face, 0-15: what the far end of the link drives this end with. */
+    private final int[] outputPower = new int[FACE_COUNT];
     /** The face {@link #noteBlockedTransport} last reported; see there. Not saved on purpose. */
     private @Nullable Direction lastBlockedFace;
     private List<PreviewBlock> previewBlocks = List.of();
@@ -85,6 +101,11 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     public void setFactoryId(int factoryId) {
         this.factoryId = factoryId;
         setChanged();
+        // The client tints a barrier with its factory's colour, so it has to be told the id even when the
+        // barrier is placed after the chunk it sits in was sent.
+        if (level instanceof ServerLevel serverLevel) {
+            serverLevel.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_ALL);
+        }
     }
 
     public ItemStack offer(ItemStack stack, @Nullable Direction inputSide) {
@@ -147,40 +168,88 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     }
 
     public boolean isLocalPowered() {
-        return localPowered;
+        return anyPower(inputPower);
     }
 
     public boolean isRemotePowered() {
-        return remotePowered;
+        return anyPower(outputPower);
     }
 
     public boolean isOutputPowered() {
-        return localPowered || remotePowered;
+        return isLocalPowered() || isRemotePowered();
     }
 
-    public void setLocalPowered(boolean powered) {
-        if (localPowered != powered) {
-            localPowered = powered;
+    private static boolean anyPower(int[] powers) {
+        for (int power : powers) {
+            if (power > 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** The strength fed into {@code face} right now, 0-15. */
+    public int getInputPower(Direction face) {
+        return inputPower[face.ordinal()];
+    }
+
+    public int[] getInputPowers() {
+        return inputPower.clone();
+    }
+
+    public void setInputPowers(int[] powers) {
+        if (Arrays.equals(inputPower, powers)) {
+            return;
+        }
+        System.arraycopy(powers, 0, inputPower, 0, FACE_COUNT);
+        setChanged();
+    }
+
+    /** The strength this end emits on {@code face} right now, 0-15. */
+    public int getOutputPower(Direction face) {
+        return outputPower[face.ordinal()];
+    }
+
+    public int[] getOutputPowers() {
+        return outputPower.clone();
+    }
+
+    /** What the far end of a link drives this face with. Zero turns that face's link off again. */
+    public void setOutputPower(Direction face, int power) {
+        int clamped = Mth.clamp(power, 0, MAX_POWER);
+        if (outputPower[face.ordinal()] != clamped) {
+            outputPower[face.ordinal()] = clamped;
             setChanged();
         }
     }
 
-    public void setRemotePowered(boolean powered) {
-        if (remotePowered != powered) {
-            remotePowered = powered;
-            setChanged();
+    /**
+     * The face the block model should mark. Only one face fits in the block state, so an end that emits
+     * on several at once marks the strongest of them (ties go to direction order). A face this end really
+     * emits on wins over the face of an input it is only passing on, which is what would otherwise be
+     * marked, so the marker always points at a link that is live on this end.
+     */
+    public @Nullable Direction markerFace() {
+        Direction marked = null;
+        int strongest = 0;
+        for (Direction direction : Direction.values()) {
+            int power = outputPower[direction.ordinal()];
+            if (power > strongest) {
+                marked = direction;
+                strongest = power;
+            }
         }
-    }
-
-    public @Nullable Direction getOutputDirection() {
-        return outputDirection;
-    }
-
-    public void setOutputDirection(@Nullable Direction direction) {
-        if (outputDirection != direction) {
-            outputDirection = direction;
-            setChanged();
+        if (marked != null) {
+            return marked;
         }
+        for (Direction direction : Direction.values()) {
+            int power = inputPower[direction.ordinal()];
+            if (power > strongest) {
+                marked = direction.getOpposite();
+                strongest = power;
+            }
+        }
+        return marked;
     }
 
     public List<PreviewBlock> getPreviewBlocks() {
@@ -387,11 +456,8 @@ public abstract class EndpointBlockEntity extends BlockEntity {
                 tag.putString(PENDING_INPUT_TAG, pendingInput.getSerializedName());
             }
         }
-        tag.putBoolean(LOCAL_POWERED_TAG, localPowered);
-        tag.putBoolean(REMOTE_POWERED_TAG, remotePowered);
-        if (outputDirection != null) {
-            tag.putString(OUTPUT_DIRECTION_TAG, outputDirection.getSerializedName());
-        }
+        tag.putInt(INPUT_POWER_TAG, powerMask(inputPower));
+        tag.putInt(OUTPUT_POWER_TAG, powerMask(outputPower));
         tag.put(PREVIEW_BLOCKS_TAG, writePreview(previewBlocks, previewEntities, previewBlockEntities));
     }
 
@@ -405,11 +471,24 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         pendingInput = tag.contains(PENDING_INPUT_TAG)
                 ? Direction.byName(tag.getString(PENDING_INPUT_TAG))
                 : null;
-        localPowered = tag.getBoolean(LOCAL_POWERED_TAG);
-        remotePowered = tag.getBoolean(REMOTE_POWERED_TAG);
-        outputDirection = tag.contains(OUTPUT_DIRECTION_TAG)
-                ? Direction.byName(tag.getString(OUTPUT_DIRECTION_TAG))
-                : null;
+        Arrays.fill(inputPower, 0);
+        Arrays.fill(outputPower, 0);
+        if (tag.contains(INPUT_POWER_TAG) || tag.contains(OUTPUT_POWER_TAG)) {
+            readPowerMask(tag.getInt(INPUT_POWER_TAG), inputPower);
+            readPowerMask(tag.getInt(OUTPUT_POWER_TAG), outputPower);
+        } else if (tag.contains(LEGACY_INPUT_FACES_TAG) || tag.contains(LEGACY_OUTPUT_FACES_TAG)) {
+            readFaceMaskAsPower(tag.getInt(LEGACY_INPUT_FACES_TAG), inputPower);
+            readFaceMaskAsPower(tag.getInt(LEGACY_OUTPUT_FACES_TAG), outputPower);
+        } else if (tag.contains(LEGACY_OUTPUT_DIRECTION_TAG, Tag.TAG_STRING)) {
+            Direction legacy = Direction.byName(tag.getString(LEGACY_OUTPUT_DIRECTION_TAG));
+            if (legacy != null) {
+                if (tag.getBoolean(LEGACY_REMOTE_POWERED_TAG)) {
+                    outputPower[legacy.ordinal()] = MAX_POWER;
+                } else {
+                    inputPower[legacy.getOpposite().ordinal()] = MAX_POWER;
+                }
+            }
+        }
         previewBlocks = readPreviewBlocks(tag, registries);
         previewEntities = readPreviewEntities(tag);
         previewBlockEntities = readPreviewBlockEntities(tag);
@@ -436,6 +515,30 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     public void onDataPacket(Connection connection, ClientboundBlockEntityDataPacket packet, HolderLookup.Provider registries) {
         CompoundTag tag = packet.getTag();
         loadAdditional(tag == null ? new CompoundTag() : tag, registries);
+    }
+
+    /** Four bits per face is all a strength needs, so both tables fit in one int each. */
+    private static int powerMask(int[] powers) {
+        int mask = 0;
+        for (Direction face : Direction.values()) {
+            mask |= (powers[face.ordinal()] & MAX_POWER) << (face.get3DDataValue() * POWER_BITS);
+        }
+        return mask;
+    }
+
+    private static void readPowerMask(int mask, int[] powers) {
+        for (Direction face : Direction.values()) {
+            powers[face.ordinal()] = (mask >>> (face.get3DDataValue() * POWER_BITS)) & MAX_POWER;
+        }
+    }
+
+    /** A live face from an older save carries no strength: it was full power back then. */
+    private static void readFaceMaskAsPower(int mask, int[] powers) {
+        for (Direction face : Direction.values()) {
+            if ((mask & (1 << face.get3DDataValue())) != 0) {
+                powers[face.ordinal()] = MAX_POWER;
+            }
+        }
     }
 
     public static CompoundTag writePreview(List<PreviewBlock> blocks, List<CompoundTag> entities,

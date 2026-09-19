@@ -1,19 +1,34 @@
 package com.zinzinc.recursivefactory;
 
+import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
+import com.zinzinc.recursivefactory.client.render.FactoryColors;
 import com.zinzinc.recursivefactory.client.render.RecursiveFactoryRenderer;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
 
 @Mod(value = RecursiveFactory.MODID, dist = Dist.CLIENT)
 public final class RecursiveFactoryClient {
     public RecursiveFactoryClient(IEventBus modEventBus) {
         modEventBus.addListener(this::registerRenderers);
+        modEventBus.addListener(this::registerBlockColors);
+        modEventBus.addListener(this::registerItemColors);
     }
 
     private void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerBlockEntityRenderer(ModBlockEntities.RECURSIVE_FACTORY.get(), RecursiveFactoryRenderer::new);
+    }
+
+    /** Barriers are a flat white cube tinted per factory, so the whole room comes out one colour. */
+    private void registerBlockColors(RegisterColorHandlersEvent.Block event) {
+        event.register((state, level, pos, tintIndex) -> FactoryColors.at(level, pos),
+                ModBlocks.FACTORY_BARRIER.get());
+    }
+
+    private void registerItemColors(RegisterColorHandlersEvent.Item event) {
+        event.register((stack, tintIndex) -> FactoryColors.UNKNOWN, ModBlocks.FACTORY_BARRIER_ITEM.get());
     }
 }
