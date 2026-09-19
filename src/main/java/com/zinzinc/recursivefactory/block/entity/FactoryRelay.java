@@ -138,6 +138,10 @@ public final class FactoryRelay {
         return endpoint.getOutputDirection() == direction.getOpposite() ? 15 : 0;
     }
 
+    /**
+     * Mirrors the end's state onto its block: whether it is lit, and the face it outputs on. The face
+     * is part of the block state as well so the block model can point at it.
+     */
     public static void updateOutputState(EndpointBlockEntity endpoint) {
         Level level = endpoint.getLevel();
         BlockPos pos = endpoint.getBlockPos();
@@ -146,12 +150,18 @@ public final class FactoryRelay {
         }
 
         BlockState state = level.getBlockState(pos);
+        BlockState updated = state;
         boolean desired = endpoint.isOutputPowered();
         if (state.hasProperty(BlockStateProperties.POWERED) && state.getValue(BlockStateProperties.POWERED) != desired) {
-            level.setBlock(pos, state.setValue(BlockStateProperties.POWERED, desired), 3);
-        } else if (desired) {
-            // The output face can move while the block stays lit, so refresh the neighbours anyway.
-            level.updateNeighborsAt(pos, state.getBlock());
+            updated = updated.setValue(BlockStateProperties.POWERED, desired);
+        }
+        Direction face = endpoint.getOutputDirection();
+        if (face != null && state.hasProperty(BlockStateProperties.FACING)
+                && state.getValue(BlockStateProperties.FACING) != face) {
+            updated = updated.setValue(BlockStateProperties.FACING, face);
+        }
+        if (updated != state) {
+            level.setBlock(pos, updated, 3);
         }
     }
 

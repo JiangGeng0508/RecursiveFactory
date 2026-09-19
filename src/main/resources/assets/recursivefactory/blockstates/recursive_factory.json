@@ -1,6 +1,16 @@
 {
   "variants": {
-    "powered=false": { "model": "recursivefactory:block/recursive_factory" },
-    "powered=true": { "model": "recursivefactory:block/recursive_factory" }
+    "powered=false,facing=north": { "model": "recursivefactory:block/recursive_factory" },
+    "powered=true,facing=north": { "model": "recursivefactory:block/recursive_factory_on" },
+    "powered=false,facing=east": { "model": "recursivefactory:block/recursive_factory" },
+    "powered=true,facing=east": { "model": "recursivefactory:block/recursive_factory_on", "y": 90 },
+    "powered=false,facing=south": { "model": "recursivefactory:block/recursive_factory" },
+    "powered=true,facing=south": { "model": "recursivefactory:block/recursive_factory_on", "y": 180 },
+    "powered=false,facing=west": { "model": "recursivefactory:block/recursive_factory" },
+    "powered=true,facing=west": { "model": "recursivefactory:block/recursive_factory_on", "y": 270 },
+    "powered=false,facing=up": { "model": "recursivefactory:block/recursive_factory" },
+    "powered=true,facing=up": { "model": "recursivefactory:block/recursive_factory_on", "x": 270 },
+    "powered=false,facing=down": { "model": "recursivefactory:block/recursive_factory" },
+    "powered=true,facing=down": { "model": "recursivefactory:block/recursive_factory_on", "x": 90 }
   }
 }

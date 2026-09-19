@@ -43,7 +43,9 @@ public final class FactoryBarrierBlock extends BaseEntityBlock {
 
     public FactoryBarrierBlock(BlockBehaviour.Properties properties) {
         super(properties);
-        registerDefaultState(stateDefinition.any().setValue(BlockStateProperties.POWERED, false));
+        registerDefaultState(stateDefinition.any()
+                .setValue(BlockStateProperties.POWERED, false)
+                .setValue(BlockStateProperties.FACING, Direction.NORTH));
     }
 
     @Override
@@ -53,7 +55,7 @@ public final class FactoryBarrierBlock extends BaseEntityBlock {
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(BlockStateProperties.POWERED);
+        builder.add(BlockStateProperties.POWERED, BlockStateProperties.FACING);
     }
 
     @Override
