@@ -74,6 +74,11 @@ public final class FactoryDimension {
      * <p>Up and down answer on the ceiling and on the base layer instead, one row across the middle of the
      * cell, which are barriers there as well.
      *
+     * <p>Columns with no room behind them are left out. A corner of the room is wall on two sides, so the
+     * block behind a corner block of one wall is the other wall rather than the room: a link answering
+     * there has nowhere to put what comes in - it would land inside the wall, in the other wall's own
+     * endpoint, and be relayed back out of the entrance block on the wrong side (see {@link #inward}).
+     *
      * <p>The whole side is answered on rather than a single block, so that a hopper or a dust line built
      * anywhere along that wall picks the link up instead of the player having to find one exact spot.
      */
@@ -84,8 +89,12 @@ public final class FactoryDimension {
             int y = direction == Direction.UP ? FactoryData.CEILING_Y : FactoryData.BASE_Y;
             List<BlockPos> row = new ArrayList<>();
             for (int x = cell.roomX(); x < cell.roomX() + FactoryData.CELL_SIZE; x++) {
-                if (record.roomContains(x, center.getZ())) {
-                    row.add(new BlockPos(x, y, center.getZ()));
+                if (!record.roomContains(x, center.getZ())) {
+                    continue;
+                }
+                BlockPos column = new BlockPos(x, y, center.getZ());
+                if (inward(record, column, direction) != null) {
+                    row.add(column);
                 }
             }
             return row;
@@ -105,14 +114,48 @@ public final class FactoryDimension {
                 last = cursor;
                 cursor = cursor.relative(direction);
             }
-            if (last != null) {
-                BlockPos landed = new BlockPos(last.getX(), FactoryData.FLOOR_Y + 1, last.getZ());
-                if (!wall.contains(landed)) {
-                    wall.add(landed);
-                }
+            if (last == null) {
+                continue;
+            }
+            BlockPos landed = new BlockPos(last.getX(), FactoryData.FLOOR_Y + 1, last.getZ());
+            if (inward(record, landed, direction) != null && !wall.contains(landed)) {
+                wall.add(landed);
             }
         }
         return wall;
+    }
+
+    /**
+     * The first free spot of the room behind a wall block, which is where something coming in through that
+     * block lands: the room itself, one step in. Two cases need the walk rather than the single step - the
+     * base layer, where the floor is what lies behind the wall, and the corners, where the other wall is
+     * and there is no spot at all ({@code null}), so a link has nothing to answer on there.
+     */
+    @Nullable
+    public static BlockPos inward(FactoryData.FactoryRecord record, BlockPos wall, Direction direction) {
+        BlockPos.MutableBlockPos cursor = wall.mutable();
+        for (int step = 0; step < FactoryData.ROOM_HEIGHT; step++) {
+            cursor.move(direction.getOpposite());
+            if (isFreeSpace(record, cursor)) {
+                return cursor.immutable();
+            }
+            if (!record.roomContains(cursor.getX(), cursor.getZ())
+                    || cursor.getY() < FactoryData.FLOOR_Y || cursor.getY() > FactoryData.CEILING_Y) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * True for a spot that is free space of the room: room rather than wall, above the floor and below the
+     * ceiling, so that a link can hand something over there instead of into a wall.
+     */
+    private static boolean isFreeSpace(FactoryData.FactoryRecord record, BlockPos pos) {
+        return record.roomContains(pos)
+                && !isShellColumn(record, pos.getX(), pos.getZ())
+                && pos.getY() > FactoryData.FLOOR_Y
+                && pos.getY() < FactoryData.CEILING_Y;
     }
 
     /** Where a player arriving through this entrance cell lands: the middle of its room cell. */

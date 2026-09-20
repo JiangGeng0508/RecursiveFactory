@@ -69,8 +69,9 @@ public final class FactoryRelay {
         }
 
         Direction outputSide = local.getPendingInput().getOpposite();
+        ItemStack waiting = local.getPendingStack();
         for (RemoteEndpoint remote : remotes) {
-            BlockPos outputPos = remote.pos().relative(outputSide);
+            BlockPos outputPos = remote.outputPos(outputSide);
             IItemHandler target = remote.level().getCapability(
                     Capabilities.ItemHandler.BLOCK,
                     outputPos,
@@ -80,7 +81,14 @@ public final class FactoryRelay {
                 continue;
             }
 
-            ItemStack remainder = ItemHandlerHelper.insertItem(target, local.getPendingStack(), false);
+            ItemStack remainder = ItemHandlerHelper.insertItem(target, waiting, false);
+            if (ItemStack.matches(remainder, waiting)) {
+                // Something is there and would not take a single one of them - a full container, or a wall
+                // block that is already carrying a stack of its own. Keep looking along the far end: taking
+                // this for a transfer is what used to leave a stack shuttling between two endpoints that
+                // each thought the other had it, without a word in the log.
+                continue;
+            }
             local.setTransportResult(remainder);
             local.noteBlockedTransport(null);
             return;
@@ -90,9 +98,8 @@ public final class FactoryRelay {
         // backs up instead of the item being lost, and the wait is reported once per face rather than once
         // per tick.
         if (local.noteBlockedTransport(outputSide)) {
-            LOGGER.info("Item {} is waiting in {}: no item handler beside {} ({} positions tried)",
-                    local.getPendingStack(), local.getBlockPos(),
-                    remotes.get(0).pos().relative(outputSide), remotes.size());
+            LOGGER.info("Item {} is waiting in {}: nothing at {} would take it ({} positions tried)",
+                    waiting, local.getBlockPos(), remotes.get(0).outputPos(outputSide), remotes.size());
         }
     }
 
@@ -309,7 +316,7 @@ public final class FactoryRelay {
         }
         List<RemoteEndpoint> remotes = new ArrayList<>();
         for (BlockPos wall : FactoryDimension.wallLine(record, cell, inputFace)) {
-            RemoteEndpoint endpoint = validEndpoint(roomLevel, wall, FactoryBarrierBlock.class);
+            RemoteEndpoint endpoint = validWall(roomLevel, record, wall, inputFace);
             if (endpoint != null) {
                 remotes.add(endpoint);
             }
@@ -319,8 +326,22 @@ public final class FactoryRelay {
 
     private static @Nullable RemoteEndpoint validEndpoint(ServerLevel level, BlockPos pos, Class<?> blockClass) {
         return blockClass.isInstance(level.getBlockState(pos).getBlock())
-                ? new RemoteEndpoint(level, pos)
+                ? new RemoteEndpoint(level, pos, null)
                 : null;
+    }
+
+    /**
+     * The room side of a link: a wall block, together with the free spot behind it that what comes in
+     * through the wall lands on. The spot is walked out rather than stepped to, so a link never hands its
+     * items to the wall of the other side at a corner (see {@link FactoryDimension#inward}).
+     */
+    private static @Nullable RemoteEndpoint validWall(ServerLevel level, FactoryData.FactoryRecord record,
+                                                      BlockPos wall, Direction direction) {
+        if (!(level.getBlockState(wall).getBlock() instanceof FactoryBarrierBlock)) {
+            return null;
+        }
+        BlockPos entry = FactoryDimension.inward(record, wall, direction);
+        return entry == null ? null : new RemoteEndpoint(level, wall, entry);
     }
 
     private static ResourceKey<Level> dimensionKey(ResourceLocation location) {
@@ -332,6 +353,14 @@ public final class FactoryRelay {
         return blockEntity instanceof EndpointBlockEntity endpoint ? Optional.of(endpoint) : Optional.empty();
     }
 
-    private record RemoteEndpoint(ServerLevel level, BlockPos pos) {
+    /**
+     * A far end, and where it puts what it is given: the free spot behind a wall block of the room, or -
+     * for the entrance block outside, which has no room behind it - the block beside it that the thing is
+     * travelling out towards.
+     */
+    private record RemoteEndpoint(ServerLevel level, BlockPos pos, @Nullable BlockPos entry) {
+        BlockPos outputPos(Direction outputSide) {
+            return entry == null ? pos.relative(outputSide) : entry;
+        }
     }
 }
