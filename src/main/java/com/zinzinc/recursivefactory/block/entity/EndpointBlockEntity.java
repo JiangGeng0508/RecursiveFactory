@@ -31,6 +31,7 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.AABB;
+import net.neoforged.neoforge.fluids.FluidStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.slf4j.Logger;
 
@@ -40,8 +41,16 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     private static final String COLOR_TAG = "Color";
     private static final String PENDING_STACK_TAG = "PendingStack";
     private static final String PENDING_INPUT_TAG = "PendingInput";
+    private static final String PENDING_FLUID_TAG = "PendingFluid";
+    private static final String PENDING_FLUID_INPUT_TAG = "PendingFluidInput";
     private static final int FACE_COUNT = Direction.values().length;
     private static final int MAX_POWER = 15;
+    /**
+     * How much fluid one end holds between two ticks, in mB. It is drained into the far end on every
+     * tick, so the figure is a throughput rather than a store - Create's pipes move a bucket or two a
+     * tick - and it is what stops one push from being thrown away when the far end is momentarily full.
+     */
+    public static final int FLUID_CAPACITY = 8000;
     private static final int POWER_BITS = 4;
     private static final String INPUT_POWER_TAG = "InputPower";
     private static final String OUTPUT_POWER_TAG = "OutputPower";
@@ -81,6 +90,8 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     private int colorIndex = FactoryColors.NO_COLOR;
     private ItemStack pendingStack = ItemStack.EMPTY;
     private @Nullable Direction pendingInput;
+    private FluidStack pendingFluid = FluidStack.EMPTY;
+    private @Nullable Direction pendingFluidInput;
     /**
      * Strength fed into each face, 0-15, indexed by {@link Direction#ordinal()}. Several faces can be fed
      * at once - an entrance block wired from two sides drives both of the room's walls - and every face
@@ -91,6 +102,8 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     private final int[] outputPower = new int[FACE_COUNT];
     /** The face {@link #noteBlockedTransport} last reported; see there. Not saved on purpose. */
     private @Nullable Direction lastBlockedFace;
+    /** The face {@link #noteBlockedFluidTransport} last reported; see {@link #noteBlockedTransport}. */
+    private @Nullable Direction lastBlockedFluidFace;
     private List<PreviewBlock> previewBlocks = List.of();
     private List<CompoundTag> previewEntities = List.of();
     private List<CompoundTag> previewBlockEntities = List.of();
@@ -260,6 +273,64 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     }
 
     /**
+     * Takes fluid into this end's buffer and answers how much of it was accepted, which is the bargain
+     * {@link #offer} makes for items: a pipe pushing into a wall block is held up exactly as far as the far
+     * end of the link is full, rather than the fluid being lost. Fluid already waiting keeps its face, so a
+     * second pipe feeding from another side cannot send it out of the wrong side of the room.
+     */
+    public int offerFluid(FluidStack stack, @Nullable Direction inputSide) {
+        int accepted = roomForFluid(stack, inputSide);
+        if (accepted <= 0) {
+            return 0;
+        }
+        if (pendingFluid.isEmpty()) {
+            pendingFluid = stack.copyWithAmount(accepted);
+            pendingFluidInput = inputSide;
+        } else {
+            pendingFluid.grow(accepted);
+        }
+        setChanged();
+        return accepted;
+    }
+
+    /**
+     * How much of {@code stack} a push from {@code inputSide} would be accepted right now: none while the
+     * buffer holds another fluid, or fluid that came in through another side - that fluid has to leave by
+     * the far end of its own link first, or it would come out of the wrong side of the room.
+     */
+    public int roomForFluid(FluidStack stack, @Nullable Direction inputSide) {
+        if (stack.isEmpty() || !hasFactoryId()) {
+            return 0;
+        }
+        if (!pendingFluid.isEmpty()
+                && (pendingFluidInput != inputSide || !FluidStack.isSameFluidSameComponents(pendingFluid, stack))) {
+            return 0;
+        }
+        return Math.min(FLUID_CAPACITY - pendingFluid.getAmount(), stack.getAmount());
+    }
+
+    public FluidStack getPendingFluid() {
+        return pendingFluid;
+    }
+
+    public @Nullable Direction getPendingFluidInput() {
+        return pendingFluidInput;
+    }
+
+    /** Bookkeeping after a push into the far end took {@code accepted} mB out of the buffer. */
+    public void setFluidTransportResult(int accepted) {
+        if (accepted <= 0 || pendingFluid.isEmpty()) {
+            return;
+        }
+        pendingFluid.shrink(accepted);
+        if (pendingFluid.getAmount() <= 0) {
+            pendingFluid = FluidStack.EMPTY;
+            pendingFluidInput = null;
+        }
+        setChanged();
+    }
+
+    /**
      * Remembers the face the last transport attempt found nothing to push into, so that a stack waiting to
      * get into the room (or back out of it) is reported once per face instead of on every one of its ticks.
      * Passing {@code null} clears the mark; the return value is true when the face is new, which is when the
@@ -270,6 +341,15 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
             return false;
         }
         lastBlockedFace = face;
+        return face != null;
+    }
+
+    /** The fluid that could not be pushed on; see {@link #noteBlockedTransport}. */
+    public boolean noteBlockedFluidTransport(@Nullable Direction face) {
+        if (face == lastBlockedFluidFace) {
+            return false;
+        }
+        lastBlockedFluidFace = face;
         return face != null;
     }
 
@@ -550,6 +630,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         if (level != null && !level.isClientSide) {
             KineticRelay.tick(this);
             FactoryRelay.transport(this);
+            FactoryRelay.transportFluid(this);
         }
     }
 
@@ -566,6 +647,12 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
             tag.put(PENDING_STACK_TAG, pendingStack.save(registries));
             if (pendingInput != null) {
                 tag.putString(PENDING_INPUT_TAG, pendingInput.getSerializedName());
+            }
+        }
+        if (!pendingFluid.isEmpty()) {
+            tag.put(PENDING_FLUID_TAG, pendingFluid.saveOptional(registries));
+            if (pendingFluidInput != null) {
+                tag.putString(PENDING_FLUID_INPUT_TAG, pendingFluidInput.getSerializedName());
             }
         }
         tag.putInt(INPUT_POWER_TAG, powerMask(inputPower));
@@ -590,6 +677,10 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
                 : ItemStack.EMPTY;
         pendingInput = tag.contains(PENDING_INPUT_TAG)
                 ? Direction.byName(tag.getString(PENDING_INPUT_TAG))
+                : null;
+        pendingFluid = FluidStack.parseOptional(registries, tag.getCompound(PENDING_FLUID_TAG));
+        pendingFluidInput = tag.contains(PENDING_FLUID_INPUT_TAG)
+                ? Direction.byName(tag.getString(PENDING_FLUID_INPUT_TAG))
                 : null;
         Arrays.fill(inputPower, 0);
         Arrays.fill(outputPower, 0);

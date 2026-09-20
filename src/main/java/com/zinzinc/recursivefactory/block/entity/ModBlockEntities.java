@@ -8,6 +8,8 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
+import net.neoforged.neoforge.fluids.FluidStack;
+import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 import net.neoforged.neoforge.items.IItemHandler;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -53,6 +55,63 @@ public final class ModBlockEntities {
                 type,
                 (blockEntity, side) -> new EndpointItemHandler(blockEntity, side)
         );
+        event.registerBlockEntity(
+                Capabilities.FluidHandler.BLOCK,
+                type,
+                (blockEntity, side) -> new EndpointFluidHandler(blockEntity, side)
+        );
+    }
+
+    /**
+     * The one tank this end offers, and the fluid side of the link: the fluid it is holding on to, or -
+     * when it is holding none - what a pull would take, so that a pipe asking what is here before draining
+     * finds the far end's tanks (see FactoryRelay#extractFluid). A pipe pushing fluid in is buffered the
+     * same way an item is, and carried across on the next tick.
+     */
+    private record EndpointFluidHandler(EndpointBlockEntity endpoint, Direction side) implements IFluidHandler {
+        @Override
+        public int getTanks() {
+            return 1;
+        }
+
+        @Override
+        public FluidStack getFluidInTank(int tank) {
+            if (tank != 0) {
+                return FluidStack.EMPTY;
+            }
+            FluidStack waiting = endpoint.getPendingFluid();
+            return waiting.isEmpty()
+                    ? FactoryRelay.extractFluid(endpoint, side, FluidStack.EMPTY,
+                            EndpointBlockEntity.FLUID_CAPACITY, true)
+                    : waiting;
+        }
+
+        @Override
+        public int getTankCapacity(int tank) {
+            return EndpointBlockEntity.FLUID_CAPACITY;
+        }
+
+        @Override
+        public boolean isFluidValid(int tank, FluidStack stack) {
+            return tank == 0;
+        }
+
+        @Override
+        public int fill(FluidStack resource, FluidAction action) {
+            return action.simulate()
+                    ? endpoint.roomForFluid(resource, side)
+                    : endpoint.offerFluid(resource, side);
+        }
+
+        @Override
+        public FluidStack drain(FluidStack resource, FluidAction action) {
+            return FactoryRelay.extractFluid(endpoint, side, resource, resource.getAmount(), action.simulate());
+        }
+
+        @Override
+        public FluidStack drain(int maxDrain, FluidAction action) {
+            return FactoryRelay.extractFluid(endpoint, side, FluidStack.EMPTY, maxDrain, action.simulate());
+        }
     }
 
     private record EndpointItemHandler(EndpointBlockEntity endpoint, Direction side) implements IItemHandler {

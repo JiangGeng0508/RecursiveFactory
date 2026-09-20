@@ -25,6 +25,8 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.neoforged.neoforge.capabilities.Capabilities;
+import net.neoforged.neoforge.fluids.FluidStack;
+import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 import net.neoforged.neoforge.items.IItemHandler;
 import net.neoforged.neoforge.items.ItemHandlerHelper;
 import org.slf4j.Logger;
@@ -104,6 +106,56 @@ public final class FactoryRelay {
     }
 
     /**
+     * Pushes the fluid this end is holding into the far end, the way {@link #transport} pushes a stack: it
+     * is handed to the very spots the link hands its items to - beside the entrance block outside for a
+     * barrier, the free spot behind the wall for the entrance block - and what is not taken stays in the
+     * buffer, so a pipe feeding the wall backs up instead of pouring the fluid away.
+     *
+     * <p>A tank sitting at the far end is what this fills, so a pipe inside the room feeds the tank built
+     * against the wall outside, exactly as a hopper inside the room feeds the chest outside.
+     */
+    public static void transportFluid(EndpointBlockEntity local) {
+        if (local.getPendingFluid().isEmpty() || local.getPendingFluidInput() == null
+                || !(local.getLevel() instanceof ServerLevel localLevel)) {
+            return;
+        }
+
+        List<RemoteEndpoint> remotes = resolveRemotes(localLevel, local, local.getPendingFluidInput());
+        if (remotes.isEmpty()) {
+            return;
+        }
+
+        Direction outputSide = local.getPendingFluidInput().getOpposite();
+        FluidStack waiting = local.getPendingFluid();
+        for (RemoteEndpoint remote : remotes) {
+            BlockPos outputPos = remote.outputPos(outputSide);
+            IFluidHandler target = remote.level().getCapability(
+                    Capabilities.FluidHandler.BLOCK,
+                    outputPos,
+                    outputSide.getOpposite()
+            );
+            if (target == null) {
+                continue;
+            }
+
+            int accepted = target.fill(waiting.copy(), IFluidHandler.FluidAction.EXECUTE);
+            if (accepted <= 0) {
+                // A full tank further along the wall, or none at all: keep looking, the way items do.
+                continue;
+            }
+            local.setFluidTransportResult(accepted);
+            local.noteBlockedFluidTransport(null);
+            return;
+        }
+
+        if (local.noteBlockedFluidTransport(outputSide)) {
+            LOGGER.info("Fluid {} is waiting in {}: nothing at {} would take it ({} positions tried)",
+                    waiting.getHoverName(), local.getBlockPos(), remotes.get(0).outputPos(outputSide),
+                    remotes.size());
+        }
+    }
+
+    /**
      * Takes up to {@code amount} out of the far end of a link, which is what an extracting block - a funnel,
      * a chute, a hopper - sitting against {@code face} of this end pulls. Items are taken from the very
      * spots the link hands its own items to (see {@link #transport}), so a container the link fills is the
@@ -137,6 +189,41 @@ public final class FactoryRelay {
             }
         }
         return ItemStack.EMPTY;
+    }
+
+    /**
+     * Takes fluid out of the far end of a link, the same bargain {@link #extract} makes for items: what is
+     * pulled comes from the very spots the link hands its own fluid to, so a tank the link fills is the one
+     * an extraction drains, and {@code face} - the side of this end the pulling block sits on - picks the
+     * side of the room the pull came in through. An empty {@code resource} asks for whatever is there.
+     */
+    public static FluidStack extractFluid(EndpointBlockEntity local, @Nullable Direction face,
+                                          FluidStack resource, int amount, boolean simulate) {
+        if (amount <= 0 || !(local.getLevel() instanceof ServerLevel localLevel)) {
+            return FluidStack.EMPTY;
+        }
+        IFluidHandler.FluidAction action =
+                simulate ? IFluidHandler.FluidAction.SIMULATE : IFluidHandler.FluidAction.EXECUTE;
+        for (Direction inputFace : face == null ? Direction.values() : new Direction[]{face}) {
+            Direction outputSide = inputFace.getOpposite();
+            for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace)) {
+                IFluidHandler target = remote.level().getCapability(
+                        Capabilities.FluidHandler.BLOCK,
+                        remote.outputPos(outputSide),
+                        outputSide.getOpposite()
+                );
+                if (target == null) {
+                    continue;
+                }
+                FluidStack taken = resource.isEmpty()
+                        ? target.drain(amount, action)
+                        : target.drain(resource.copyWithAmount(amount), action);
+                if (!taken.isEmpty()) {
+                    return taken;
+                }
+            }
+        }
+        return FluidStack.EMPTY;
     }
 
     /**

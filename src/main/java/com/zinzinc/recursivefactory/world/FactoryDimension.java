@@ -149,9 +149,10 @@ public final class FactoryDimension {
 
     /**
      * True for a spot that is free space of the room: room rather than wall, above the floor and below the
-     * ceiling, so that a link can hand something over there instead of into a wall.
+     * ceiling, so that a link can hand something over there instead of into a wall - and so that a shaft
+     * reaches the shell from there (see {@code KineticRelay#takesShaft}).
      */
-    private static boolean isFreeSpace(FactoryData.FactoryRecord record, BlockPos pos) {
+    public static boolean isFreeSpace(FactoryData.FactoryRecord record, BlockPos pos) {
         return record.roomContains(pos)
                 && !isShellColumn(record, pos.getX(), pos.getZ())
                 && pos.getY() > FactoryData.FLOOR_Y

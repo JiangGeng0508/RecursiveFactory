@@ -5,6 +5,7 @@ import com.simibubi.create.content.kinetics.base.IRotate;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryBarrierBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryRelay;
+import com.zinzinc.recursivefactory.block.entity.KineticRelay;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
 import com.zinzinc.recursivefactory.world.FactoryTeleporter;
 import javax.annotation.Nullable;
@@ -116,13 +117,14 @@ public final class FactoryBarrierBlock extends BaseEntityBlock implements IRotat
     }
 
     /**
-     * Every face takes a shaft, so that the whole shell of a room is one kinetic network: a shaft or a
-     * machine put against the wall anywhere turns the factory it stands in, and the link with the entrance
-     * block outside reaches the room wherever it is geared in (see KineticRelay).
+     * A shaft reaches this block from the next block of the shell along - a whole room's wall, floor and
+     * ceiling are one machine - and from the room itself, which is where the player builds. It does not
+     * reach in from another factory's shell, so two rooms standing side by side are two machines
+     * (see {@link KineticRelay#takesShaft}).
      */
     @Override
     public boolean hasShaftTowards(LevelReader level, BlockPos pos, BlockState state, Direction face) {
-        return true;
+        return KineticRelay.takesShaft(level, pos, state, face);
     }
 
     /**

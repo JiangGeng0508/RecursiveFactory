@@ -3,6 +3,7 @@ package com.zinzinc.recursivefactory.block.entity;
 import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import com.zinzinc.recursivefactory.block.FactoryBarrierBlock;
+import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import java.util.Map;
@@ -11,6 +12,10 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.LevelReader;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * Turns a factory's machinery from outside, and the outer machines from inside the factory.
@@ -38,6 +43,55 @@ public final class KineticRelay {
     private static final long STALE_TICKS = 5;
 
     private KineticRelay() {
+    }
+
+    /**
+     * Whether a shaft put against {@code face} of an endpoint block reaches it.
+     *
+     * <p>The shell of a room is one machine, so a shaft runs from one block of the shell into the next -
+     * that is what makes a machine built against the wall turn with the room - but not into the shell of
+     * the factory next door, which would tie two rooms together and let one turn the other's wall.
+     *
+     * <p>Room side a shaft also reaches in wherever the face opens into the room itself, which is where
+     * the player builds. The entrance block outside has no room around it, so it takes a shaft on every
+     * face that is not another factory's block - which is what keeps a row of entrance blocks from
+     * becoming one machine that turns every factory in it.
+     */
+    public static boolean takesShaft(LevelReader level, BlockPos pos, BlockState state, Direction face) {
+        BlockPos neighbour = pos.relative(face);
+        Block neighbourBlock = level.getBlockState(neighbour)
+                .getBlock();
+        if (neighbourBlock instanceof FactoryBarrierBlock || neighbourBlock instanceof RecursiveFactoryBlock) {
+            return sameFactory(level, pos, neighbour);
+        }
+        return !(state.getBlock() instanceof FactoryBarrierBlock) || roomSpace(level, pos, neighbour);
+    }
+
+    /** True when both blocks are endpoints of the same factory, see {@link #takesShaft}. */
+    private static boolean sameFactory(BlockGetter level, BlockPos pos, BlockPos neighbour) {
+        int factoryId = factoryIdAt(level, pos);
+        return factoryId > 0 && factoryId == factoryIdAt(level, neighbour);
+    }
+
+    /** True for a spot the player can build in: the free space of the room this block belongs to. */
+    private static boolean roomSpace(BlockGetter level, BlockPos pos, BlockPos neighbour) {
+        if (!(level instanceof ServerLevel serverLevel)) {
+            return false;
+        }
+        MinecraftServer server = serverLevel.getServer();
+        int factoryId = factoryIdAt(level, pos);
+        if (server == null || factoryId <= 0) {
+            return false;
+        }
+        FactoryData.FactoryRecord record = FactoryData.get(server)
+                .factory(factoryId);
+        return record != null && FactoryDimension.isFreeSpace(record, neighbour);
+    }
+
+    private static int factoryIdAt(BlockGetter level, BlockPos pos) {
+        return level.getBlockEntity(pos) instanceof EndpointBlockEntity endpoint && endpoint.hasFactoryId()
+                ? endpoint.getFactoryId()
+                : -1;
     }
 
     /** Looks at both ends of {@code local}'s link. Called once per tick, on the server. */

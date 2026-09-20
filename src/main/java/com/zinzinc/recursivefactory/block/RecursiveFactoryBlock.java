@@ -4,6 +4,7 @@ import com.mojang.serialization.MapCodec;
 import com.simibubi.create.content.kinetics.base.IRotate;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryRelay;
+import com.zinzinc.recursivefactory.block.entity.KineticRelay;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.data.FactoryColors;
@@ -236,13 +237,13 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
     }
 
     /**
-     * Every face takes a shaft, so that the whole shell of a room is one kinetic network: a shaft or a
-     * machine put against the wall anywhere turns the factory it stands in, and the link with the entrance
-     * block outside reaches the room wherever it is geared in (see KineticRelay).
+     * The entrance block stands on its own outside a factory, so a shaft reaches it from any face that is
+     * not another factory's block - a row of entrance blocks therefore stays a row of separate machines
+     * (see {@link KineticRelay#takesShaft}).
      */
     @Override
     public boolean hasShaftTowards(LevelReader level, BlockPos pos, BlockState state, Direction face) {
-        return true;
+        return KineticRelay.takesShaft(level, pos, state, face);
     }
 
     /**
