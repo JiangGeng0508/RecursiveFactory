@@ -104,6 +104,42 @@ public final class FactoryRelay {
     }
 
     /**
+     * Takes up to {@code amount} out of the far end of a link, which is what an extracting block - a funnel,
+     * a chute, a hopper - sitting against {@code face} of this end pulls. Items are taken from the very
+     * spots the link hands its own items to (see {@link #transport}), so a container the link fills is the
+     * one an extraction drains, and a room's wall answers along the whole side the pull came in through.
+     *
+     * <p>{@code face} is the side of this end the pulling block sits on. It picks the side of the room the
+     * link answers on, exactly as it does for an item going the other way, and a pull that does not name a
+     * side asks the room about all of them ({@code null} for the sides this end has nothing to say on).
+     */
+    public static ItemStack extract(EndpointBlockEntity local, @Nullable Direction face, int amount, boolean simulate) {
+        if (amount <= 0 || !(local.getLevel() instanceof ServerLevel localLevel)) {
+            return ItemStack.EMPTY;
+        }
+        for (Direction inputFace : face == null ? Direction.values() : new Direction[]{face}) {
+            Direction outputSide = inputFace.getOpposite();
+            for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace)) {
+                IItemHandler target = remote.level().getCapability(
+                        Capabilities.ItemHandler.BLOCK,
+                        remote.outputPos(outputSide),
+                        outputSide.getOpposite()
+                );
+                if (target == null) {
+                    continue;
+                }
+                for (int slot = 0; slot < target.getSlots(); slot++) {
+                    ItemStack taken = target.extractItem(slot, amount, simulate);
+                    if (!taken.isEmpty()) {
+                        return taken;
+                    }
+                }
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
+    /**
      * Hands the far end what each face of this end is being fed with now, and takes back the faces that
      * went quiet. {@code inputPower} is the whole picture, not a change: an entrance block fed from two
      * sides at once keeps both, which is what stops one of them from silently going dark.

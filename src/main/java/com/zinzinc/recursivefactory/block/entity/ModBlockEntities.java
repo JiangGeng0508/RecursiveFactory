@@ -61,9 +61,18 @@ public final class ModBlockEntities {
             return 1;
         }
 
+        /**
+         * The one slot this end offers: the stack it is holding on to, or - when it is holding none - what
+         * an extraction would take, so that a block asking what is here before pulling finds the far end's
+         * items (see FactoryRelay#extract).
+         */
         @Override
         public net.minecraft.world.item.ItemStack getStackInSlot(int slot) {
-            return slot == 0 ? endpoint.getPendingStack() : net.minecraft.world.item.ItemStack.EMPTY;
+            if (slot != 0) {
+                return net.minecraft.world.item.ItemStack.EMPTY;
+            }
+            net.minecraft.world.item.ItemStack waiting = endpoint.getPendingStack();
+            return waiting.isEmpty() ? FactoryRelay.extract(endpoint, side, 64, true) : waiting;
         }
 
         @Override
@@ -79,7 +88,9 @@ public final class ModBlockEntities {
 
         @Override
         public net.minecraft.world.item.ItemStack extractItem(int slot, int amount, boolean simulate) {
-            return net.minecraft.world.item.ItemStack.EMPTY;
+            return slot == 0
+                    ? FactoryRelay.extract(endpoint, side, amount, simulate)
+                    : net.minecraft.world.item.ItemStack.EMPTY;
         }
 
         @Override

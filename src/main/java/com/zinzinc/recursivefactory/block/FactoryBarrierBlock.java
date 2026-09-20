@@ -1,6 +1,7 @@
 package com.zinzinc.recursivefactory.block;
 
 import com.mojang.serialization.MapCodec;
+import com.simibubi.create.content.kinetics.base.IRotate;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryBarrierBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryRelay;
@@ -13,6 +14,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.Block;
@@ -37,7 +39,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  *
  * <p>Right-clicking a barrier leaves the room, which is the way out now that the walls are solid.
  */
-public final class FactoryBarrierBlock extends BaseEntityBlock {
+public final class FactoryBarrierBlock extends BaseEntityBlock implements IRotate {
     public static final MapCodec<FactoryBarrierBlock> CODEC = simpleCodec(FactoryBarrierBlock::new);
     private static final VoxelShape SHAPE = Shapes.block();
 
@@ -113,6 +115,25 @@ public final class FactoryBarrierBlock extends BaseEntityBlock {
         return FactoryRelay.emittedSignal(state, level.getBlockEntity(pos), direction);
     }
 
+    /**
+     * Every face takes a shaft, so that the whole shell of a room is one kinetic network: a shaft or a
+     * machine put against the wall anywhere turns the factory it stands in, and the link with the entrance
+     * block outside reaches the room wherever it is geared in (see KineticRelay).
+     */
+    @Override
+    public boolean hasShaftTowards(LevelReader level, BlockPos pos, BlockState state, Direction face) {
+        return true;
+    }
+
+    /**
+     * The blocks do not draw their own turning, so the axis is only ever used by Create to tell which faces
+     * of two touching blocks line up.
+     */
+    @Override
+    public Direction.Axis getRotationAxis(BlockState state) {
+        return Direction.Axis.Y;
+    }
+
     @Override
     public @Nullable BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
         return new FactoryBarrierBlockEntity(pos, state);
@@ -123,7 +144,7 @@ public final class FactoryBarrierBlock extends BaseEntityBlock {
                                                                            BlockEntityType<T> type) {
         return type == ModBlockEntities.FACTORY_BARRIER.get()
                 ? (tickerLevel, tickerPos, tickerState, blockEntity) ->
-                        ((EndpointBlockEntity) blockEntity).serverTick()
+                        ((EndpointBlockEntity) blockEntity).tick()
                 : null;
     }
 }

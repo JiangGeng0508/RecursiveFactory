@@ -36,8 +36,8 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
     }
 
     @Override
-    public void serverTick() {
-        super.serverTick();
+    public void tick() {
+        super.tick();
         if (!(level instanceof ServerLevel serverLevel)) {
             return;
         }

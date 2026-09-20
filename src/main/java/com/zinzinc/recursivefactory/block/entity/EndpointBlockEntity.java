@@ -1,6 +1,8 @@
 package com.zinzinc.recursivefactory.block.entity;
 
 import com.mojang.logging.LogUtils;
+import com.simibubi.create.content.kinetics.KineticNetwork;
+import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
 import java.util.ArrayList;
@@ -16,8 +18,6 @@ import net.minecraft.nbt.DoubleTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.Tag;
-import net.minecraft.network.Connection;
-import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -34,7 +34,7 @@ import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.slf4j.Logger;
 
-public abstract class EndpointBlockEntity extends BlockEntity {
+public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final String FACTORY_ID_TAG = "FactoryId";
     private static final String COLOR_TAG = "Color";
@@ -94,9 +94,86 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     private List<PreviewBlock> previewBlocks = List.of();
     private List<CompoundTag> previewEntities = List.of();
     private List<CompoundTag> previewBlockEntities = List.of();
+    /** The speed the far end of the link turns this end at, 0 while the link is not turning it. */
+    private float bridgeSpeed;
+    /** The stress capacity this end hands to its own network while the link is turning it. */
+    private float bridgeCapacity;
+    /** The stress the far end's network is asking for, put on this end's network while it drives the link. */
+    private float bridgeLoad;
+    /** The tick the link was last looked at, so an end whose entrance block went away can let go of it. */
+    private long bridgeTick = Long.MIN_VALUE;
+    /** False until the link has been worked out once, so a save is followed by a fresh look at it. */
+    private boolean bridgeFresh;
 
     protected EndpointBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState blockState) {
         super(type, pos, blockState);
+    }
+
+    /**
+     * What the link between this end and the far end is carrying right now, handed over by
+     * {@link KineticRelay}: the speed to turn this end at, the stress capacity to hand to its own
+     * network, and - when it is this end that drives the link - the stress the far end is asking for,
+     * which is what makes both ends stall together once the shared capacity runs out.
+     */
+    public void setBridge(float speed, float capacity, float load) {
+        if (level == null || level.isClientSide) {
+            return;
+        }
+        bridgeTick = level.getGameTime();
+        if (bridgeFresh && speed == bridgeSpeed && capacity == bridgeCapacity && load == bridgeLoad) {
+            return;
+        }
+        bridgeFresh = true;
+        bridgeSpeed = speed;
+        bridgeCapacity = capacity;
+        bridgeLoad = load;
+        LOGGER.debug("Endpoint link at {} carries speed {}, capacity {}, load {}", worldPosition, speed,
+                capacity, load);
+        // Turns this end into a generator of the speed the far end runs at, joining its own local network
+        // or leaving it, and telling that network what it may ask for.
+        updateGeneratedRotation();
+        KineticNetwork network = getOrCreateNetwork();
+        if (network != null) {
+            network.updateStressFor(this, calculateStressApplied());
+        }
+    }
+
+    /** The tick the link was last looked at, see KineticRelay. */
+    public long getBridgeTick() {
+        return bridgeTick;
+    }
+
+    @Override
+    public float getGeneratedSpeed() {
+        return bridgeSpeed;
+    }
+
+    @Override
+    public float calculateAddedStressCapacity() {
+        lastCapacityProvided = bridgeCapacity;
+        return bridgeCapacity;
+    }
+
+    @Override
+    public float calculateStressApplied() {
+        lastStressApplied = bridgeLoad;
+        return bridgeLoad;
+    }
+
+    /**
+     * Nothing is sent to the clients about this end's rotation: a room is walled with thousands of these
+     * and none of them draw their own turning, so the speed and stress Create would broadcast with every
+     * overstress change would be a packet per wall block. The block's own state and the preview are sent
+     * by the code that changes them.
+     */
+    @Override
+    public void sendData() {
+    }
+
+    /** Kinetic sound is left to the machines rather than to the wall they stand in. */
+    @Override
+    protected boolean isNoisy() {
+        return false;
     }
 
     public boolean hasFactoryId() {
@@ -467,15 +544,18 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         return List.copyOf(sampled);
     }
 
-    public void serverTick() {
+    @Override
+    public void tick() {
+        super.tick();
         if (level != null && !level.isClientSide) {
+            KineticRelay.tick(this);
             FactoryRelay.transport(this);
         }
     }
 
     @Override
-    protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
-        super.saveAdditional(tag, registries);
+    protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
+        super.write(tag, registries, clientPacket);
         if (hasFactoryId()) {
             tag.putInt(FACTORY_ID_TAG, factoryId);
         }
@@ -494,8 +574,15 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     }
 
     @Override
-    protected void loadAdditional(CompoundTag tag, HolderLookup.Provider registries) {
-        super.loadAdditional(tag, registries);
+    protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
+        super.read(tag, registries, clientPacket);
+        // The link is worked out again on the next tick rather than carried over from the save, so a
+        // saved speed is not mistaken for a generator of this end's own until the entrance block has
+        // looked at it again.
+        bridgeFresh = false;
+        bridgeSpeed = 0;
+        bridgeCapacity = 0;
+        bridgeLoad = 0;
         factoryId = tag.contains(FACTORY_ID_TAG) ? tag.getInt(FACTORY_ID_TAG) : -1;
         colorIndex = tag.contains(COLOR_TAG) ? tag.getInt(COLOR_TAG) : FactoryColors.NO_COLOR;
         pendingStack = tag.contains(PENDING_STACK_TAG)
@@ -525,29 +612,6 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         previewBlocks = readPreviewBlocks(tag, registries);
         previewEntities = readPreviewEntities(tag);
         previewBlockEntities = readPreviewBlockEntities(tag);
-    }
-
-    @Override
-    public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
-        CompoundTag tag = new CompoundTag();
-        saveAdditional(tag, registries);
-        return tag;
-    }
-
-    @Override
-    public ClientboundBlockEntityDataPacket getUpdatePacket() {
-        return ClientboundBlockEntityDataPacket.create(this);
-    }
-
-    @Override
-    public void handleUpdateTag(CompoundTag tag, HolderLookup.Provider registries) {
-        loadAdditional(tag, registries);
-    }
-
-    @Override
-    public void onDataPacket(Connection connection, ClientboundBlockEntityDataPacket packet, HolderLookup.Provider registries) {
-        CompoundTag tag = packet.getTag();
-        loadAdditional(tag == null ? new CompoundTag() : tag, registries);
     }
 
     /** Four bits per face is all a strength needs, so both tables fit in one int each. */

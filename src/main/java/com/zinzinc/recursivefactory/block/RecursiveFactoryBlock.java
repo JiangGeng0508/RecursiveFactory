@@ -1,6 +1,7 @@
 package com.zinzinc.recursivefactory.block;
 
 import com.mojang.serialization.MapCodec;
+import com.simibubi.create.content.kinetics.base.IRotate;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryRelay;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
@@ -22,6 +23,7 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.Block;
@@ -49,7 +51,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * the room it leads into (see FactoryColors). Which colour that is comes from the kind the block was
  * crafted in when it starts a factory, and from the factory itself when it is laid down next to one.
  */
-public final class RecursiveFactoryBlock extends BaseEntityBlock {
+public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRotate {
     public static final MapCodec<RecursiveFactoryBlock> CODEC = simpleCodec(RecursiveFactoryBlock::new);
     private static final VoxelShape SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 4.0D, 16.0D);
 
@@ -233,6 +235,25 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
         return FactoryRelay.emittedSignal(state, level.getBlockEntity(pos), direction);
     }
 
+    /**
+     * Every face takes a shaft, so that the whole shell of a room is one kinetic network: a shaft or a
+     * machine put against the wall anywhere turns the factory it stands in, and the link with the entrance
+     * block outside reaches the room wherever it is geared in (see KineticRelay).
+     */
+    @Override
+    public boolean hasShaftTowards(LevelReader level, BlockPos pos, BlockState state, Direction face) {
+        return true;
+    }
+
+    /**
+     * The blocks do not draw their own turning, so the axis is only ever used by Create to tell which faces
+     * of two touching blocks line up.
+     */
+    @Override
+    public Direction.Axis getRotationAxis(BlockState state) {
+        return Direction.Axis.Y;
+    }
+
     @Override
     public @Nullable BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
         return new RecursiveFactoryBlockEntity(pos, state);
@@ -243,7 +264,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
                                                                            BlockEntityType<T> type) {
         return type == ModBlockEntities.RECURSIVE_FACTORY.get()
                 ? (tickerLevel, tickerPos, tickerState, blockEntity) ->
-                        ((EndpointBlockEntity) blockEntity).serverTick()
+                        ((EndpointBlockEntity) blockEntity).tick()
                 : null;
     }
 }
