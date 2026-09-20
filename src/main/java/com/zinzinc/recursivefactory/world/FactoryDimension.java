@@ -188,7 +188,7 @@ public final class FactoryDimension {
                     if (wanted) {
                         if (!state.is(barrier)) {
                             level.setBlock(pos, barrier.defaultBlockState(), 3);
-                            linkBarrier(level, pos, record.id());
+                            linkBarrier(level, pos, record);
                         }
                     } else if (y == FactoryData.FLOOR_Y && insideRoom) {
                         // Growing a room takes the wall that used to stand between two cells away again,
@@ -248,10 +248,14 @@ public final class FactoryDimension {
         }
     }
 
-    /** Ties a freshly placed barrier block to its factory so the relay can find the entrance block. */
-    private static void linkBarrier(ServerLevel level, BlockPos pos, int factoryId) {
+    /**
+     * Ties a freshly placed barrier block to its factory so the relay can find the entrance block, and
+     * paints it: the shell of a room and every entrance block that leads into it are one colour.
+     */
+    private static void linkBarrier(ServerLevel level, BlockPos pos, FactoryData.FactoryRecord record) {
         if (level.getBlockEntity(pos) instanceof FactoryBarrierBlockEntity barrier) {
-            barrier.setFactoryId(factoryId);
+            barrier.setFactoryId(record.id());
+            barrier.setColorIndex(record.colorIndex());
         }
     }
 

@@ -1,6 +1,7 @@
 {
   "itemGroup.recursivefactory.main": "Recursive Factory",
   "block.recursivefactory.recursive_factory": "Recursive Factory",
+  "block.recursivefactory.recursive_factory.colored": "%s Recursive Factory",
   "block.recursivefactory.factory_barrier": "Factory Barrier",
   "message.recursivefactory.entered": "Entered recursive factory #%s.",
   "message.recursivefactory.exited": "Left recursive factory #%s.",

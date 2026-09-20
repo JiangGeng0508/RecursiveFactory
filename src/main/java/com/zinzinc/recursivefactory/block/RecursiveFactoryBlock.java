@@ -5,9 +5,12 @@ import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryRelay;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
+import com.zinzinc.recursivefactory.data.FactoryColors;
+import com.zinzinc.recursivefactory.data.ModDataComponents;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import com.zinzinc.recursivefactory.world.FactoryTeleporter;
+import java.util.List;
 import java.util.UUID;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
@@ -30,6 +33,8 @@ import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.storage.loot.LootParams;
+import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
@@ -41,7 +46,8 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  *
  * <p>It is a solid 4px plinth: the preview of the room is drawn floating just above it (see
  * RecursiveFactoryRenderer), and the client tints it with its factory's colour so it matches the shell of
- * the room it leads into (see FactoryColors).
+ * the room it leads into (see FactoryColors). Which colour that is comes from the kind the block was
+ * crafted in when it starts a factory, and from the factory itself when it is laid down next to one.
  */
 public final class RecursiveFactoryBlock extends BaseEntityBlock {
     public static final MapCodec<RecursiveFactoryBlock> CODEC = simpleCodec(RecursiveFactoryBlock::new);
@@ -108,6 +114,10 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
             return;
         }
 
+        // Which of the sixteen colour kinds this block was crafted in. A factory is painted one colour,
+        // so this only decides the colour of a factory that is being started here: a block laid down next
+        // to an existing factory joins that factory and takes the colour it already has.
+        int colorIndex = FactoryColors.colorOf(stack);
         UUID owner = placer instanceof Player player ? player.getUUID() : null;
         FactoryData data = FactoryData.get(level.getServer());
         ServerLevel factoryLevel = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
@@ -133,6 +143,9 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
             blockEntity.setFactoryId(neighbour.id());
 
             FactoryData.FactoryRecord grown = data.factory(neighbour.id());
+            if (grown != null) {
+                blockEntity.setColorIndex(grown.colorIndex());
+            }
             if (factoryLevel != null && grown != null) {
                 FactoryDimension.prepare(factoryLevel, grown);
             }
@@ -140,8 +153,9 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
             return;
         }
 
-        FactoryData.FactoryRecord record = data.create(owner);
+        FactoryData.FactoryRecord record = data.create(owner, colorIndex);
         blockEntity.setFactoryId(record.id());
+        blockEntity.setColorIndex(record.colorIndex());
         data.bindEntrance(record.id(), level.dimension().location(), pos);
 
         FactoryData.FactoryRecord bound = data.factory(record.id());
@@ -150,6 +164,25 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
         }
         // A lever or a dust line may already be waiting next to the block it was placed against.
         FactoryRelay.updateFromNeighbours(blockEntity);
+    }
+
+    /**
+     * What a broken entrance block drops keeps the colour kind it was painted with. The loot table still
+     * decides what comes out of it, and every copy of this block it hands out is stamped with the kind the
+     * block that broke was standing for.
+     */
+    @Override
+    public List<ItemStack> getDrops(BlockState state, LootParams.Builder params) {
+        List<ItemStack> drops = super.getDrops(state, params);
+        if (params.getOptionalParameter(LootContextParams.BLOCK_ENTITY)
+                instanceof RecursiveFactoryBlockEntity blockEntity && blockEntity.hasColorIndex()) {
+            for (ItemStack drop : drops) {
+                if (drop.is(asItem())) {
+                    drop.set(ModDataComponents.COLOR.get(), blockEntity.getColorIndex());
+                }
+            }
+        }
+        return drops;
     }
 
     @Override

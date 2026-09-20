@@ -1,6 +1,7 @@
 package com.zinzinc.recursivefactory.world;
 
 import com.zinzinc.recursivefactory.RecursiveFactory;
+import com.zinzinc.recursivefactory.data.FactoryColors;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -93,7 +94,7 @@ public final class FactoryData extends SavedData {
         return factories.get(factoryId);
     }
 
-    public FactoryRecord create(@Nullable UUID owner) {
+    public FactoryRecord create(@Nullable UUID owner, int colorIndex) {
         int factoryId = nextFactoryId++;
         int slotX = nextSlotIndex % 64;
         int slotZ = nextSlotIndex / 64;
@@ -102,6 +103,7 @@ public final class FactoryData extends SavedData {
         FactoryRecord record = new FactoryRecord(
                 factoryId,
                 owner,
+                colorIndex,
                 slotX,
                 slotZ,
                 null,
@@ -194,6 +196,13 @@ public final class FactoryData extends SavedData {
     public record FactoryRecord(
             int id,
             @Nullable UUID owner,
+            /**
+             * Which of the sixteen colour kinds this factory is painted, or
+             * {@link FactoryColors#NO_COLOR} for a factory that was never given one: its colour is then
+             * worked out from its id, so a factory from a save older than the choice keeps the colour it
+             * has always had.
+             */
+            int colorIndex,
             int slotX,
             int slotZ,
             @Nullable ResourceLocation entranceDimension,
@@ -261,11 +270,11 @@ public final class FactoryData extends SavedData {
         }
 
         public FactoryRecord withEntrance(@Nullable ResourceLocation dimension, BlockPos pos) {
-            return new FactoryRecord(id, owner, slotX, slotZ, dimension, pos, cells);
+            return new FactoryRecord(id, owner, colorIndex, slotX, slotZ, dimension, pos, cells);
         }
 
         public FactoryRecord withCells(List<Cell> updatedCells) {
-            return new FactoryRecord(id, owner, slotX, slotZ, entranceDimension, entrancePos, updatedCells);
+            return new FactoryRecord(id, owner, colorIndex, slotX, slotZ, entranceDimension, entrancePos, updatedCells);
         }
 
         private CompoundTag save() {
@@ -276,6 +285,9 @@ public final class FactoryData extends SavedData {
             }
             tag.putInt("SlotX", slotX);
             tag.putInt("SlotZ", slotZ);
+            if (colorIndex != FactoryColors.NO_COLOR) {
+                tag.putInt("Color", colorIndex);
+            }
             putEndpoint(tag, "Entrance", entranceDimension, entrancePos);
 
             ListTag cellsTag = new ListTag();
@@ -295,6 +307,7 @@ public final class FactoryData extends SavedData {
         private static FactoryRecord load(CompoundTag tag) {
             UUID owner = tag.hasUUID("Owner") ? tag.getUUID("Owner") : null;
             Endpoint entrance = readEndpoint(tag, "Entrance");
+            int colorIndex = tag.contains("Color") ? tag.getInt("Color") : FactoryColors.NO_COLOR;
 
             List<Cell> cells = new ArrayList<>();
             ListTag cellsTag = tag.getList("Cells", Tag.TAG_COMPOUND);
@@ -310,6 +323,7 @@ public final class FactoryData extends SavedData {
             FactoryRecord record = new FactoryRecord(
                     tag.getInt("Id"),
                     owner,
+                    colorIndex,
                     tag.getInt("SlotX"),
                     tag.getInt("SlotZ"),
                     entrance.dimension(),

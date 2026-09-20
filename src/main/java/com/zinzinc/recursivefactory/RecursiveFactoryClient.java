@@ -2,8 +2,8 @@ package com.zinzinc.recursivefactory;
 
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
-import com.zinzinc.recursivefactory.client.render.FactoryColors;
 import com.zinzinc.recursivefactory.client.render.RecursiveFactoryRenderer;
+import com.zinzinc.recursivefactory.data.FactoryColors;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
@@ -32,8 +32,9 @@ public final class RecursiveFactoryClient {
                 ModBlocks.RECURSIVE_FACTORY.get());
     }
 
+    /** The item is tinted with the colour kind it carries, which is what tells the sixteen apart. */
     private void registerItemColors(RegisterColorHandlersEvent.Item event) {
-        event.register((stack, tintIndex) -> FactoryColors.UNKNOWN,
+        event.register((stack, tintIndex) -> FactoryColors.ofStack(stack),
                 ModBlocks.FACTORY_BARRIER_ITEM.get(),
                 ModBlocks.RECURSIVE_FACTORY_ITEM.get());
     }

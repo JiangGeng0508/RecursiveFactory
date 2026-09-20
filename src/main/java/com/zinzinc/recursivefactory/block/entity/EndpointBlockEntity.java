@@ -1,6 +1,7 @@
 package com.zinzinc.recursivefactory.block.entity;
 
 import com.mojang.logging.LogUtils;
+import com.zinzinc.recursivefactory.data.FactoryColors;
 import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -36,6 +37,7 @@ import org.slf4j.Logger;
 public abstract class EndpointBlockEntity extends BlockEntity {
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final String FACTORY_ID_TAG = "FactoryId";
+    private static final String COLOR_TAG = "Color";
     private static final String PENDING_STACK_TAG = "PendingStack";
     private static final String PENDING_INPUT_TAG = "PendingInput";
     private static final int FACE_COUNT = Direction.values().length;
@@ -70,6 +72,13 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     );
 
     private int factoryId = -1;
+    /**
+     * Which of the sixteen colour kinds this block is painted, or
+     * {@link FactoryColors#NO_COLOR} for one that has no colour of its own and so falls back to the
+     * colour its factory id hashes to. Set from the factory, so a room and the entrance blocks that
+     * lead into it always come out the same colour.
+     */
+    private int colorIndex = FactoryColors.NO_COLOR;
     private ItemStack pendingStack = ItemStack.EMPTY;
     private @Nullable Direction pendingInput;
     /**
@@ -103,6 +112,26 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         setChanged();
         // The client tints a barrier with its factory's colour, so it has to be told the id even when the
         // barrier is placed after the chunk it sits in was sent.
+        if (level instanceof ServerLevel serverLevel) {
+            serverLevel.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_ALL);
+        }
+    }
+
+    public boolean hasColorIndex() {
+        return colorIndex != FactoryColors.NO_COLOR;
+    }
+
+    public int getColorIndex() {
+        return colorIndex;
+    }
+
+    /** Paints this block; the client tints it with the colour kind, see FactoryColors. */
+    public void setColorIndex(int colorIndex) {
+        if (this.colorIndex == colorIndex) {
+            return;
+        }
+        this.colorIndex = colorIndex;
+        setChanged();
         if (level instanceof ServerLevel serverLevel) {
             serverLevel.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_ALL);
         }
@@ -450,6 +479,9 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         if (hasFactoryId()) {
             tag.putInt(FACTORY_ID_TAG, factoryId);
         }
+        if (hasColorIndex()) {
+            tag.putInt(COLOR_TAG, colorIndex);
+        }
         if (!pendingStack.isEmpty()) {
             tag.put(PENDING_STACK_TAG, pendingStack.save(registries));
             if (pendingInput != null) {
@@ -465,6 +497,7 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     protected void loadAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.loadAdditional(tag, registries);
         factoryId = tag.contains(FACTORY_ID_TAG) ? tag.getInt(FACTORY_ID_TAG) : -1;
+        colorIndex = tag.contains(COLOR_TAG) ? tag.getInt(COLOR_TAG) : FactoryColors.NO_COLOR;
         pendingStack = tag.contains(PENDING_STACK_TAG)
                 ? ItemStack.parse(registries, tag.getCompound(PENDING_STACK_TAG)).orElse(ItemStack.EMPTY)
                 : ItemStack.EMPTY;

@@ -2,6 +2,7 @@ package com.zinzinc.recursivefactory.block;
 
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.MapColor;
@@ -39,9 +40,9 @@ public final class ModBlocks {
             () -> new FactoryBarrierBlock(BARRIER_PROPERTIES)
     );
 
-    public static final DeferredItem<BlockItem> RECURSIVE_FACTORY_ITEM = ITEMS.registerSimpleBlockItem(
+    public static final DeferredItem<RecursiveFactoryItem> RECURSIVE_FACTORY_ITEM = ITEMS.register(
             "recursive_factory",
-            RECURSIVE_FACTORY
+            () -> new RecursiveFactoryItem(RECURSIVE_FACTORY.get(), new Item.Properties())
     );
 
     public static final DeferredItem<BlockItem> FACTORY_BARRIER_ITEM = ITEMS.registerSimpleBlockItem(

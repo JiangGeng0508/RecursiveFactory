@@ -2,8 +2,11 @@ package com.zinzinc.recursivefactory;
 
 import com.mojang.logging.LogUtils;
 import com.zinzinc.recursivefactory.block.ModBlocks;
+import com.zinzinc.recursivefactory.block.RecursiveFactoryItem;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
+import com.zinzinc.recursivefactory.data.FactoryColors;
 import com.zinzinc.recursivefactory.data.ModAttachments;
+import com.zinzinc.recursivefactory.data.ModDataComponents;
 import com.zinzinc.recursivefactory.network.ModNetworking;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import net.minecraft.core.registries.Registries;
@@ -30,9 +33,13 @@ public final class RecursiveFactory {
             CREATIVE_MODE_TABS.register("main", () -> CreativeModeTab.builder()
                     .title(Component.translatable("itemGroup.recursivefactory.main"))
                     .withTabsBefore(CreativeModeTabs.FUNCTIONAL_BLOCKS)
-                    .icon(() -> ModBlocks.RECURSIVE_FACTORY_ITEM.get().getDefaultInstance())
+                    // Every colour kind is the same item with the colour carried as a component, so
+                    // the tab lists all sixteen of them.
+                    .icon(() -> RecursiveFactoryItem.colored(0))
                     .displayItems((parameters, output) -> {
-                        output.accept(ModBlocks.RECURSIVE_FACTORY_ITEM.get());
+                        for (int colorIndex = 0; colorIndex < FactoryColors.COLOR_COUNT; colorIndex++) {
+                            output.accept(RecursiveFactoryItem.colored(colorIndex));
+                        }
                         output.accept(ModBlocks.FACTORY_BARRIER_ITEM.get());
                     })
                     .build());
@@ -41,6 +48,7 @@ public final class RecursiveFactory {
         ModBlocks.register(modEventBus);
         ModBlockEntities.register(modEventBus);
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
+        ModDataComponents.register(modEventBus);
         CREATIVE_MODE_TABS.register(modEventBus);
         modEventBus.addListener(ModNetworking::register);
         NeoForge.EVENT_BUS.addListener(this::onServerStarted);
