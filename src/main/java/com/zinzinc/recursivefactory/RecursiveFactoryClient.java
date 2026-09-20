@@ -22,13 +22,19 @@ public final class RecursiveFactoryClient {
         event.registerBlockEntityRenderer(ModBlockEntities.RECURSIVE_FACTORY.get(), RecursiveFactoryRenderer::new);
     }
 
-    /** Barriers are a flat white cube tinted per factory, so the whole room comes out one colour. */
+    /**
+     * Both blocks are flat white shapes tinted per factory, so a factory's shell and the pedestal of its
+     * entrance block (the one the preview sits on) always come out the same colour.
+     */
     private void registerBlockColors(RegisterColorHandlersEvent.Block event) {
         event.register((state, level, pos, tintIndex) -> FactoryColors.at(level, pos),
-                ModBlocks.FACTORY_BARRIER.get());
+                ModBlocks.FACTORY_BARRIER.get(),
+                ModBlocks.RECURSIVE_FACTORY.get());
     }
 
     private void registerItemColors(RegisterColorHandlersEvent.Item event) {
-        event.register((stack, tintIndex) -> FactoryColors.UNKNOWN, ModBlocks.FACTORY_BARRIER_ITEM.get());
+        event.register((stack, tintIndex) -> FactoryColors.UNKNOWN,
+                ModBlocks.FACTORY_BARRIER_ITEM.get(),
+                ModBlocks.RECURSIVE_FACTORY_ITEM.get());
     }
 }

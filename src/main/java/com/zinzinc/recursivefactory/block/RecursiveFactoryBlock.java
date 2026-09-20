@@ -32,22 +32,20 @@ import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
-import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
 /**
  * The factory's entrance block. Placing one next to another entrance block grows that factory's room
  * instead of starting a second one, so a bigger factory is built by laying entrance blocks out and
  * letting the room follow the same shape.
+ *
+ * <p>It is a solid 4px plinth: the preview of the room is drawn floating just above it (see
+ * RecursiveFactoryRenderer), and the client tints it with its factory's colour so it matches the shell of
+ * the room it leads into (see FactoryColors).
  */
 public final class RecursiveFactoryBlock extends BaseEntityBlock {
     public static final MapCodec<RecursiveFactoryBlock> CODEC = simpleCodec(RecursiveFactoryBlock::new);
-    private static final VoxelShape SHAPE = Shapes.or(
-            Block.box(0.0D, 0.0D, 0.0D, 16.0D, 4.0D, 4.0D),
-            Block.box(0.0D, 0.0D, 12.0D, 16.0D, 4.0D, 16.0D),
-            Block.box(0.0D, 0.0D, 4.0D, 4.0D, 4.0D, 12.0D),
-            Block.box(12.0D, 0.0D, 4.0D, 16.0D, 4.0D, 12.0D)
-    );
+    private static final VoxelShape SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 4.0D, 16.0D);
 
     public RecursiveFactoryBlock(BlockBehaviour.Properties properties) {
         super(properties);
