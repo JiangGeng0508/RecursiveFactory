@@ -17,6 +17,7 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import org.slf4j.Logger;
@@ -52,10 +53,15 @@ public final class RecursiveFactory {
         CREATIVE_MODE_TABS.register(modEventBus);
         modEventBus.addListener(ModNetworking::register);
         NeoForge.EVENT_BUS.addListener(this::onServerStarted);
+        NeoForge.EVENT_BUS.addListener(this::onServerTick);
         LOGGER.info("Recursive Factory initialized");
     }
 
     private void onServerStarted(ServerStartedEvent event) {
         FactoryDimension.initialize(event.getServer());
+    }
+
+    private void onServerTick(ServerTickEvent.Post event) {
+        FactoryDimension.tick(event.getServer());
     }
 }

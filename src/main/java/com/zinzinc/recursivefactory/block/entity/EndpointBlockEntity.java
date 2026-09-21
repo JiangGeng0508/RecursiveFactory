@@ -117,6 +117,17 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     private long bridgeTick = Long.MIN_VALUE;
     /** False until the link has been worked out once, so a save is followed by a fresh look at it. */
     private boolean bridgeFresh;
+    /** What {@link KineticRelay} last put in the log about this end's link, so it only reports changes. */
+    private String linkNote = "";
+    /**
+     * The faces of this block that answer to the outside machinery right now, one bit per
+     * {@link Direction#get3DDataValue()}. An entrance block is one Create block and so has one speed, and
+     * the faces that speed is handed out on are the ones the link is running through (see
+     * {@link KineticRelay}): a face answers only while the wall of that same side of the room is the one
+     * doing the driving, so machinery built against the other faces stays where it is. Not saved: the link
+     * is worked out again on every tick.
+     */
+    private int outwardFaces;
 
     protected EndpointBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState blockState) {
         super(type, pos, blockState);
@@ -151,9 +162,68 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         }
     }
 
+    /** Whether {@code face} of this block answers to the outside machinery, see {@link KineticRelay}. */
+    public boolean isOutwardFaceLive(Direction face) {
+        return (outwardFaces & faceMask(face)) != 0;
+    }
+
+    /**
+     * Sets which faces of this block answer to the outside machinery, and says whether that is a change.
+     * Create remembers which neighbours a block is joined to, so a face that has just been opened or
+     * closed has to be shown to it again - see {@link #reapplyLink}.
+     */
+    public boolean setOutwardFaces(int faces) {
+        if (faces == outwardFaces) {
+            return false;
+        }
+        outwardFaces = faces;
+        return true;
+    }
+
+    /** The bit {@link #setOutwardFaces} uses for one face. */
+    public static int faceMask(Direction face) {
+        return 1 << face.get3DDataValue();
+    }
+
+    /**
+     * Makes Create walk over this block's neighbours again. Opening or closing a face does not change this
+     * block's own speed, so nothing else would make it look at those neighbours and notice the machinery
+     * that has just been let in or let go of.
+     */
+    public void reapplyLink() {
+        if (level == null || level.isClientSide) {
+            return;
+        }
+        detachKinetics();
+        attachKinetics();
+    }
+
+    /**
+     * Forgets the link and lets this end go of the network it was turning with, without turning anything
+     * by itself. Pulling a room's shell back apart into its six sides starts here (see
+     * {@code FactoryDimension#separateShellSides}): the end comes out of the join stopped, and the next
+     * look at the link puts it back on with the speed of the side it really belongs to.
+     */
+    public void forgetLink() {
+        bridgeFresh = false;
+        bridgeSpeed = 0;
+        bridgeCapacity = 0;
+        bridgeLoad = 0;
+        removeSource();
+    }
+
     /** The tick the link was last looked at, see KineticRelay. */
     public long getBridgeTick() {
         return bridgeTick;
+    }
+
+    /** The line the log has of this end's link, see {@link KineticRelay}. Not saved: only ever compared. */
+    public String getLinkNote() {
+        return linkNote;
+    }
+
+    public void setLinkNote(String linkNote) {
+        this.linkNote = linkNote;
     }
 
     @Override
@@ -670,6 +740,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         bridgeSpeed = 0;
         bridgeCapacity = 0;
         bridgeLoad = 0;
+        outwardFaces = 0;
         factoryId = tag.contains(FACTORY_ID_TAG) ? tag.getInt(FACTORY_ID_TAG) : -1;
         colorIndex = tag.contains(COLOR_TAG) ? tag.getInt(COLOR_TAG) : FactoryColors.NO_COLOR;
         pendingStack = tag.contains(PENDING_STACK_TAG)
