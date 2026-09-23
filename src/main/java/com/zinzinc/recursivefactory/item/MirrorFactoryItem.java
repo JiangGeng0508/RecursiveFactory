@@ -129,6 +129,11 @@ public final class MirrorFactoryItem extends Item {
             entrance.setFactoryId(targetId);
             FactoryData.FactoryRecord room = data.factory(targetId);
             entrance.setColorIndex(room == null ? colorIndex : room.colorIndex());
+            // The frame only carries on into another entrance block of the same room, and the copy just put
+            // down is a factory of its own: laying it beside an entrance block of another factory must leave
+            // both frames whole. The state worked out above could not know that yet, so it is asked again
+            // here, for this block and for the blocks beside it.
+            RecursiveFactoryBlock.refreshConnections(level, pos);
             FactoryRelay.updateFromNeighbours(entrance);
         }
         if (!player.isCreative()) {

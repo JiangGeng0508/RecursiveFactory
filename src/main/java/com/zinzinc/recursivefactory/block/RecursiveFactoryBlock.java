@@ -147,13 +147,15 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
         if (!direction.getAxis().isHorizontal() || !state.hasProperty(BlockStateProperties.NORTH)) {
             return state;
         }
-        return state.setValue(joinedAcross(direction), neighborState.is(this));
+        return state.setValue(joinedAcross(direction),
+                neighborState.is(this) && sharesRoom(level, pos, neighborPos));
     }
 
     /**
      * {@code state} with all four sides worked out from what stands beside {@code pos}. A side is joined
-     * when the block over there is another entrance block: the two frames meet along the plane they share,
-     * and a plane inside a room is drawn by neither of them.
+     * when the block over there is another entrance block of the same room: the two frames meet along the
+     * plane they share, and a plane inside a room is drawn by neither of them. The plane two rooms share
+     * is a wall of both of them, see {@link #sharesRoom}.
      */
     public static BlockState withConnections(BlockState state, BlockGetter level, BlockPos pos) {
         if (!state.hasProperty(BlockStateProperties.NORTH)) {
@@ -165,9 +167,62 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
         return state;
     }
 
-    /** Whether the block beside {@code pos} on {@code side} is another entrance block. */
+    /**
+     * Whether the frame carries on into the block beside {@code pos} on {@code side}: the block over
+     * there is another entrance block of the same room, see {@link #sharesRoom}.
+     */
     private static boolean joins(BlockGetter level, BlockPos pos, Direction side) {
-        return level.getBlockState(pos.relative(side)).is(ModBlocks.RECURSIVE_FACTORY.get());
+        BlockPos neighbourPos = pos.relative(side);
+        return level.getBlockState(neighbourPos).is(ModBlocks.RECURSIVE_FACTORY.get())
+                && sharesRoom(level, pos, neighbourPos);
+    }
+
+    /**
+     * Whether the entrance block at {@code otherPos} leads into the same room as the one at {@code pos}.
+     *
+     * <p>Two entrance blocks of one factory stand for two cells of a single room, so the plane they share
+     * is inside that room and neither of them draws it. Two blocks of different factories stand for two
+     * rooms side by side, and the plane between them is a wall of both: a room's checkerboard floor stops
+     * at its own shell, so the room behind such a block has no floor along that plane. Dropping the bars
+     * there would leave the two rooms joined up in the frame while the floor behind one of them breaks
+     * off, which reads as a crack along the join.
+     *
+     * <p>The answer comes from the two block entities. One that is not there yet - a block beside a
+     * freshly placed block, whose block entity has not been made yet, or a neighbour in a chunk that has
+     * not finished loading - counts as the same room, which is what every block in a save older than this
+     * rule carries. The first tick of an entrance block settles the question again, see
+     * {@code RecursiveFactoryBlockEntity#tick}.
+     */
+    private static boolean sharesRoom(BlockGetter level, BlockPos pos, BlockPos otherPos) {
+        if (level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity here
+                && level.getBlockEntity(otherPos) instanceof RecursiveFactoryBlockEntity other) {
+            return here.hasFactoryId() && here.getFactoryId() == other.getFactoryId();
+        }
+        return true;
+    }
+
+    /**
+     * Works the four sides of the frame out again for the entrance block at {@code pos} and for the
+     * blocks beside it. A block that has just been laid down or taken up owes this to its neighbours: a
+     * neighbour was asked about the join while the new block's block entity - which is half of the answer,
+     * see {@link #sharesRoom} - was not there yet.
+     */
+    public static void refreshConnections(Level level, BlockPos pos) {
+        settleConnections(level, pos);
+        for (Direction side : Direction.Plane.HORIZONTAL) {
+            settleConnections(level, pos.relative(side));
+        }
+    }
+
+    private static void settleConnections(Level level, BlockPos pos) {
+        BlockState state = level.getBlockState(pos);
+        if (!state.is(ModBlocks.RECURSIVE_FACTORY.get())) {
+            return;
+        }
+        BlockState joined = withConnections(state, level, pos);
+        if (joined != state) {
+            level.setBlock(pos, joined, Block.UPDATE_ALL);
+        }
     }
 
     /**
@@ -308,6 +363,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
             if (factoryLevel != null && grown != null) {
                 FactoryDimension.prepare(factoryLevel, grown);
             }
+            refreshConnections(level, pos);
             FactoryRelay.updateFromNeighbours(blockEntity);
             return;
         }
@@ -321,6 +377,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
         if (factoryLevel != null && bound != null) {
             FactoryDimension.prepare(factoryLevel, bound);
         }
+        refreshConnections(level, pos);
         // A lever or a dust line may already be waiting next to the block it was placed against.
         FactoryRelay.updateFromNeighbours(blockEntity);
     }
@@ -371,6 +428,10 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
                     FactoryDimension.prepare(factoryLevel, remaining);
                 }
             }
+            // The room this block led into may have lost its cell, and the neighbours of a block that is
+            // gone have to be asked again anyway: whether the frame carries on into the gap is now a
+            // question about two other factories, or about none.
+            refreshConnections(level, pos);
         }
         super.onRemove(state, level, pos, newState, movedByPiston);
     }
