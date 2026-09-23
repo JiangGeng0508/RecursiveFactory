@@ -7,6 +7,7 @@ import com.zinzinc.recursivefactory.block.entity.FactoryBarrierBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryRelay;
 import com.zinzinc.recursivefactory.block.entity.KineticRelay;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
+import com.zinzinc.recursivefactory.data.FactoryColors;
 import com.zinzinc.recursivefactory.world.FactoryTeleporter;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
@@ -48,7 +49,8 @@ public final class FactoryBarrierBlock extends BaseEntityBlock implements IRotat
         super(properties);
         registerDefaultState(stateDefinition.any()
                 .setValue(BlockStateProperties.POWERED, false)
-                .setValue(BlockStateProperties.FACING, Direction.NORTH));
+                .setValue(BlockStateProperties.FACING, Direction.NORTH)
+                .setValue(FactoryColors.COLOR_PROPERTY, 0));
     }
 
     @Override
@@ -58,7 +60,7 @@ public final class FactoryBarrierBlock extends BaseEntityBlock implements IRotat
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(BlockStateProperties.POWERED, BlockStateProperties.FACING);
+        builder.add(BlockStateProperties.POWERED, BlockStateProperties.FACING, FactoryColors.COLOR_PROPERTY);
     }
 
     @Override
@@ -74,6 +76,17 @@ public final class FactoryBarrierBlock extends BaseEntityBlock implements IRotat
     @Override
     protected VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
         return SHAPE;
+    }
+
+    /**
+     * A barrier is the room's wall, so a player in survival cannot mine one: the progress stays at zero,
+     * which stops both the server's "started destroying" and "stopped destroying" paths from ever
+     * finishing, and keeps the client from drawing a cracking overlay on it. Creative is left alone -
+     * it breaks blocks without asking for progress, so a room can still be taken apart while building.
+     */
+    @Override
+    protected float getDestroyProgress(BlockState state, Player player, BlockGetter level, BlockPos pos) {
+        return player.isCreative() ? super.getDestroyProgress(state, player, level, pos) : 0.0F;
     }
 
     @Override

@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "PPP",
+    "PEP",
+    "PPP"
+  ],
+  "key": {
+    "P": {
+      "item": "minecraft:paper"
+    },
+    "E": {
+      "item": "minecraft:ender_eye"
+    }
+  },
+  "result": {
+    "id": "recursivefactory:mirror_factory_blueprint",
+    "count": 1
+  }
+}

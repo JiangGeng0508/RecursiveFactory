@@ -34,6 +34,13 @@ public final class FactoryTeleporter {
             return false;
         }
 
+        // A room that is being read out for a blueprint, or printed from one, has to stand still: a player
+        // walking in would be walking into a copy while it is being taken.
+        if (FactoryLocks.isBeingCopied(factoryId)) {
+            player.sendSystemMessage(Component.translatable("message.recursivefactory.copying"));
+            return false;
+        }
+
         FactoryDimension.prepare(targetLevel, record);
         pushReturnPoint(player);
 

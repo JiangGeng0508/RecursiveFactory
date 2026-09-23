@@ -36,6 +36,15 @@ public final class ModBlockEntities {
                     ).build(null)
             );
 
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<FactoryPrinterBlockEntity>> FACTORY_PRINTER =
+            BLOCK_ENTITY_TYPES.register(
+                    "factory_printer",
+                    () -> BlockEntityType.Builder.of(
+                            FactoryPrinterBlockEntity::new,
+                            ModBlocks.FACTORY_PRINTER.get()
+                    ).build(null)
+            );
+
     private ModBlockEntities() {
     }
 

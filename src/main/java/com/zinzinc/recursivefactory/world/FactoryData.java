@@ -21,13 +21,24 @@ import net.minecraft.world.level.saveddata.SavedData;
 
 public final class FactoryData extends SavedData {
     public static final String DATA_NAME = RecursiveFactory.MODID + "_factories";
+    /**
+     * The entrance a room cell carries while no entrance block is bound to it: a room that was printed, or
+     * copied from another room, stands there with a cell of its own before anybody has put a block down to
+     * walk in through. Binding an entrance later moves this stand-in to the block's own position, so the
+     * room never moves and never has to be built a second time (see {@link #bindRoomEntrance}).
+     */
+    public static final BlockPos UNBOUND_ENTRANCE = BlockPos.ZERO;
     /** Side of one room cell, and with it the footprint of the whole room shell. */
     public static final int CELL_SIZE = 16;
     /**
      * Height of the room shell, from its bottom barrier layer to its top one. A room is a closed box:
      * one solid layer at the bottom, the floor, the free space, and one solid layer on top.
+     *
+     * <p>A room is as tall as it is wide, which is what makes the face preview of an entrance block work
+     * out: sampled edge to edge and scaled by sixteen, the whole room - shell included - lands exactly on
+     * the block's own cube, with the shell's layers and columns forming the block's frame.
      */
-    public static final int ROOM_HEIGHT = 32;
+    public static final int ROOM_HEIGHT = 16;
     /** Bottom barrier layer. The checkerboard floor sits on top of it. */
     public static final int BASE_Y = 64;
     /** The checkerboard floor layer. */
@@ -125,10 +136,12 @@ public final class FactoryData extends SavedData {
         FactoryRecord record = factories.get(factoryId);
         if (record != null) {
             ChunkPos chunk = record.baseChunk();
+            // A brand new cell: its floor still has to be laid by the first look at the room.
             FactoryRecord.Cell cell = new FactoryRecord.Cell(
                     pos,
                     chunk.getMinBlockX(),
-                    chunk.getMinBlockZ()
+                    chunk.getMinBlockZ(),
+                    false
             );
             update(record.withEntrance(dimension, pos).withCells(List.of(cell)));
         }
@@ -142,9 +155,75 @@ public final class FactoryData extends SavedData {
         FactoryRecord record = factories.get(factoryId);
         if (record != null && dimension.equals(record.entranceDimension())) {
             List<FactoryRecord.Cell> cells = new ArrayList<>(record.cells());
-            cells.add(new FactoryRecord.Cell(pos, roomX, roomZ));
+            // The cell that just joined has no floor yet, including the seam it shares with its neighbour.
+            cells.add(new FactoryRecord.Cell(pos, roomX, roomZ, false));
             update(record.withCells(cells));
         }
+    }
+
+    /**
+     * Gives a factory the room cell of its own slot without handing it an entrance: a room that was
+     * printed, or copied from another one, is standing there before anybody has walked into it. The floor
+     * still has to be laid, which the next look at the room does (see FactoryDimension#prepare).
+     *
+     * <p>The cell's entrance is the {@link #UNBOUND_ENTRANCE} stand-in until {@link #bindRoomEntrance}
+     * moves it to the block that is finally put down for it.
+     */
+    public void bindRoom(int factoryId) {
+        FactoryRecord record = factories.get(factoryId);
+        if (record == null || !record.cells().isEmpty()) {
+            return;
+        }
+        ChunkPos chunk = record.baseChunk();
+        update(record.withCells(List.of(new FactoryRecord.Cell(
+                UNBOUND_ENTRANCE,
+                chunk.getMinBlockX(),
+                chunk.getMinBlockZ(),
+                false
+        ))));
+    }
+
+    /**
+     * Binds an entrance to a room that is already built, without building anything again: the cell's
+     * stand-in entrance becomes the block's position and everything else about the cell - where the room
+     * is, and the floor that was laid for it - stays as it is. This is how a printed or copied room gets
+     * the entrance block a player puts down for it.
+     */
+    public void bindRoomEntrance(int factoryId, ResourceLocation dimension, BlockPos pos) {
+        FactoryRecord record = factories.get(factoryId);
+        if (record == null) {
+            return;
+        }
+        List<FactoryRecord.Cell> cells = new ArrayList<>(record.cells().size());
+        for (FactoryRecord.Cell cell : record.cells()) {
+            cells.add(cell.entrance().equals(UNBOUND_ENTRANCE)
+                    ? new FactoryRecord.Cell(pos, cell.roomX(), cell.roomZ(), cell.floorLaid())
+                    : cell);
+        }
+        update(record.withEntrance(dimension, pos).withCells(cells));
+    }
+
+    /**
+     * Notes that one of a factory's cells has had its checkerboard floor laid, so a room that is looked
+     * at again does not lay it a second time. Nothing happens when the cell already says so, which keeps
+     * the repeated looks at a room from dirtying the save on every entry.
+     */
+    public void markFloorLaid(int factoryId, BlockPos entrancePos) {
+        FactoryRecord record = factories.get(factoryId);
+        if (record == null) {
+            return;
+        }
+        FactoryRecord.Cell cell = record.cellAt(entrancePos);
+        if (cell == null || cell.floorLaid()) {
+            return;
+        }
+        List<FactoryRecord.Cell> cells = new ArrayList<>(record.cells());
+        for (int i = 0; i < cells.size(); i++) {
+            if (cells.get(i).entrance().equals(entrancePos)) {
+                cells.set(i, cells.get(i).withFloorLaid(true));
+            }
+        }
+        update(record.withCells(cells));
     }
 
     /**
@@ -213,8 +292,12 @@ public final class FactoryData extends SavedData {
          * One entrance block and the room cell it stands for. The room origin is saved per cell so the
          * room layout never shifts when cells are removed; the layout as a whole is the entrance layout,
          * translated, with each cell sixteen blocks across.
+         *
+         * <p>{@code floorLaid} remembers that the cell's checkerboard floor has been put down, so a
+         * later look at the room knows the floor is one the player has been living with rather than one
+         * that still has to be built. See {@code room.repairBrokenFloor} for what that changes.
          */
-        public record Cell(BlockPos entrance, int roomX, int roomZ) {
+        public record Cell(BlockPos entrance, int roomX, int roomZ, boolean floorLaid) {
             public Cell {
                 entrance = entrance.immutable();
             }
@@ -222,6 +305,20 @@ public final class FactoryData extends SavedData {
             /** Middle of the cell, at standing height: where a player arriving through this cell lands. */
             public BlockPos center() {
                 return new BlockPos(roomX + CELL_SIZE / 2, FLOOR_Y + 1, roomZ + CELL_SIZE / 2);
+            }
+
+            /**
+             * The middle of the cell's room shell, one block below {@link #center()}: the anchor a face
+             * preview is sampled around. A sample of {@link #ROOM_HEIGHT} rows around it covers the room
+             * from its base layer to its ceiling, so the whole room - shell and all - is what a sixteen
+             * sixteenths wide preview shows.
+             */
+            public BlockPos previewCenter() {
+                return new BlockPos(roomX + CELL_SIZE / 2, FLOOR_Y, roomZ + CELL_SIZE / 2);
+            }
+
+            public Cell withFloorLaid(boolean laid) {
+                return new Cell(entrance, roomX, roomZ, laid);
             }
         }
 
@@ -298,6 +395,7 @@ public final class FactoryData extends SavedData {
                 cellTag.putInt("Z", cell.entrance().getZ());
                 cellTag.putInt("RoomX", cell.roomX());
                 cellTag.putInt("RoomZ", cell.roomZ());
+                cellTag.putBoolean("FloorLaid", cell.floorLaid());
                 cellsTag.add(cellTag);
             }
             tag.put("Cells", cellsTag);
@@ -316,7 +414,10 @@ public final class FactoryData extends SavedData {
                 cells.add(new Cell(
                         new BlockPos(cellTag.getInt("X"), cellTag.getInt("Y"), cellTag.getInt("Z")),
                         cellTag.getInt("RoomX"),
-                        cellTag.getInt("RoomZ")
+                        cellTag.getInt("RoomZ"),
+                        // Cells saved before the floor was tracked count as laid: an older save is not
+                        // repaved the first time a player walks back into it.
+                        !cellTag.contains("FloorLaid") || cellTag.getBoolean("FloorLaid")
                 ));
             }
 
@@ -335,7 +436,8 @@ public final class FactoryData extends SavedData {
                 record = record.withCells(List.of(new Cell(
                         record.entrancePos(),
                         record.baseChunk().getMinBlockX(),
-                        record.baseChunk().getMinBlockZ()
+                        record.baseChunk().getMinBlockZ(),
+                        true
                 )));
             }
             return record;

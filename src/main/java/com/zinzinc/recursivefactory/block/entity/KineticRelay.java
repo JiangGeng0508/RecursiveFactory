@@ -5,6 +5,7 @@ import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import com.zinzinc.recursivefactory.block.FactoryBarrierBlock;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
+import com.zinzinc.recursivefactory.data.FaceMode;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import java.util.ArrayList;
@@ -23,7 +24,6 @@ import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import org.slf4j.Logger;
 
@@ -48,6 +48,14 @@ import org.slf4j.Logger;
  * only turn the outside together while they run at the same speed; sides at different speeds have no way
  * of sharing the block, and the link says so rather than picking one of them.
  *
+ * <p>What is turned outside can be brought back in as well: machinery driven by one face of the entrance
+ * block and carried around to another face is on the link's own network, and the wall of that side of the
+ * room is turned by the same power (see {@link #returningSides}). A circle out of the room through one
+ * face and back in through another is therefore not a dead end. The face it comes back in at answers
+ * nothing outside, though - the machinery standing against it is turned by the very entrance block, so
+ * there is no second machine there to join, and joining it would close the circle inside one block, where
+ * a gear train that comes back at another ratio or the other way round would be argued with by Create.
+ *
  * <p>Stress travels the way a shaft would carry it: the end that is being driven becomes a generator for
  * its own side with the capacity that is spare on the far side, and the end that is doing the driving
  * carries the far side's stress on its own network. Both ends then weigh their load against the same
@@ -63,8 +71,6 @@ public final class KineticRelay {
      * nobody is looking at any more.
      */
     private static final long STALE_TICKS = 5;
-    /** How far a chain of sources is followed while working out which way the power is running. */
-    private static final int MAX_SOURCE_STEPS = 1024;
     private static final Direction[] SIDES = Direction.values();
 
     private KineticRelay() {
@@ -117,14 +123,18 @@ public final class KineticRelay {
         if (!(level instanceof ServerLevel) || !(level.getBlockEntity(pos) instanceof EndpointBlockEntity entrance)) {
             return true;
         }
+        if (!FactoryRelay.faceCarries(entrance, face, FaceMode.STRESS)) {
+            // Not a stress face: a shaft built against it does not reach the factory at all, so the
+            // machinery out there stands still however fast it is going of its own accord.
+            return false;
+        }
         EndpointBlockEntity anchor = anchorOf(entrance);
         if (anchor != null && anchor.isSource()) {
             return anchor.isOutwardFaceLive(face);
         }
         if (level.getBlockEntity(neighbour) instanceof KineticBlockEntity machine
                 && !(machine instanceof EndpointBlockEntity)) {
-            FactoryData.FactoryRecord record = record(entrance);
-            return record != null && carriesPowerIn(machine, record);
+            return record(entrance) != null && poweredFromOutside(machine);
         }
         return false;
     }
@@ -273,18 +283,46 @@ public final class KineticRelay {
         Map<Direction, EndpointBlockEntity> walls = new EnumMap<>(Direction.class);
         List<Direction> drivingRoom = new ArrayList<>();
         List<Direction> drivingOutside = new ArrayList<>();
+        Set<Direction> drivenInside = EnumSet.noneOf(Direction.class);
         for (Direction side : SIDES) {
             EndpointBlockEntity wall = channelBarrier(room, record, side);
             if (wall == null) {
                 continue;
             }
+            if (!entrance.faceCarries(side, FaceMode.STRESS)) {
+                // The face of the entrance block on this side is not a stress face, so the wall of this
+                // side of the room is not part of the link: it is let go of, and whatever turns it turns
+                // on its own. Every side is weighed this way before anything is handed over, so a side
+                // that has just been switched away from stress does not keep turning the room.
+                wall.setBridge(0, 0, 0);
+                continue;
+            }
             walls.put(side, wall);
+            if (isDriven(wall)) {
+                drivenInside.add(side);
+            }
+        }
+
+        // Sides the outside machinery has been routed back into are worked out before the sides are handed
+        // their bridge, so that a side which is neither being fed from outside nor driven on its own is not
+        // let go of and picked up again on every tick - that is what a returning side would look like from
+        // here, and the wall of that side has to keep the power it was given (see #returningSides).
+        List<Direction> returning = outsideTurning
+                ? List.of()
+                : returningSides(record, entrance, drivenInside, walls);
+        for (Direction side : SIDES) {
+            EndpointBlockEntity wall = walls.get(side);
+            if (wall == null) {
+                continue;
+            }
             boolean outside = hookedUp.contains(side);
-            boolean inside = isDriven(wall);
+            boolean inside = drivenInside.contains(side);
             if (outside && !inside) {
                 drivingRoom.add(side);
             } else if (!outside && inside) {
                 drivingOutside.add(side);
+            } else if (!outside && returning.contains(side)) {
+                continue;
             } else {
                 wall.setBridge(0, 0, 0);
             }
@@ -353,9 +391,29 @@ public final class KineticRelay {
             walls.get(side)
                     .setBridge(0, 0, share);
         }
-        handOver(entrance, maskOf(drivingOutside), speed, capacity, 0);
+
+        // And whatever the outside machinery has been routed back into answers on the wall of that side of
+        // the room as well: the power left through one of the faces the room is driving on, was carried
+        // around outside and arrives back at the entrance block on another face, where it turns the
+        // machinery built against that face (see #returningSides). It comes out of what is left of the same
+        // spare capacity, and what it asks for is carried by the entrance block, so the room's own
+        // generator weighs the whole circle against its own capacity.
+        float left = returning.isEmpty()
+                ? 0
+                : Math.max(0, capacity - stressOf(entrance)) / returning.size();
+        float turned = 0;
+        for (Direction side : returning) {
+            EndpointBlockEntity wall = walls.get(side);
+            wall.setBridge(speed, left, 0);
+            turned += stressOf(wall);
+        }
+        handOver(entrance, maskOf(drivingOutside), speed, capacity, turned);
         note(entrance, record.id(), "the room's " + name(drivingOutside) + " wall turns the outside at "
-                + speed + " RPM");
+                + speed + " RPM"
+                + (returning.isEmpty()
+                        ? ""
+                        : ", and what comes back in through the outside's " + name(returning)
+                                + " face turns the room's " + name(returning) + " wall"));
     }
 
     /**
@@ -374,7 +432,7 @@ public final class KineticRelay {
                 if (level.getBlockEntity(cell.entrance()
                         .relative(face)) instanceof KineticBlockEntity neighbour
                         && !(neighbour instanceof EndpointBlockEntity)
-                        && carriesPowerIn(neighbour, record)) {
+                        && poweredFromOutside(neighbour)) {
                     sides.add(face);
                 }
             }
@@ -383,29 +441,61 @@ public final class KineticRelay {
     }
 
     /**
-     * True when the power turning {@code neighbour} comes from outside the factory: the chain of sources it
-     * hangs off ends at a generator, without one of the factory's own entrance blocks in between. Machinery
-     * built against the face of a factory that is being driven from the room is turned by the very entrance
-     * block it hangs off, and its power runs the other way: that face is an output rather than an input.
+     * The sides of the entrance block the outside machinery has been routed back to: one per face where a
+     * block standing against it is turning with the link's own network, so what turns it is the entrance
+     * block rather than a generator of its own. Power that left through one of the faces the room is
+     * driving on was carried around outside and arrives back at the entrance block here.
+     *
+     * <p>Those sides answer nothing out there - the machinery hanging off the face is turned by the link
+     * itself, so there is no second machine to join - but the wall of that same side of the room is turned
+     * by that power as well, which is what makes a circle out of the room through one face and back in
+     * through another work instead of ending at a dead end. Sides the room is driving on are left out:
+     * those faces are already answering (see {@link #pilot}).
      */
-    private static boolean carriesPowerIn(KineticBlockEntity neighbour, FactoryData.FactoryRecord record) {
-        Level level = neighbour.getLevel();
-        BlockEntity cursor = neighbour;
-        for (int step = 0; step < MAX_SOURCE_STEPS; step++) {
-            if (!(cursor instanceof KineticBlockEntity turning)) {
-                return false;
+    private static List<Direction> returningSides(FactoryData.FactoryRecord record, EndpointBlockEntity entrance,
+                                                  Collection<Direction> driving,
+                                                  Map<Direction, EndpointBlockEntity> walls) {
+        List<Direction> sides = new ArrayList<>();
+        Level level = entrance.getLevel();
+        KineticNetwork network = entrance.getOrCreateNetwork();
+        if (level == null || network == null) {
+            return sides;
+        }
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            for (Direction face : SIDES) {
+                if (driving.contains(face) || sides.contains(face) || !walls.containsKey(face)) {
+                    continue;
+                }
+                if (level.getBlockEntity(cell.entrance()
+                        .relative(face)) instanceof KineticBlockEntity machine
+                        && !(machine instanceof EndpointBlockEntity)
+                        && machine.getOrCreateNetwork() == network) {
+                    sides.add(face);
+                }
             }
-            if (turning instanceof EndpointBlockEntity endpoint && endpoint.hasFactoryId()
-                    && endpoint.getFactoryId() == record.id()) {
-                return false;
+        }
+        return sides;
+    }
+
+    /**
+     * True when what turns {@code machine} comes from outside the factory rather than from a link: it is
+     * turning with a network that has a generator of its own on it. The link's own generators do not count
+     * ({@link #isBridgeGenerator}), or machinery the entrance block itself is turning would look like a
+     * face being fed from out there, which is the other way round: that power is leaving the room, and the
+     * face it is leaving through is an output rather than an input.
+     *
+     * <p>A machine that is not turning at all is on no network, so a dead shaft or a machine that is stopped
+     * beside a factory answers nothing, however close to the entrance block it stands.
+     */
+    private static boolean poweredFromOutside(KineticBlockEntity machine) {
+        KineticNetwork network = machine.getOrCreateNetwork();
+        if (network == null) {
+            return false;
+        }
+        for (KineticBlockEntity source : network.sources.keySet()) {
+            if (!isBridgeGenerator(source)) {
+                return true;
             }
-            if (turning.isSource()) {
-                return !isBridgeGenerator(turning);
-            }
-            if (level == null || !turning.hasSource()) {
-                return false;
-            }
-            cursor = level.getBlockEntity(turning.source);
         }
         return false;
     }

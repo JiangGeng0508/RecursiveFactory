@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
 import com.zinzinc.recursivefactory.data.FactoryColors;
+import com.zinzinc.recursivefactory.data.FaceMode;
 import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -79,6 +80,12 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     private static final List<String> VOLATILE_ENTITY_TAGS = List.of(
             "Motion", "FallDistance", "OnGround", "PortalCooldown", "Air", "Fire", "UUID"
     );
+    /**
+     * The name a sampled entity travels under. The client matches a sample to the entity it already draws
+     * by this, so an entity that moves is moved onto the new sample instead of being built from scratch,
+     * which is what lets its renderer interpolate between two snapshots (see FactoryProjectionCache).
+     */
+    public static final String PREVIEW_ID_TAG = "RecursiveFactoryPreviewId";
 
     private int factoryId = -1;
     /**
@@ -263,6 +270,23 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         return factoryId > 0;
     }
 
+    /**
+     * What {@code face} of this block carries, see {@link FaceMode}.
+     *
+     * <p>Only the entrance block has modes of its own: a room's barrier wall is gated by the face of the
+     * entrance block that leads to it rather than by anything of its own (see {@code FactoryRelay}), so a
+     * block that is not an entrance block answers {@link FaceMode#TRANSPARENT} and its callers read that as
+     * "no gate here".
+     */
+    public FaceMode faceMode(Direction face) {
+        return FaceMode.TRANSPARENT;
+    }
+
+    /** Whether {@code face} of this block carries exactly this kind of thing right now. */
+    public boolean faceCarries(Direction face, FaceMode mode) {
+        return faceMode(face) == mode;
+    }
+
     public int getFactoryId() {
         return factoryId;
     }
@@ -270,11 +294,10 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     public void setFactoryId(int factoryId) {
         this.factoryId = factoryId;
         setChanged();
-        // The client tints a barrier with its factory's colour, so it has to be told the id even when the
-        // barrier is placed after the chunk it sits in was sent.
-        if (level instanceof ServerLevel serverLevel) {
-            serverLevel.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_ALL);
-        }
+        // A block that has just joined a factory is drawn in that factory's colour, and the colour lives on
+        // the block's own state (see FactoryColors), so the state is what tells the client - not the block
+        // entity, whose data arrives on its own schedule.
+        applyColorToState();
     }
 
     public boolean hasColorIndex() {
@@ -292,13 +315,40 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         }
         this.colorIndex = colorIndex;
         setChanged();
-        if (level instanceof ServerLevel serverLevel) {
-            serverLevel.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_ALL);
-        }
+        applyColorToState();
     }
 
+    /**
+     * Writes this block's colour kind onto its state, which is what the client tints with. The state
+     * travels with the block, so a block that has just been placed comes out in the right colour on its
+     * first frame rather than turning from the plain colour into the factory's a frame or more later. A
+     * state that already says the right thing is left alone, which keeps the repeated looks at a room free.
+     */
+    private void applyColorToState() {
+        if (level == null || level.isClientSide() || !hasFactoryId()) {
+            return;
+        }
+        BlockState state = getBlockState();
+        if (!state.hasProperty(FactoryColors.COLOR_PROPERTY)) {
+            return;
+        }
+        int wanted = FactoryColors.stateValue(FactoryColors.kindOfFactory(colorIndex, factoryId));
+        if (state.getValue(FactoryColors.COLOR_PROPERTY) == wanted) {
+            return;
+        }
+        level.setBlock(worldPosition, state.setValue(FactoryColors.COLOR_PROPERTY, wanted), Block.UPDATE_ALL);
+    }
+
+    /**
+     * Takes a stack pushed in through {@code inputSide}. A face that is not a logistics face turns the push
+     * away here rather than letting it sit in the buffer waiting for a mouth that is not there: the block
+     * that pushed it should back up straight away, which is what tells the player the face is closed.
+     */
     public ItemStack offer(ItemStack stack, @Nullable Direction inputSide) {
         if (stack.isEmpty() || !hasFactoryId()) {
+            return stack;
+        }
+        if (inputSide != null && !FactoryRelay.faceCarries(this, inputSide, FaceMode.LOGISTICS)) {
             return stack;
         }
 
@@ -370,6 +420,9 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
      */
     public int roomForFluid(FluidStack stack, @Nullable Direction inputSide) {
         if (stack.isEmpty() || !hasFactoryId()) {
+            return 0;
+        }
+        if (inputSide != null && !FactoryRelay.faceCarries(this, inputSide, FaceMode.FLUID)) {
             return 0;
         }
         if (!pendingFluid.isEmpty()
@@ -635,6 +688,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
             // saveWithoutId deliberately leaves the type id out (its NBT is not meant to be recreated from),
             // and EntityType.create looks the type up by exactly this key, so it has to be put back in.
             tag.putString("id", EntityType.getKey(entity.getType()).toString());
+            tag.putString(PREVIEW_ID_TAG, entity.getStringUUID());
             for (String volatileTag : VOLATILE_ENTITY_TAGS) {
                 tag.remove(volatileTag);
             }

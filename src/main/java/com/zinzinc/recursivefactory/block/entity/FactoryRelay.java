@@ -1,8 +1,10 @@
 package com.zinzinc.recursivefactory.block.entity;
 
 import com.mojang.logging.LogUtils;
+import com.simibubi.create.content.fluids.FluidPropagator;
 import com.zinzinc.recursivefactory.block.FactoryBarrierBlock;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
+import com.zinzinc.recursivefactory.data.FaceMode;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import java.util.ArrayList;
@@ -65,7 +67,8 @@ public final class FactoryRelay {
             return;
         }
 
-        List<RemoteEndpoint> remotes = resolveRemotes(localLevel, local, local.getPendingInput());
+        List<RemoteEndpoint> remotes =
+                resolveRemotes(localLevel, local, local.getPendingInput(), FaceMode.LOGISTICS);
         if (remotes.isEmpty()) {
             return;
         }
@@ -113,6 +116,10 @@ public final class FactoryRelay {
      *
      * <p>A tank sitting at the far end is what this fills, so a pipe inside the room feeds the tank built
      * against the wall outside, exactly as a hopper inside the room feeds the chest outside.
+     *
+     * <p>A Create pipe standing at the far end instead takes no fill at all and pulls what it is built
+     * against on its own ({@link #waitingFluid}), so a spot with a pipe on it is left alone here and the
+     * fluid is not reported as having nowhere to go.
      */
     public static void transportFluid(EndpointBlockEntity local) {
         if (local.getPendingFluid().isEmpty() || local.getPendingFluidInput() == null
@@ -120,13 +127,15 @@ public final class FactoryRelay {
             return;
         }
 
-        List<RemoteEndpoint> remotes = resolveRemotes(localLevel, local, local.getPendingFluidInput());
+        List<RemoteEndpoint> remotes =
+                resolveRemotes(localLevel, local, local.getPendingFluidInput(), FaceMode.FLUID);
         if (remotes.isEmpty()) {
             return;
         }
 
         Direction outputSide = local.getPendingFluidInput().getOpposite();
         FluidStack waiting = local.getPendingFluid();
+        boolean piped = false;
         for (RemoteEndpoint remote : remotes) {
             BlockPos outputPos = remote.outputPos(outputSide);
             IFluidHandler target = remote.level().getCapability(
@@ -135,6 +144,9 @@ public final class FactoryRelay {
                     outputSide.getOpposite()
             );
             if (target == null) {
+                // Not a tank: a pipe standing there is filled by pulling rather than by this push, so it
+                // is not a spot the fluid has nowhere to go at.
+                piped |= FluidPropagator.getPipe(remote.level(), outputPos) != null;
                 continue;
             }
 
@@ -148,7 +160,7 @@ public final class FactoryRelay {
             return;
         }
 
-        if (local.noteBlockedFluidTransport(outputSide)) {
+        if (!piped && local.noteBlockedFluidTransport(outputSide)) {
             LOGGER.info("Fluid {} is waiting in {}: nothing at {} would take it ({} positions tried)",
                     waiting.getHoverName(), local.getBlockPos(), remotes.get(0).outputPos(outputSide),
                     remotes.size());
@@ -171,7 +183,7 @@ public final class FactoryRelay {
         }
         for (Direction inputFace : face == null ? Direction.values() : new Direction[]{face}) {
             Direction outputSide = inputFace.getOpposite();
-            for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace)) {
+            for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace, FaceMode.LOGISTICS)) {
                 IItemHandler target = remote.level().getCapability(
                         Capabilities.ItemHandler.BLOCK,
                         remote.outputPos(outputSide),
@@ -196,6 +208,12 @@ public final class FactoryRelay {
      * pulled comes from the very spots the link hands its own fluid to, so a tank the link fills is the one
      * an extraction drains, and {@code face} - the side of this end the pulling block sits on - picks the
      * side of the room the pull came in through. An empty {@code resource} asks for whatever is there.
+     *
+     * <p>Standing at that spot instead of a tank can be a Create pipe, and a pipe takes no fill at all: it
+     * has no tank of its own, it only pulls from the blocks it is built against (see {@link #waitingFluid}).
+     * Such a pipe drains straight from the fluid the far end is holding for this side of the link, so a
+     * link feeds a pipe exactly as it feeds a tank - the fluid simply waits in the far end's buffer until
+     * the pipe asks for it, instead of being pushed across.
      */
     public static FluidStack extractFluid(EndpointBlockEntity local, @Nullable Direction face,
                                           FluidStack resource, int amount, boolean simulate) {
@@ -206,24 +224,54 @@ public final class FactoryRelay {
                 simulate ? IFluidHandler.FluidAction.SIMULATE : IFluidHandler.FluidAction.EXECUTE;
         for (Direction inputFace : face == null ? Direction.values() : new Direction[]{face}) {
             Direction outputSide = inputFace.getOpposite();
-            for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace)) {
+            for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace, FaceMode.FLUID)) {
                 IFluidHandler target = remote.level().getCapability(
                         Capabilities.FluidHandler.BLOCK,
                         remote.outputPos(outputSide),
                         outputSide.getOpposite()
                 );
-                if (target == null) {
-                    continue;
+                if (target != null) {
+                    FluidStack taken = resource.isEmpty()
+                            ? target.drain(amount, action)
+                            : target.drain(resource.copyWithAmount(amount), action);
+                    if (!taken.isEmpty()) {
+                        return taken;
+                    }
                 }
-                FluidStack taken = resource.isEmpty()
-                        ? target.drain(amount, action)
-                        : target.drain(resource.copyWithAmount(amount), action);
-                if (!taken.isEmpty()) {
-                    return taken;
+                FluidStack waiting = waitingFluid(remote, outputSide, resource, amount, action);
+                if (!waiting.isEmpty()) {
+                    return waiting;
                 }
             }
         }
         return FluidStack.EMPTY;
+    }
+
+    /**
+     * The fluid the far end is holding for the side of the link {@code outputSide} points at: fluid pushed
+     * into it from over there that has not left yet. A tank (or a basin, or any other block with a tank of
+     * its own) standing where the link hands its fluid over is filled by {@link #transportFluid} and never
+     * lets anything wait; a Create pipe standing there instead is not, because a pipe is not a tank and
+     * takes no fill at all - it pulls what it is built against. Taking the fluid out of the far end's
+     * buffer is what lets a pipe pull a link along, and it is the same direction the push would have gone
+     * in, so a link's fluid still only ever leaves through the side it was going to leave through.
+     */
+    private static FluidStack waitingFluid(RemoteEndpoint remote, Direction outputSide, FluidStack resource,
+                                           int amount, IFluidHandler.FluidAction action) {
+        if (!(remote.level().getBlockEntity(remote.pos()) instanceof EndpointBlockEntity far)
+                || far.getPendingFluid().isEmpty()
+                || far.getPendingFluidInput() != outputSide) {
+            return FluidStack.EMPTY;
+        }
+        FluidStack waiting = far.getPendingFluid();
+        if (!resource.isEmpty() && !FluidStack.isSameFluidSameComponents(waiting, resource)) {
+            return FluidStack.EMPTY;
+        }
+        FluidStack taken = waiting.copyWithAmount(Math.min(amount, waiting.getAmount()));
+        if (action.execute()) {
+            far.setFluidTransportResult(taken.getAmount());
+        }
+        return taken;
     }
 
     /**
@@ -272,7 +320,7 @@ public final class FactoryRelay {
     private static void driveRemotes(ServerLevel localLevel, EndpointBlockEntity local, Direction inputFace,
                                      int power) {
         Direction driven = inputFace.getOpposite();
-        for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace)) {
+        for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace, FaceMode.REDSTONE)) {
             if (remote.level().getBlockEntity(remote.pos()) instanceof EndpointBlockEntity endpoint) {
                 endpoint.setOutputPower(driven, power);
                 updateOutputState(endpoint);
@@ -296,6 +344,36 @@ public final class FactoryRelay {
             return;
         }
         syncPower(local, inputs);
+    }
+
+    /**
+     * Looks at both ends of a channel again after the entrance block's face {@code face} has been given
+     * another mode. Everything that uses a channel reads the mode live, but redstone is event driven: a
+     * face that has just become a redstone face would otherwise sit with a signal wired against it and
+     * never pick it up, and one that has just stopped being one would keep driving the wall it was feeding.
+     * The wall's own barriers are looked at as well, which covers the other direction - a dust line inside
+     * the room feeding a wall the player has just closed off is let go of.
+     */
+    public static void onFaceModeChanged(EndpointBlockEntity entrance, Direction face) {
+        updateFromNeighbours(entrance);
+        if (!(entrance instanceof RecursiveFactoryBlockEntity) || !entrance.hasFactoryId()
+                || !(entrance.getLevel() instanceof ServerLevel entranceLevel)) {
+            return;
+        }
+        MinecraftServer server = entranceLevel.getServer();
+        ServerLevel room = server == null ? null : server.getLevel(FactoryDimension.LEVEL_KEY);
+        FactoryData.FactoryRecord record = server == null
+                ? null
+                : FactoryData.get(server).factory(entrance.getFactoryId());
+        FactoryData.FactoryRecord.Cell cell = record == null ? null : record.cellAt(entrance.getBlockPos());
+        if (room == null || record == null || cell == null) {
+            return;
+        }
+        for (BlockPos wall : FactoryDimension.wallLine(record, cell, face)) {
+            if (room.getBlockEntity(wall) instanceof EndpointBlockEntity barrier) {
+                updateFromNeighbours(barrier);
+            }
+        }
     }
 
     /**
@@ -331,6 +409,10 @@ public final class FactoryRelay {
     private static int[] readInputs(Level level, BlockPos pos, EndpointBlockEntity local) {
         int[] inputs = new int[Direction.values().length];
         for (Direction direction : Direction.values()) {
+            if (!faceCarries(local, direction, FaceMode.REDSTONE)) {
+                // Not a redstone face: whatever is built against it is not wired to this factory.
+                continue;
+            }
             if (local.getOutputPower(direction) > 0) {
                 continue;
             }
@@ -396,14 +478,66 @@ public final class FactoryRelay {
     }
 
     /**
+     * Whether the link carries {@code mode}'s kind of thing across {@code face} of {@code local}.
+     *
+     * <p>The modes live on the entrance block and name the sides of the room: its north face is the room's
+     * north side. The barrier wall of a room has no modes of its own - the wall is not the gate, the face of
+     * the entrance block that leads to it is - and a barrier's own face points into the room where the
+     * matching face of the entrance block points out of it, so a barrier answers for the opposite face. An
+     * item pushed at the room's north wall from inside therefore leaves by the entrance block's north face,
+     * which is the face whose mode has to allow it.
+     *
+     * <p>A face nobody has said anything about - one whose entrance block cannot be reached, or a block that
+     * is not part of a factory at all - counts as open: there is no gate to hold anything back, and the walk
+     * to the far end will find nothing to hand it to anyway.
+     */
+    public static boolean faceCarries(EndpointBlockEntity local, @Nullable Direction face, FaceMode mode) {
+        if (face == null) {
+            return false;
+        }
+        if (local instanceof RecursiveFactoryBlockEntity entrance) {
+            return entrance.faceCarries(face, mode);
+        }
+        EndpointBlockEntity entrance = entranceOf(local);
+        return entrance == null || entrance.faceCarries(face.getOpposite(), mode);
+    }
+
+    /** The entrance block a room's barrier relays to, or null while it cannot be reached. */
+    private static @Nullable EndpointBlockEntity entranceOf(EndpointBlockEntity barrier) {
+        if (!(barrier.getLevel() instanceof ServerLevel level) || !barrier.hasFactoryId()) {
+            return null;
+        }
+        MinecraftServer server = level.getServer();
+        FactoryData.FactoryRecord record = server == null
+                ? null
+                : FactoryData.get(server)
+                        .factory(barrier.getFactoryId());
+        if (record == null || record.entranceDimension() == null) {
+            return null;
+        }
+        ServerLevel entranceLevel = server.getLevel(dimensionKey(record.entranceDimension()));
+        return entranceLevel != null
+                && entranceLevel.getBlockEntity(record.entrancePos()) instanceof EndpointBlockEntity entrance
+                ? entrance
+                : null;
+    }
+
+    /**
      * The far end of a factory's link. A barrier in the room reaches the entrance block outside. The
      * entrance block reaches the room's wall on the side the thing came in through: {@code inputFace} is
      * the face of the entrance block the item or the signal entered on, and it is what picks the side of
      * the room the link answers on (see {@link FactoryDimension#wallLine}). Fed from the north, for
      * instance, things come out along the room's north wall, facing into the room.
+     *
+     * <p>Nothing comes back for a face that is not set to {@code mode}: a face carries one kind of thing
+     * at a time (see {@link FaceMode}), so a mouth that is not the mouth for what is travelling is the
+     * same as no mouth at all.
      */
     private static List<RemoteEndpoint> resolveRemotes(ServerLevel localLevel, EndpointBlockEntity local,
-                                                       @Nullable Direction inputFace) {
+                                                       @Nullable Direction inputFace, FaceMode mode) {
+        if (!faceCarries(local, inputFace, mode)) {
+            return List.of();
+        }
         MinecraftServer server = localLevel.getServer();
         if (server == null) {
             return List.of();

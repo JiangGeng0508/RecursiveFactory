@@ -1,0 +1,43 @@
+{
+  "parent": "recursivefactory:block/frame_part",
+  "elements": [
+    {
+      "from": [
+        15,
+        0,
+        15
+      ],
+      "to": [
+        16,
+        16,
+        16
+      ],
+      "faces": {
+        "down": {
+          "texture": "#0",
+          "tintindex": 100
+        },
+        "up": {
+          "texture": "#0",
+          "tintindex": 101
+        },
+        "north": {
+          "texture": "#0",
+          "tintindex": 102
+        },
+        "south": {
+          "texture": "#0",
+          "tintindex": 103
+        },
+        "west": {
+          "texture": "#0",
+          "tintindex": 104
+        },
+        "east": {
+          "texture": "#0",
+          "tintindex": 105
+        }
+      }
+    }
+  ]
+}

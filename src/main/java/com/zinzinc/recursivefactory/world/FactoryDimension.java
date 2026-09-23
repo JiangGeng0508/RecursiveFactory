@@ -7,6 +7,8 @@ import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryBarrierBlockEntity;
+import com.zinzinc.recursivefactory.config.FactoryConfig;
+import com.zinzinc.recursivefactory.data.FactoryColors;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -47,6 +49,12 @@ public final class FactoryDimension {
      * saved room is a few ticks away from having its block entities on Create's networks.
      */
     private static final int[] SPLIT_RETRIES = {2, 6, 20, 60, 200, 600, 1800};
+    /**
+     * The tallest a room's shell has ever been. A room used to be thirty two blocks tall, so the walls and
+     * ceiling of an older room stand above the ceiling of a new one; the leftover is taken down at server
+     * start (see {@link #trimShellAbove}), once, rather than on every look at the room.
+     */
+    private static final int TALLEST_SHELL_EVER = 32;
     /** The factories whose shell is still joined, and the look at them that comes next. */
     private static final Map<Integer, Integer> PENDING_SPLITS = new HashMap<>();
 
@@ -65,6 +73,53 @@ public final class FactoryDimension {
         }
         for (FactoryData.FactoryRecord record : FactoryData.get(server).factories()) {
             prepare(level, record);
+            trimShellAbove(level, record);
+        }
+    }
+
+    /**
+     * Takes down the part of a room's shell that stands above its ceiling. A room that comes back from a
+     * save written before rooms were sixteen blocks tall still has the walls and the ceiling of its old
+     * height standing up there, and those leftovers would hang over the new room as a floating copy of
+     * it. Only barrier blocks that answer for this same factory are taken down, so nothing a player built
+     * over a room is touched.
+     *
+     * <p>Run once per server start rather than on every look at a room: a room built at the current
+     * height has nothing up there, and this walks the whole footprint.
+     */
+    private static void trimShellAbove(ServerLevel level, FactoryData.FactoryRecord record) {
+        if (record.cells().isEmpty()) {
+            return;
+        }
+        int minX = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int minZ = Integer.MAX_VALUE;
+        int maxZ = Integer.MIN_VALUE;
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            minX = Math.min(minX, cell.roomX());
+            maxX = Math.max(maxX, cell.roomX() + FactoryData.CELL_SIZE - 1);
+            minZ = Math.min(minZ, cell.roomZ());
+            maxZ = Math.max(maxZ, cell.roomZ() + FactoryData.CELL_SIZE - 1);
+        }
+
+        Block barrier = ModBlocks.FACTORY_BARRIER.get();
+        int firstY = FactoryData.CEILING_Y + 1;
+        int lastY = FactoryData.BASE_Y + TALLEST_SHELL_EVER - 1;
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        for (int x = minX; x <= maxX; x++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                for (int y = firstY; y <= lastY; y++) {
+                    BlockPos pos = cursor.set(x, y, z);
+                    if (!level.getBlockState(pos).is(barrier)) {
+                        continue;
+                    }
+                    if (level.getBlockEntity(pos) instanceof FactoryBarrierBlockEntity leftover
+                            && leftover.hasFactoryId()
+                            && leftover.getFactoryId() == record.id()) {
+                        level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
+                    }
+                }
+            }
         }
     }
 
@@ -122,13 +177,24 @@ public final class FactoryDimension {
         if (record.cells().isEmpty()) {
             return;
         }
+        MinecraftServer server = level.getServer();
+        FactoryData data = server == null ? null : FactoryData.get(server);
+        boolean grewFloor = false;
         for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
             ChunkPos chunk = new ChunkPos(cell.roomX() >> 4, cell.roomZ() >> 4);
             level.setChunkForced(chunk.x, chunk.z, true);
-            generateFloor(level, cell);
+            if (generateFloor(level, cell)) {
+                // The floor went down for the first time: remember it, so it is not laid again.
+                grewFloor = true;
+                LOGGER.debug("Factory #{}: laid the floor of the room cell at {} for the first time",
+                        record.id(), cell.entrance().toShortString());
+                if (data != null) {
+                    data.markFloorLaid(record.id(), cell.entrance());
+                }
+            }
             sealFloor(level, cell);
         }
-        buildShell(level, record);
+        buildShell(level, record, grewFloor);
         splitShellSides(level, record);
     }
 
@@ -317,8 +383,11 @@ public final class FactoryDimension {
      *
      * <p>Anything inside that footprint which is neither wall nor base nor ceiling is cleared, so growing
      * a factory takes the wall between the old room and the new cell away again.
+     *
+     * @param grewFloor true when a cell's floor was laid by this same look at the room, which puts the
+     *     room in the middle of growing.
      */
-    private static void buildShell(ServerLevel level, FactoryData.FactoryRecord record) {
+    private static void buildShell(ServerLevel level, FactoryData.FactoryRecord record, boolean grewFloor) {
         int minX = Integer.MAX_VALUE;
         int maxX = Integer.MIN_VALUE;
         int minZ = Integer.MAX_VALUE;
@@ -331,6 +400,15 @@ public final class FactoryDimension {
         }
 
         Block barrier = ModBlocks.FACTORY_BARRIER.get();
+        // The shell is drawn in the factory's colour, and that colour rides on the block's own state, so the
+        // state it is laid with is already the finished one: a wall is never shown in the plain colour first
+        // and repainted a frame later. A wall from a save older than that carries the property's default,
+        // which is why this compares states rather than just asking whether the block is a barrier - the
+        // first look at an older room repaints its walls, once.
+        BlockState shellState = barrier.defaultBlockState().setValue(
+                FactoryColors.COLOR_PROPERTY,
+                FactoryColors.stateValue(FactoryColors.kindOfFactory(record.colorIndex(), record.id()))
+        );
         int bottom = FactoryData.BASE_Y;
         int top = FactoryData.CEILING_Y;
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
@@ -343,15 +421,21 @@ public final class FactoryDimension {
                     boolean wanted = perimeter || y == bottom || y == top;
                     BlockState state = level.getBlockState(pos);
                     if (wanted) {
-                        if (!state.is(barrier)) {
-                            level.setBlock(pos, barrier.defaultBlockState(), 3);
+                        if (state != shellState) {
+                            level.setBlock(pos, shellState, 3);
                             linkBarrier(level, pos, record);
                         }
                     } else if (y == FactoryData.FLOOR_Y && insideRoom) {
                         // Growing a room takes the wall that used to stand between two cells away again,
-                        // and that wall stood on the floor layer: lay the checkerboard back down, or the
-                        // seam between the two cells shows as a one block wide hole in the floor.
-                        if (state.is(barrier) || state.isAir()) {
+                        // and that wall stood on the floor layer: lay the checkerboard back down along the
+                        // join, or the seam between the two cells shows as a one block wide hole in the
+                        // floor. A room that is growing gets its seam back even where the player had
+                        // already opened the wall up themselves; a hole the player dug anywhere else in
+                        // the floor only comes back when the config asks for that.
+                        boolean wallHere = state.is(barrier);
+                        boolean seamHole = state.isAir() && grewFloor && onCellRim(record, x, z);
+                        boolean brokenHole = state.isAir() && FactoryConfig.repairBrokenFloor();
+                        if (wallHere || seamHole || brokenHole) {
                             level.setBlock(pos, floorState(x, z), 3);
                         }
                     } else if (state.is(barrier) && nearCellEdge(record, x, z)) {
@@ -507,6 +591,27 @@ public final class FactoryDimension {
         }
         return false;
     }
+
+    /**
+     * True when the column sits on the rim of a cell that covers it: the ring of columns a cell shares
+     * with its neighbours once a room has grown, which is where the wall between two cells used to
+     * stand. {@link #nearCellEdge(FactoryData.FactoryRecord, int, int)} is the looser question of
+     * whether a column is anywhere near a cell's edge, which is what clearing barriers wants.
+     */
+    private static boolean onCellRim(FactoryData.FactoryRecord record, int x, int z) {
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            if (x < cell.roomX() || x >= cell.roomX() + FactoryData.CELL_SIZE
+                    || z < cell.roomZ() || z >= cell.roomZ() + FactoryData.CELL_SIZE) {
+                continue;
+            }
+            if (x == cell.roomX() || x == cell.roomX() + FactoryData.CELL_SIZE - 1
+                    || z == cell.roomZ() || z == cell.roomZ() + FactoryData.CELL_SIZE - 1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static void sweepBarriers(ServerLevel level, int minX, int minZ, int maxX, int maxZ) {
         Block barrier = ModBlocks.FACTORY_BARRIER.get();
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
@@ -533,19 +638,31 @@ public final class FactoryDimension {
         }
     }
 
-    private static void generateFloor(ServerLevel level, FactoryData.FactoryRecord.Cell cell) {
-        BlockPos marker = new BlockPos(cell.roomX() + FactoryData.CELL_SIZE / 2, FactoryData.FLOOR_Y,
-                cell.roomZ() + FactoryData.CELL_SIZE / 2);
-        BlockState markerState = level.getBlockState(marker);
-        if (markerState.is(Blocks.SNOW_BLOCK) || markerState.is(Blocks.WHITE_CONCRETE)) {
-            return;
+    /**
+     * Lays the checkerboard floor of one cell. The answer says whether this call laid it: a cell that
+     * had no floor answers yes so the caller can remember the floor is down, a cell that already had one
+     * answers no.
+     *
+     * <p>A cell's floor is laid the first time the cell is built. A cell whose floor is already down is
+     * left alone - a hole a player digs in it stays a hole - unless {@code room.repairBrokenFloor} is
+     * on, in which case the floor blocks that are missing are put back. A repair only fills what is gone:
+     * whatever else a player has put on the floor layer stays where it is.
+     */
+    private static boolean generateFloor(ServerLevel level, FactoryData.FactoryRecord.Cell cell) {
+        boolean alreadyLaid = cell.floorLaid();
+        if (alreadyLaid && !FactoryConfig.repairBrokenFloor()) {
+            return false;
         }
-
         for (int x = cell.roomX(); x < cell.roomX() + FactoryData.CELL_SIZE; x++) {
             for (int z = cell.roomZ(); z < cell.roomZ() + FactoryData.CELL_SIZE; z++) {
-                level.setBlock(new BlockPos(x, FactoryData.FLOOR_Y, z), floorState(x, z), 3);
+                BlockPos pos = new BlockPos(x, FactoryData.FLOOR_Y, z);
+                if (alreadyLaid && !level.getBlockState(pos).isAir()) {
+                    continue;
+                }
+                level.setBlock(pos, floorState(x, z), 3);
             }
         }
+        return !alreadyLaid;
     }
 
     /**

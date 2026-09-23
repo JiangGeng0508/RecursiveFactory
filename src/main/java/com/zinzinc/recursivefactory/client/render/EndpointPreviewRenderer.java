@@ -16,18 +16,18 @@ import net.neoforged.neoforge.network.PacketDistributor;
  */
 public final class EndpointPreviewRenderer {
     /**
-     * One room cell is drawn one block across, so a preview covers the whole face of the block it stands
-     * for. The sample is centred on the cell, and a cell is sixteen blocks across, so this mapping puts
-     * the cell's footprint exactly on the block's face and neighbouring cells line up block for block.
+     * One room cell is drawn one block across, so a preview fills the block it stands for. The sample is a
+     * whole room - sixteen blocks across and as many tall - centred on the cell, so this mapping puts the
+     * room's shell box exactly on the block's own cube: the shell's layers and columns land on the outer
+     * sixteenth of every direction, which is where the block's frame stands, and the free space of the
+     * room fills the opening.
      */
     private static final float PREVIEW_SCALE = 1.0F / FactoryData.CELL_SIZE;
     /**
-     * Height is not part of that mapping: a room is much taller than it is wide, so the sample is scaled
-     * the same way and simply reaches up out of the block. This is where the room's floor ends up: on top
-     * of the block's own model, which stands 4 pixels high, so the miniature sits on the block instead of
-     * cutting into it.
+     * The room's shell box and the block's cube are the same size and share their middle, so the sample
+     * needs no offset at all: base layer on the block's bottom face, ceiling under its top one.
      */
-    private static final float PREVIEW_Y_OFFSET = 0.25F;
+    private static final float PREVIEW_Y_OFFSET = 0.0F;
     /**
      * How often the client asks again when nothing was pushed to it. The server pushes every change, so
      * this is only a safety net for a broadcast that was missed while the block's chunk was unloaded.
@@ -68,10 +68,8 @@ public final class EndpointPreviewRenderer {
         poseStack.pushPose();
         poseStack.translate(0.5D, PREVIEW_Y_OFFSET, 0.5D);
         poseStack.scale(PREVIEW_SCALE, PREVIEW_SCALE, PREVIEW_SCALE);
-        // Sample coordinates are offsets from the centre of the cell, so local (0, y, 0) is the middle of
-        // the cell's footprint and the preview comes out centred on the block no matter how lopsided the
-        // sampled room is. Only the height is taken from the bounds, to sit the floor on the block.
-        poseStack.translate(0.0D, -cache.getBounds().minY, 0.0D);
+        // Sample coordinates are offsets from the middle of the room, so local (0, 0, 0) is the middle of
+        // the base layer and the preview comes out centred on the block however lopsided the room is.
         cache.render(poseStack, bufferSource);
         cache.renderBlockEntities(poseStack, bufferSource, partialTick);
         cache.renderEntities(poseStack, bufferSource, partialTick);
@@ -87,23 +85,37 @@ public final class EndpointPreviewRenderer {
             return null;
         }
 
-        int hash = 31 * blockEntity.getPreviewBlocks().hashCode() + blockEntity.getPreviewEntities().hashCode();
-        hash = 31 * hash + blockEntity.getPreviewBlockEntities().hashCode();
+        // The blocks are drawn again only when they change. Entities are handed the new sample instead, see
+        // FactoryProjectionCache#updateEntities - building them again every tick is what made them twitch.
+        int blockHash = 31 * blockEntity.getPreviewBlocks().hashCode()
+                + blockEntity.getPreviewBlockEntities().hashCode();
+        int entityHash = blockEntity.getPreviewEntities().hashCode();
         CachedProjection cached = PROJECTION_CACHE.get(blockEntity);
-        if (cached != null && cached.hash() == hash) {
+        if (cached != null && cached.blockHash() == blockHash) {
+            if (cached.entityHash() != entityHash) {
+                cached.cache().updateEntities(blockEntity.getPreviewEntities());
+                PROJECTION_CACHE.put(blockEntity, new CachedProjection(
+                        blockHash, entityHash, cached.entities(), cached.cache()
+                ));
+            }
             return cached.cache();
         }
 
+        FactoryProjectionCache.EntityStore entities = cached == null
+                ? new FactoryProjectionCache.EntityStore()
+                : cached.entities();
         FactoryProjectionCache rebuilt = new FactoryProjectionCache(
                 blockEntity.getLevel(),
                 blockEntity.getPreviewBlocks(),
                 blockEntity.getPreviewEntities(),
-                blockEntity.getPreviewBlockEntities()
+                blockEntity.getPreviewBlockEntities(),
+                entities
         );
-        PROJECTION_CACHE.put(blockEntity, new CachedProjection(hash, rebuilt));
+        PROJECTION_CACHE.put(blockEntity, new CachedProjection(blockHash, entityHash, entities, rebuilt));
         return rebuilt;
     }
 
-    private record CachedProjection(int hash, FactoryProjectionCache cache) {
+    private record CachedProjection(int blockHash, int entityHash, FactoryProjectionCache.EntityStore entities,
+                                    FactoryProjectionCache cache) {
     }
 }

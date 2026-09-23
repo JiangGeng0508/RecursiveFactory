@@ -23,11 +23,13 @@ public final class RecursiveFactoryClient {
     }
 
     /**
-     * Both blocks are flat white shapes tinted per factory, so a factory's shell and the pedestal of its
-     * entrance block (the one the preview sits on) always come out the same colour.
+     * Both blocks are flat white shapes tinted per factory, so a factory's shell and the frame of its
+     * entrance block always come out the same colour. The faces of an entrance block are tinted one at a
+     * time on top of that, so a face that carries something is drawn in that thing's colour while the rest
+     * of the block keeps the factory's (see {@link FactoryColors#tint}).
      */
     private void registerBlockColors(RegisterColorHandlersEvent.Block event) {
-        event.register((state, level, pos, tintIndex) -> FactoryColors.at(level, pos),
+        event.register((state, level, pos, tintIndex) -> FactoryColors.tint(state, level, pos, tintIndex),
                 ModBlocks.FACTORY_BARRIER.get(),
                 ModBlocks.RECURSIVE_FACTORY.get());
     }

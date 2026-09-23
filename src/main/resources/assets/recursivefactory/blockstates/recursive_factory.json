@@ -1,16 +1,161 @@
 {
-  "variants": {
-    "powered=false,facing=north": { "model": "recursivefactory:block/recursive_factory" },
-    "powered=true,facing=north": { "model": "recursivefactory:block/recursive_factory_on" },
-    "powered=false,facing=east": { "model": "recursivefactory:block/recursive_factory" },
-    "powered=true,facing=east": { "model": "recursivefactory:block/recursive_factory_on", "y": 90 },
-    "powered=false,facing=south": { "model": "recursivefactory:block/recursive_factory" },
-    "powered=true,facing=south": { "model": "recursivefactory:block/recursive_factory_on", "y": 180 },
-    "powered=false,facing=west": { "model": "recursivefactory:block/recursive_factory" },
-    "powered=true,facing=west": { "model": "recursivefactory:block/recursive_factory_on", "y": 270 },
-    "powered=false,facing=up": { "model": "recursivefactory:block/recursive_factory" },
-    "powered=true,facing=up": { "model": "recursivefactory:block/recursive_factory_on_up" },
-    "powered=false,facing=down": { "model": "recursivefactory:block/recursive_factory" },
-    "powered=true,facing=down": { "model": "recursivefactory:block/recursive_factory_on_down" }
-  }
+  "multipart": [
+    {
+      "when": {
+        "north": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_down_north"
+      }
+    },
+    {
+      "when": {
+        "south": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_down_south"
+      }
+    },
+    {
+      "when": {
+        "north": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_up_north"
+      }
+    },
+    {
+      "when": {
+        "south": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_up_south"
+      }
+    },
+    {
+      "when": {
+        "north": "false",
+        "west": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_north_west"
+      }
+    },
+    {
+      "when": {
+        "south": "false",
+        "west": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_south_west"
+      }
+    },
+    {
+      "when": {
+        "north": "false",
+        "east": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_north_east"
+      }
+    },
+    {
+      "when": {
+        "south": "false",
+        "east": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_south_east"
+      }
+    },
+    {
+      "when": {
+        "west": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_down_west"
+      }
+    },
+    {
+      "when": {
+        "west": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_up_west"
+      }
+    },
+    {
+      "when": {
+        "east": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_down_east"
+      }
+    },
+    {
+      "when": {
+        "east": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_up_east"
+      }
+    },
+    {
+      "when": {
+        "powered": "true",
+        "facing": "north"
+      },
+      "apply": {
+        "model": "recursivefactory:block/recursive_factory_on"
+      }
+    },
+    {
+      "when": {
+        "powered": "true",
+        "facing": "east"
+      },
+      "apply": {
+        "model": "recursivefactory:block/recursive_factory_on",
+        "y": 90
+      }
+    },
+    {
+      "when": {
+        "powered": "true",
+        "facing": "south"
+      },
+      "apply": {
+        "model": "recursivefactory:block/recursive_factory_on",
+        "y": 180
+      }
+    },
+    {
+      "when": {
+        "powered": "true",
+        "facing": "west"
+      },
+      "apply": {
+        "model": "recursivefactory:block/recursive_factory_on",
+        "y": 270
+      }
+    },
+    {
+      "when": {
+        "powered": "true",
+        "facing": "up"
+      },
+      "apply": {
+        "model": "recursivefactory:block/recursive_factory_on_up"
+      }
+    },
+    {
+      "when": {
+        "powered": "true",
+        "facing": "down"
+      },
+      "apply": {
+        "model": "recursivefactory:block/recursive_factory_on_down"
+      }
+    }
+  ]
 }

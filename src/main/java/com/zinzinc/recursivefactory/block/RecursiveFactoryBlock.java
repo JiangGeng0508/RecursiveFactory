@@ -1,7 +1,10 @@
 package com.zinzinc.recursivefactory.block;
 
+import com.mojang.logging.LogUtils;
 import com.mojang.serialization.MapCodec;
+import com.simibubi.create.content.equipment.wrench.IWrenchable;
 import com.simibubi.create.content.kinetics.base.IRotate;
+import com.zinzinc.recursivefactory.data.FaceMode;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryRelay;
 import com.zinzinc.recursivefactory.block.entity.KineticRelay;
@@ -17,15 +20,19 @@ import java.util.UUID;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.BaseEntityBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.RenderShape;
@@ -36,31 +43,46 @@ import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.storage.loot.LootParams;
 import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import org.slf4j.Logger;
 
 /**
  * The factory's entrance block. Placing one next to another entrance block grows that factory's room
  * instead of starting a second one, so a bigger factory is built by laying entrance blocks out and
  * letting the room follow the same shape.
  *
- * <p>It is a solid 4px plinth: the preview of the room is drawn floating just above it (see
- * RecursiveFactoryRenderer), and the client tints it with its factory's colour so it matches the shell of
- * the room it leads into (see FactoryColors). Which colour that is comes from the kind the block was
- * crafted in when it starts a factory, and from the factory itself when it is laid down next to one.
+ * <p>It is a frame: twelve one sixteenth bars along the edges of the block, with the middle open. The
+ * preview of the room is drawn inside that opening, scaled so that the room's own shell lines up with the
+ * frame (see RecursiveFactoryRenderer), and the client tints the frame with its factory's colour so it
+ * matches the shell of the room it leads into (see FactoryColors). Which colour that is comes from the
+ * kind the block was crafted in when it starts a factory, and from the factory itself when it is laid
+ * down next to one.
  */
-public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRotate {
+public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRotate, IWrenchable {
     public static final MapCodec<RecursiveFactoryBlock> CODEC = simpleCodec(RecursiveFactoryBlock::new);
-    private static final VoxelShape SHAPE = Block.box(0.0D, 0.0D, 0.0D, 16.0D, 4.0D, 16.0D);
+    private static final Logger LOGGER = LogUtils.getLogger();
+    /**
+     * A whole block, even though the model is a frame with its middle open: the preview of the room hangs
+     * in that opening, and a player walking up to the block should not step into the room's miniature.
+     */
+    private static final VoxelShape SHAPE = Shapes.block();
 
     public RecursiveFactoryBlock(BlockBehaviour.Properties properties) {
         super(properties);
         registerDefaultState(stateDefinition.any()
                 .setValue(BlockStateProperties.POWERED, false)
-                .setValue(BlockStateProperties.FACING, Direction.NORTH));
+                .setValue(BlockStateProperties.FACING, Direction.NORTH)
+                .setValue(BlockStateProperties.NORTH, false)
+                .setValue(BlockStateProperties.EAST, false)
+                .setValue(BlockStateProperties.SOUTH, false)
+                .setValue(BlockStateProperties.WEST, false)
+                .setValue(FactoryColors.COLOR_PROPERTY, 0));
     }
 
     @Override
@@ -70,7 +92,28 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(BlockStateProperties.POWERED, BlockStateProperties.FACING);
+        builder.add(BlockStateProperties.POWERED, BlockStateProperties.FACING, FactoryColors.COLOR_PROPERTY,
+                BlockStateProperties.NORTH, BlockStateProperties.EAST,
+                BlockStateProperties.SOUTH, BlockStateProperties.WEST);
+    }
+
+    /**
+     * The colour kind the item was crafted in, written onto the block as it is placed. The state is what
+     * the client tints with and it travels with the block, so the pedestal comes out in its own colour on
+     * the very first frame instead of turning from the plain colour once the block entity catches up.
+     *
+     * <p>A stack that carries no colour kind leaves the property at 0, which asks the factory instead:
+     * {@link #setPlacedBy} fills it in once the factory - the one this block joins, or the one it starts -
+     * is known.
+     */
+    @Override
+    public BlockState getStateForPlacement(BlockPlaceContext context) {
+        return withConnections(
+                defaultBlockState().setValue(
+                        FactoryColors.COLOR_PROPERTY,
+                        FactoryColors.stateValue(FactoryColors.colorOf(context.getItemInHand()))),
+                context.getLevel(),
+                context.getClickedPos());
     }
 
     @Override
@@ -93,20 +136,133 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
         return true;
     }
 
+    /**
+     * Works out one side of the frame from the block that has just changed beside it, which is what keeps a
+     * growing factory joined up while entrance blocks are laid down and taken away. Up and down are not
+     * sides of a room, so a change above or below leaves the state alone.
+     */
+    @Override
+    protected BlockState updateShape(BlockState state, Direction direction, BlockState neighborState,
+                                     LevelAccessor level, BlockPos pos, BlockPos neighborPos) {
+        if (!direction.getAxis().isHorizontal() || !state.hasProperty(BlockStateProperties.NORTH)) {
+            return state;
+        }
+        return state.setValue(joinedAcross(direction), neighborState.is(this));
+    }
+
+    /**
+     * {@code state} with all four sides worked out from what stands beside {@code pos}. A side is joined
+     * when the block over there is another entrance block: the two frames meet along the plane they share,
+     * and a plane inside a room is drawn by neither of them.
+     */
+    public static BlockState withConnections(BlockState state, BlockGetter level, BlockPos pos) {
+        if (!state.hasProperty(BlockStateProperties.NORTH)) {
+            return state;
+        }
+        for (Direction side : Direction.Plane.HORIZONTAL) {
+            state = state.setValue(joinedAcross(side), joins(level, pos, side));
+        }
+        return state;
+    }
+
+    /** Whether the block beside {@code pos} on {@code side} is another entrance block. */
+    private static boolean joins(BlockGetter level, BlockPos pos, Direction side) {
+        return level.getBlockState(pos.relative(side)).is(ModBlocks.RECURSIVE_FACTORY.get());
+    }
+
+    /**
+     * The property that says whether the frame carries on into the block on {@code side}. Only the four
+     * sides of a room have one: a room has no side above or below it.
+     */
+    private static BooleanProperty joinedAcross(Direction side) {
+        return switch (side) {
+            case NORTH -> BlockStateProperties.NORTH;
+            case EAST -> BlockStateProperties.EAST;
+            case SOUTH -> BlockStateProperties.SOUTH;
+            case WEST -> BlockStateProperties.WEST;
+            default -> throw new IllegalArgumentException("a room has no " + side + " side");
+        };
+    }
+
     @Override
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
                                                BlockHitResult hitResult) {
         if (level.isClientSide()) {
             return InteractionResult.SUCCESS;
         }
-        if (player instanceof ServerPlayer serverPlayer
-                && level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity
-                && blockEntity.hasFactoryId()) {
-            return FactoryTeleporter.enter(serverPlayer, blockEntity.getFactoryId(), pos)
-                    ? InteractionResult.CONSUME
-                    : InteractionResult.FAIL;
+        if (!(level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity)
+                || !blockEntity.hasFactoryId()) {
+            return InteractionResult.PASS;
         }
-        return InteractionResult.PASS;
+        // Sneaking switches what the face that was clicked carries; anything else walks in. The face is the
+        // one the click landed on, so a player can set up the side of the factory they are standing at
+        // without having to walk round it.
+        if (player.isShiftKeyDown()) {
+            return cycleFaceMode(level, blockEntity, hitResult.getDirection(), player)
+                    ? InteractionResult.CONSUME
+                    : InteractionResult.PASS;
+        }
+        return player instanceof ServerPlayer serverPlayer
+                && FactoryTeleporter.enter(serverPlayer, blockEntity.getFactoryId(), pos)
+                ? InteractionResult.CONSUME
+                : InteractionResult.FAIL;
+    }
+
+    /**
+     * A wrench switches the face it is aimed at, exactly as sneaking with a bare hand does, and does not
+     * turn the block or take it up: the face a wrench is pointed at means nothing to the direction this
+     * block faces, which only ever marks where its relay is driving redstone, and picking the block up
+     * would leave the room behind it without an entrance.
+     */
+    @Override
+    public InteractionResult onWrenched(BlockState state, UseOnContext context) {
+        return wrenchFace(context, true);
+    }
+
+    @Override
+    public InteractionResult onSneakWrenched(BlockState state, UseOnContext context) {
+        return wrenchFace(context, true);
+    }
+
+    private static InteractionResult wrenchFace(UseOnContext context, boolean playSound) {
+        Level level = context.getLevel();
+        BlockPos pos = context.getClickedPos();
+        if (!(level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity)
+                || !blockEntity.hasFactoryId()) {
+            return InteractionResult.PASS;
+        }
+        if (level.isClientSide()) {
+            return InteractionResult.SUCCESS;
+        }
+        if (!cycleFaceMode(level, blockEntity, context.getClickedFace(), context.getPlayer())) {
+            return InteractionResult.PASS;
+        }
+        if (playSound) {
+            IWrenchable.playRotateSound(level, pos);
+        }
+        return InteractionResult.SUCCESS;
+    }
+
+    /**
+     * Moves one face on to the next mode and says so on the player's action bar, which is the only place a
+     * face can be read as more than a colour. Answers whether the face moved at all.
+     */
+    private static boolean cycleFaceMode(Level level, RecursiveFactoryBlockEntity blockEntity, Direction face,
+                                        @Nullable Player player) {
+        FaceMode mode = blockEntity.faceMode(face).next();
+        if (!blockEntity.setFaceMode(face, mode)) {
+            return false;
+        }
+        LOGGER.debug("Factory #{}: {} face of {} now carries {}", blockEntity.getFactoryId(),
+                face.getSerializedName(), blockEntity.getBlockPos(), mode.getSerializedName());
+        if (player != null) {
+            player.displayClientMessage(Component.translatable(
+                    "message.recursivefactory.face_mode",
+                    Component.translatable("face.recursivefactory." + face.getSerializedName()),
+                    mode.displayName()
+            ), true);
+        }
+        return true;
     }
 
     @Override
@@ -177,11 +333,18 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
     @Override
     public List<ItemStack> getDrops(BlockState state, LootParams.Builder params) {
         List<ItemStack> drops = super.getDrops(state, params);
-        if (params.getOptionalParameter(LootContextParams.BLOCK_ENTITY)
-                instanceof RecursiveFactoryBlockEntity blockEntity && blockEntity.hasColorIndex()) {
+        // Which colour kind the block comes back as: the one it is drawn in, or - for a block that predates
+        // the colour sitting on the state - the one its block entity was given.
+        int colorIndex = FactoryColors.kindOfState(state);
+        if (colorIndex == FactoryColors.NO_COLOR
+                && params.getOptionalParameter(LootContextParams.BLOCK_ENTITY)
+                        instanceof RecursiveFactoryBlockEntity blockEntity && blockEntity.hasColorIndex()) {
+            colorIndex = blockEntity.getColorIndex();
+        }
+        if (colorIndex != FactoryColors.NO_COLOR) {
             for (ItemStack drop : drops) {
                 if (drop.is(asItem())) {
-                    drop.set(ModDataComponents.COLOR.get(), blockEntity.getColorIndex());
+                    drop.set(ModDataComponents.COLOR.get(), colorIndex);
                 }
             }
         }
