@@ -2,12 +2,7 @@ package com.zinzinc.recursivefactory.world;
 
 import com.zinzinc.recursivefactory.data.ModAttachments;
 import com.zinzinc.recursivefactory.data.ReturnStackData;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.UUID;
-import java.util.Optional;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -17,18 +12,11 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 
 public final class FactoryTeleporter {
-    private static final long AUTO_ENTER_COOLDOWN_TICKS = 40L;
-    private static final Map<UUID, Long> AUTO_ENTER_COOLDOWN_UNTIL = new HashMap<>();
-
     private FactoryTeleporter() {
     }
 
-    public static boolean canAutoEnter(ServerPlayer player) {
-        long cooldownUntil = AUTO_ENTER_COOLDOWN_UNTIL.getOrDefault(player.getUUID(), 0L);
-        return player.level().getGameTime() >= cooldownUntil;
-    }
-
-    public static boolean enter(ServerPlayer player, int factoryId, Direction approachDirection) {
+    /** Drops the player into the room cell that the given entrance block stands for. */
+    public static boolean enter(ServerPlayer player, int factoryId, BlockPos entrancePos) {
         MinecraftServer server = player.getServer();
         ServerLevel targetLevel = server == null ? null : server.getLevel(FactoryDimension.LEVEL_KEY);
         FactoryData.FactoryRecord record = server == null ? null : FactoryData.get(server).factory(factoryId);
@@ -37,23 +25,40 @@ public final class FactoryTeleporter {
             return false;
         }
 
+        FactoryData.FactoryRecord.Cell cell = record.cellAt(entrancePos);
+        if (cell == null) {
+            cell = record.anchorCell();
+        }
+        if (cell == null) {
+            player.sendSystemMessage(Component.translatable("message.recursivefactory.missing"));
+            return false;
+        }
+
+        // A room that is being read out for a blueprint, or printed from one, has to stand still: a player
+        // walking in would be walking into a copy while it is being taken.
+        if (FactoryLocks.isBeingCopied(factoryId)) {
+            player.sendSystemMessage(Component.translatable("message.recursivefactory.copying"));
+            return false;
+        }
+
         FactoryDimension.prepare(targetLevel, record);
         pushReturnPoint(player);
 
-        BlockPos target = FactoryDimension.entryPosition(record, approachDirection);
+        BlockPos target = FactoryDimension.entryTarget(cell);
         player.teleportTo(
                 targetLevel,
                 target.getX() + 0.5D,
                 target.getY() + 0.1D,
                 target.getZ() + 0.5D,
-                inwardYaw(approachDirection),
+                player.getYRot(),
                 player.getXRot()
         );
         player.sendSystemMessage(Component.translatable("message.recursivefactory.entered", factoryId));
         return true;
     }
 
-    public static boolean exit(ServerPlayer player, int factoryId, Direction exitDirection) {
+    /** Sends the player back where they came from, or beside the entrance block if that is unknown. */
+    public static boolean exit(ServerPlayer player, int factoryId) {
         MinecraftServer server = player.getServer();
         FactoryData.FactoryRecord record = server == null ? null : FactoryData.get(server).factory(factoryId);
         if (server == null || record == null) {
@@ -88,7 +93,7 @@ public final class FactoryTeleporter {
             x = fallback.getX() + 0.5D;
             y = fallback.getY() + 0.1D;
             z = fallback.getZ() + 0.5D;
-            yRot = outwardYaw(exitDirection);
+            yRot = player.getYRot();
         }
 
         if (targetLevel == null) {
@@ -101,14 +106,11 @@ public final class FactoryTeleporter {
         }
 
         player.teleportTo(targetLevel, x, y, z, yRot, player.getXRot());
-        AUTO_ENTER_COOLDOWN_UNTIL.put(
-                player.getUUID(),
-                player.level().getGameTime() + AUTO_ENTER_COOLDOWN_TICKS
-        );
         player.sendSystemMessage(Component.translatable("message.recursivefactory.exited", factoryId));
         return true;
     }
 
+    /** A player who ends up in the factory dimension but not in any room is sent back out. */
     public static boolean exitFromEdge(ServerPlayer player) {
         MinecraftServer server = player.getServer();
         if (server == null || player.level() != server.getLevel(FactoryDimension.LEVEL_KEY)) {
@@ -124,12 +126,7 @@ public final class FactoryTeleporter {
             return false;
         }
 
-        Direction exitDirection = FactoryDimension.horizontalDirectionFrom(
-                record.baseChunk().getMiddleBlockPosition(player.blockPosition().getY()),
-                player.getX(),
-                player.getZ()
-        );
-        return exit(player, record.id(), exitDirection);
+        return exit(player, record.id());
     }
 
     private static void pushReturnPoint(ServerPlayer player) {
@@ -138,29 +135,5 @@ public final class FactoryTeleporter {
                 ModAttachments.RETURN_STACK.get(),
                 stack.push(ReturnStackData.ReturnPoint.capture(player))
         );
-    }
-
-    private static float inwardYaw(Direction approachDirection) {
-        return switch (approachDirection) {
-            case NORTH -> 0.0F;
-            case SOUTH -> 180.0F;
-            case WEST -> -90.0F;
-            case EAST -> 90.0F;
-            default -> playerNeutralYaw();
-        };
-    }
-
-    private static float outwardYaw(Direction exitDirection) {
-        return switch (exitDirection) {
-            case NORTH -> 180.0F;
-            case SOUTH -> 0.0F;
-            case WEST -> 90.0F;
-            case EAST -> -90.0F;
-            default -> 0.0F;
-        };
-    }
-
-    private static float playerNeutralYaw() {
-        return 0.0F;
     }
 }

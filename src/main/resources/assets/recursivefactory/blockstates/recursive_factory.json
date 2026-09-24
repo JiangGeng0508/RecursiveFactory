@@ -1,6 +1,104 @@
 {
-  "variants": {
-    "powered=false": { "model": "recursivefactory:block/recursive_factory" },
-    "powered=true": { "model": "recursivefactory:block/recursive_factory" }
-  }
+  "multipart": [
+    {
+      "when": {
+        "north": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_down_north"
+      }
+    },
+    {
+      "when": {
+        "south": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_down_south"
+      }
+    },
+    {
+      "when": {
+        "north": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_up_north"
+      }
+    },
+    {
+      "when": {
+        "south": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_up_south"
+      }
+    },
+    {
+      "when": {
+        "north": "false",
+        "west": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_north_west"
+      }
+    },
+    {
+      "when": {
+        "south": "false",
+        "west": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_south_west"
+      }
+    },
+    {
+      "when": {
+        "north": "false",
+        "east": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_north_east"
+      }
+    },
+    {
+      "when": {
+        "south": "false",
+        "east": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_south_east"
+      }
+    },
+    {
+      "when": {
+        "west": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_down_west"
+      }
+    },
+    {
+      "when": {
+        "west": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_up_west"
+      }
+    },
+    {
+      "when": {
+        "east": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_down_east"
+      }
+    },
+    {
+      "when": {
+        "east": "false"
+      },
+      "apply": {
+        "model": "recursivefactory:block/frame_edge_up_east"
+      }
+    }
+  ]
 }

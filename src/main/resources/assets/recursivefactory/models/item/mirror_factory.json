@@ -1,3 +1,6 @@
 {
-  "parent": "recursivefactory:block/mirror_factory"
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "recursivefactory:item/mirror_factory"
+  }
 }

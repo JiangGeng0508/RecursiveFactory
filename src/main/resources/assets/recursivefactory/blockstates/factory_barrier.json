@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "recursivefactory:block/factory_barrier"
+    }
+  }
+}

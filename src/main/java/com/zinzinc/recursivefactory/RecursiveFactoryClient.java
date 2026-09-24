@@ -1,21 +1,43 @@
 package com.zinzinc.recursivefactory;
 
+import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
-import com.zinzinc.recursivefactory.client.render.MirrorFactoryRenderer;
 import com.zinzinc.recursivefactory.client.render.RecursiveFactoryRenderer;
+import com.zinzinc.recursivefactory.data.FactoryColors;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
 
 @Mod(value = RecursiveFactory.MODID, dist = Dist.CLIENT)
 public final class RecursiveFactoryClient {
     public RecursiveFactoryClient(IEventBus modEventBus) {
         modEventBus.addListener(this::registerRenderers);
+        modEventBus.addListener(this::registerBlockColors);
+        modEventBus.addListener(this::registerItemColors);
     }
 
     private void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerBlockEntityRenderer(ModBlockEntities.RECURSIVE_FACTORY.get(), RecursiveFactoryRenderer::new);
-        event.registerBlockEntityRenderer(ModBlockEntities.MIRROR_FACTORY.get(), MirrorFactoryRenderer::new);
+    }
+
+    /**
+     * Both blocks are flat white shapes tinted per factory, so a factory's shell and the frame of its
+     * entrance block always come out the same colour. The faces of an entrance block are tinted one at a
+     * time on top of that, so a face that carries something is drawn in that thing's colour while the rest
+     * of the block keeps the factory's (see {@link FactoryColors#tint}).
+     */
+    private void registerBlockColors(RegisterColorHandlersEvent.Block event) {
+        event.register((state, level, pos, tintIndex) -> FactoryColors.tint(state, level, pos, tintIndex),
+                ModBlocks.FACTORY_BARRIER.get(),
+                ModBlocks.RECURSIVE_FACTORY.get());
+    }
+
+    /** The item is tinted with the colour kind it carries, which is what tells the sixteen apart. */
+    private void registerItemColors(RegisterColorHandlersEvent.Item event) {
+        event.register((stack, tintIndex) -> FactoryColors.ofStack(stack),
+                ModBlocks.FACTORY_BARRIER_ITEM.get(),
+                ModBlocks.RECURSIVE_FACTORY_ITEM.get());
     }
 }

@@ -2,7 +2,6 @@ package com.zinzinc.recursivefactory.client.network;
 
 import com.mojang.logging.LogUtils;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
-import com.zinzinc.recursivefactory.client.render.ClientEnclosureCache;
 import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
 import java.util.List;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -27,21 +26,31 @@ public final class ClientEndpointPreviewHandler {
                 previewTag,
                 level.registryAccess()
         );
+        List<CompoundTag> entities = EndpointBlockEntity.readPreviewEntities(previewTag);
+        List<CompoundTag> blockEntities = EndpointBlockEntity.readPreviewBlockEntities(previewTag);
         if (!blocks.equals(endpoint.getPreviewBlocks())) {
-            LOGGER.info("Received endpoint preview at {} with {} blocks", pos, blocks.size());
+            LOGGER.info(
+                    "Received endpoint preview at {} with {} blocks, {} entities and {} block entities",
+                    pos,
+                    blocks.size(),
+                    entities.size(),
+                    blockEntities.size()
+            );
+        } else if (!entities.equals(endpoint.getPreviewEntities())
+                || !blockEntities.equals(endpoint.getPreviewBlockEntities())) {
+            // Moving entities change the preview every tick, so only the first sighting is worth a line.
+            LOGGER.debug(
+                    "Received endpoint preview at {} with {} blocks, {} entities and {} block entities",
+                    pos,
+                    blocks.size(),
+                    entities.size(),
+                    blockEntities.size()
+            );
         }
-        endpoint.acceptPreview(blocks);
+        endpoint.acceptPreview(blocks, entities, blockEntities);
     }
 
     public static void handle(EndpointPreviewPackets.Sync packet) {
         handle(packet.pos(), packet.previewTag());
-    }
-
-    public static void handleEnclosure(int chunkX, int chunkZ, List<EndpointBlockEntity.PreviewBlock> blocks) {
-        if (!(net.minecraft.client.Minecraft.getInstance().player instanceof LocalPlayer player)
-                || !(player.level() instanceof ClientLevel)) {
-            return;
-        }
-        ClientEnclosureCache.accept(chunkX, chunkZ, blocks);
     }
 }

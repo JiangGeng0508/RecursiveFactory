@@ -16,8 +16,8 @@ public final class RecursiveFactoryRenderer implements BlockEntityRenderer<Recur
         if (blockEntity.getLevel() == null) {
             return;
         }
-        MirrorFactoryRenderer.requestPreview(blockEntity);
-        MirrorFactoryRenderer.renderPreview(blockEntity, poseStack, bufferSource);
+        EndpointPreviewRenderer.requestPreview(blockEntity);
+        EndpointPreviewRenderer.renderPreview(blockEntity, poseStack, bufferSource, partialTick);
     }
 
     @Override

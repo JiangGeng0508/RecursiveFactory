@@ -20,15 +20,10 @@ public final class ModNetworking {
                 EndpointPreviewPackets.Sync.STREAM_CODEC,
                 EndpointPreviewPackets.Sync::handle
         );
-        registrar.playToServer(
-                FactoryEnclosurePackets.Request.TYPE,
-                FactoryEnclosurePackets.Request.STREAM_CODEC,
-                FactoryEnclosurePackets.Request::handle
-        );
         registrar.playToClient(
-                FactoryEnclosurePackets.Sync.TYPE,
-                FactoryEnclosurePackets.Sync.STREAM_CODEC,
-                FactoryEnclosurePackets.Sync::handle
+                EndpointModePackets.Sync.TYPE,
+                EndpointModePackets.Sync.STREAM_CODEC,
+                EndpointModePackets.Sync::handle
         );
     }
 }
