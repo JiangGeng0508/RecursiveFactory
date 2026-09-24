@@ -1,6 +1,7 @@
 package com.zinzinc.recursivefactory;
 
 import com.mojang.logging.LogUtils;
+import com.simibubi.create.AllCreativeModeTabs;
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryItem;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
@@ -13,7 +14,6 @@ import com.zinzinc.recursivefactory.world.FactoryDimension;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.CreativeModeTab;
-import net.minecraft.world.item.CreativeModeTabs;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -37,7 +37,12 @@ public final class RecursiveFactory {
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> MAIN_TAB =
             CREATIVE_MODE_TABS.register("main", () -> CreativeModeTab.builder()
                     .title(Component.translatable("itemGroup.recursivefactory.main"))
-                    .withTabsBefore(CreativeModeTabs.FUNCTIONAL_BLOCKS)
+                    // Last in the row, behind Create's two tabs: the frame is built out of Create
+                    // machines, so it belongs beside them rather than in the middle of the vanilla
+                    // tabs. Anchoring on a tab that none of them points at leaves every vanilla tab
+                    // where it has always been - the ten of them still fill the first page on their
+                    // own - and the front of the row stays free for anyone else.
+                    .withTabsBefore(AllCreativeModeTabs.PALETTES_CREATIVE_TAB.getKey())
                     // Every colour kind is the same item with the colour carried as a component, so
                     // the tab lists all sixteen of them.
                     .icon(() -> RecursiveFactoryItem.colored(0))
