@@ -19,11 +19,11 @@
         },
         "up": {
           "texture": "#0",
-          "tintindex": 101
+          "tintindex": 0
         },
         "north": {
           "texture": "#0",
-          "tintindex": 102
+          "tintindex": 0
         },
         "south": {
           "texture": "#0",

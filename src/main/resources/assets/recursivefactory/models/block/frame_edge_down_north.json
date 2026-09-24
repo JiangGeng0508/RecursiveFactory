@@ -19,7 +19,7 @@
         },
         "up": {
           "texture": "#0",
-          "tintindex": 101
+          "tintindex": 0
         },
         "north": {
           "texture": "#0",
@@ -27,7 +27,7 @@
         },
         "south": {
           "texture": "#0",
-          "tintindex": 103
+          "tintindex": 0
         },
         "west": {
           "texture": "#0",

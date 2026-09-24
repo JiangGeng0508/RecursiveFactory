@@ -99,63 +99,6 @@
       "apply": {
         "model": "recursivefactory:block/frame_edge_up_east"
       }
-    },
-    {
-      "when": {
-        "powered": "true",
-        "facing": "north"
-      },
-      "apply": {
-        "model": "recursivefactory:block/recursive_factory_on"
-      }
-    },
-    {
-      "when": {
-        "powered": "true",
-        "facing": "east"
-      },
-      "apply": {
-        "model": "recursivefactory:block/recursive_factory_on",
-        "y": 90
-      }
-    },
-    {
-      "when": {
-        "powered": "true",
-        "facing": "south"
-      },
-      "apply": {
-        "model": "recursivefactory:block/recursive_factory_on",
-        "y": 180
-      }
-    },
-    {
-      "when": {
-        "powered": "true",
-        "facing": "west"
-      },
-      "apply": {
-        "model": "recursivefactory:block/recursive_factory_on",
-        "y": 270
-      }
-    },
-    {
-      "when": {
-        "powered": "true",
-        "facing": "up"
-      },
-      "apply": {
-        "model": "recursivefactory:block/recursive_factory_on_up"
-      }
-    },
-    {
-      "when": {
-        "powered": "true",
-        "facing": "down"
-      },
-      "apply": {
-        "model": "recursivefactory:block/recursive_factory_on_down"
-      }
     }
   ]
 }

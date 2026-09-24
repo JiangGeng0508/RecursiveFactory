@@ -15,7 +15,7 @@
       "faces": {
         "down": {
           "texture": "#0",
-          "tintindex": 100
+          "tintindex": 0
         },
         "up": {
           "texture": "#0",
@@ -31,7 +31,7 @@
         },
         "west": {
           "texture": "#0",
-          "tintindex": 104
+          "tintindex": 0
         },
         "east": {
           "texture": "#0",

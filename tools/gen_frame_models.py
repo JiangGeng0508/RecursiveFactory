@@ -1,9 +1,12 @@
 """Generates the entrance block's frame models and its blockstate.
 
 The block is a frame: twelve one sixteenth bars along the edges of the block with the middle open, so the
-preview of the room shows through it (see RecursiveFactoryRenderer). Every face of every bar carries a tint
-index for the direction it points in - FactoryColors.FACE_TINT_BASE + Direction#get3DDataValue() - which is
-what draws a face of the frame in the color of that side's mode.
+preview of the room shows through it (see RecursiveFactoryRenderer). A face of a bar is tinted when it lies
+on the outer surface of the block, in the color of the side of the room whose plane that surface is, which
+is FactoryColors.FACE_TINT_BASE + the data value of the direction the face points in. The faces that look
+into the hollow of the frame carry tint index 0, the factory's own color instead: the two faces across a one
+sixteenth bar are the two sides of the same sliver, and tinting the inward one by whichever direction it
+happens to point in repaints the far side of the frame along with the near one.
 
 Every bar lies in the plane of each of the two sides of the room it touches, so a side that carries on into
 the entrance block beside it - a factory that has grown past one cell - drops the four bars of that plane:
@@ -30,7 +33,6 @@ MODELS = "src/main/resources/assets/recursivefactory/models/block"
 BLOCKSTATES = "src/main/resources/assets/recursivefactory/blockstates"
 NAMESPACE = "recursivefactory"
 FRAME_TEXTURE = NAMESPACE + ":block/recursive_factory"
-MARKER_TEXTURE = NAMESPACE + ":block/relay_output"
 FACE_TINT_BASE = 100
 
 # Direction#get3DDataValue(), the order the face modes are stored and asked about in.
@@ -47,15 +49,16 @@ FRAME = [
     [0, 0, 0, 1, 1, 16], [0, 15, 0, 1, 16, 16], [15, 0, 0, 16, 1, 16], [15, 15, 0, 16, 16, 16],
 ]
 
-# Which side of the room the relay is driving, and how the model that draws the driven face is turned for it.
-MARKERS = [
-    ("north", "recursive_factory_on", None),
-    ("east", "recursive_factory_on", 90),
-    ("south", "recursive_factory_on", 180),
-    ("west", "recursive_factory_on", 270),
-    ("up", "recursive_factory_on_up", None),
-    ("down", "recursive_factory_on_down", None),
-]
+# Which axis each face is across, and whether it is the low or the high end of that axis.
+FACES = {
+    "down": ("y", True), "up": ("y", False),
+    "north": ("z", True), "south": ("z", False),
+    "west": ("x", True), "east": ("x", False),
+}
+# Where along each axis the low end of it starts, and how far apart the two ends of a face are.
+SPAN = {"x": (0, 3), "y": (1, 4), "z": (2, 5)}
+# The tint index of each side of the room, in the order the face modes are numbered in.
+TINT = {side: FACE_TINT_BASE + index for index, side in enumerate(DIRS)}
 
 
 def sides_of(box):
@@ -95,54 +98,38 @@ def bar_name(box):
     return "frame_edge_" + "_".join(sides_of(box))
 
 
+def outer_face(box, face):
+    """Whether this face of the bar lies on the outer surface of the block.
+
+    A bar sits on an edge of the block, so the faces of it that look out of the block sit on the block's own
+    surface, at 0 or 16 along their axis; the other ones look into the hollow of the frame, and belong to no
+    side of the room at all.
+    """
+    axis, low = FACES[face]
+    first, last = SPAN[axis]
+    return box[first if low else last] == (0 if low else 16)
+
+
 def bar_model(box):
-    """One bar, every face of it asking about the direction it points in."""
-    faces = {far: {"texture": "#0", "tintindex": FACE_TINT_BASE + index}
-             for index, far in enumerate(DIRS)}
+    """One bar, each face of it asking about the side of the room it lies in, or about no side at all."""
+    faces = {face: {"texture": "#0", "tintindex": TINT[face] if outer_face(box, face) else 0}
+             for face in DIRS}
     return {
         "parent": NAMESPACE + ":block/frame_part",
         "elements": [{"from": list(box[:3]), "to": list(box[3:]), "faces": faces}],
     }
 
 
-def marker_ring(out):
-    """The bars of the driven face, glowing: they sit on the outer surface of that face's frame, so the
-    driven side draws an outline around the opening and covers nothing of the room behind it."""
-    if out == "north":
-        boxes = [[0, 15, -0.25, 16, 16, 0], [0, 0, -0.25, 16, 1, 0],
-                 [0, 1, -0.25, 1, 15, 0], [15, 1, -0.25, 16, 15, 0]]
-    elif out == "up":
-        boxes = [[0, 16, 0, 16, 16.25, 1], [0, 16, 15, 16, 16.25, 16],
-                 [0, 16, 1, 1, 16.25, 15], [15, 16, 1, 16, 16.25, 15]]
-    elif out == "down":
-        boxes = [[0, -0.25, 0, 16, 0, 1], [0, -0.25, 15, 16, 0, 16],
-                 [0, -0.25, 1, 1, 0, 15], [15, -0.25, 1, 16, 0, 15]]
-    else:
-        raise ValueError(out)
-    return [{"from": box[:3], "to": box[3:], "faces": {out: {"texture": "#marker"}}} for box in boxes]
-
-
-def marker_model(out):
-    return {
-        "textures": {"marker": MARKER_TEXTURE, "particle": MARKER_TEXTURE},
-        "elements": marker_ring(out),
-    }
-
-
 def blockstate():
-    """Every bar whose two sides are not joined to the block beside them, then the marker of the driven
-    face. The color is not asked about: it tints the frame rather than choosing what of it is drawn."""
+    """Every bar whose two sides are not joined to the block beside them. Neither the color nor whether the
+    relay is driving this block is asked about: the color tints the frame rather than choosing what of it is
+    drawn, and what is drawn does not change when a relay lights up."""
     parts = []
     for box in FRAME:
         parts.append({
             "when": condition(box),
             "apply": {"model": NAMESPACE + ":block/" + bar_name(box)},
         })
-    for facing, model, rotation in MARKERS:
-        apply = {"model": NAMESPACE + ":block/" + model}
-        if rotation is not None:
-            apply["y"] = rotation
-        parts.append({"when": {"powered": "true", "facing": facing}, "apply": apply})
     return {"multipart": parts}
 
 
@@ -163,10 +150,4 @@ for box in FRAME:
 write(os.path.join(MODELS, "recursive_factory.json"),
       {"parent": NAMESPACE + ":block/frame_part",
        "elements": [element for box in FRAME for element in bar_model(box)["elements"]]})
-# One model per marker to draw, and the face each of them is built for: east, south and west are the same
-# north model turned, see MARKERS.
-for model, facing in [("recursive_factory_on", "north"),
-                      ("recursive_factory_on_up", "up"),
-                      ("recursive_factory_on_down", "down")]:
-    write(os.path.join(MODELS, model + ".json"), marker_model(facing))
 write(os.path.join(BLOCKSTATES, "recursive_factory.json"), blockstate())

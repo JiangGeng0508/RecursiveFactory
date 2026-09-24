@@ -446,9 +446,14 @@ public final class FactoryRelay {
     }
 
     /**
-     * Mirrors the end's state onto its block: whether it is lit, and the face its marker sits on. Only one
-     * face fits in the block state, so an end that emits on several marks the strongest of them (see
-     * {@link EndpointBlockEntity#markerFace()}); the redstone itself is not limited to it.
+     * Mirrors the end's state onto its block: whether it is lit, and the face it is driving hardest. Neither
+     * is drawn any more - the glowing outline that used to mark the driven face was taken out on 2026-09-24
+     * - but both still earn their keep, because a block that changes is a block whose neighbours are told to
+     * read it again. A wall that goes dark flips {@code POWERED} and a face that a still lit end stops
+     * driving moves {@code facing}, and between them the dust and the repeaters built against the wall find
+     * out; the end that is only lit on one face and fed at a new strength is a strength, which nothing about
+     * the state can carry, and it is the far end's own emission that the redstone reads (see
+     * {@link #emittedSignal}).
      */
     public static void updateOutputState(EndpointBlockEntity endpoint) {
         Level level = endpoint.getLevel();
@@ -463,6 +468,8 @@ public final class FactoryRelay {
         if (state.hasProperty(BlockStateProperties.POWERED) && state.getValue(BlockStateProperties.POWERED) != desired) {
             updated = updated.setValue(BlockStateProperties.POWERED, desired);
         }
+        // Which face is driven only matters for that notification, so it is written even though nothing
+        // draws it: an end that keeps emitting while the face moves has no other change to report.
         Direction face = endpoint.markerFace();
         if (face != null && state.hasProperty(BlockStateProperties.FACING)
                 && state.getValue(BlockStateProperties.FACING) != face) {

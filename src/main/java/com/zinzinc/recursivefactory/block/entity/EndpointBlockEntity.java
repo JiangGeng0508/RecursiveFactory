@@ -533,10 +533,12 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     }
 
     /**
-     * The face the block model should mark. Only one face fits in the block state, so an end that emits
-     * on several at once marks the strongest of them (ties go to direction order). A face this end really
-     * emits on wins over the face of an input it is only passing on, which is what would otherwise be
-     * marked, so the marker always points at a link that is live on this end.
+     * The face this end is driving hardest, which is what the block state records. Only one face fits in the
+     * state, so an end that emits on several at once reports the strongest of them (ties go to direction
+     * order); a face it really emits on wins over the face of an input it is only passing on, so the answer
+     * always points at a link that is live on this end. Nothing about the block is drawn from it any more -
+     * the model does not change when a relay lights up - but the state turning over is how the neighbours of
+     * a still lit end are told that the face it drives has moved (see {@code FactoryRelay.updateOutputState}).
      */
     public @Nullable Direction markerFace() {
         Direction marked = null;
