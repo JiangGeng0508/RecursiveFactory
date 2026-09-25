@@ -24,9 +24,14 @@ import net.minecraft.world.level.Level;
  * into a room of its own.
  *
  * <p>What the item carries is only the name of the file the copy was written to; the room's blocks never
- * travel inside the item, so a room full of machinery is a file on disk and a few bytes in a stack. A
- * factory that has grown past one room cell is not copied - the copy is one room, and the printer would
- * only be able to build one cell of it - so the item says so rather than half doing it.
+ * travel inside the item, so a room full of machinery is a file on disk and a few bytes in a stack.
+ *
+ * <p>A factory standing inside the room - an entrance block that was put down in there - is copied with
+ * it, room and all, and so is any factory standing inside that one (see {@link FactoryBlueprint}). A
+ * factory that has grown past one room cell would not fit a copy, one nested deeper than
+ * {@link FactoryBlueprint#MAX_NESTING_DEPTH} is not followed, and a factory that leads back into one this
+ * capture is already reading would never end: on any of those the capture is given up on rather than half
+ * done, and the item says which it was.
  */
 public final class FactoryBlueprintItem extends Item {
     public FactoryBlueprintItem(Item.Properties properties) {
@@ -87,9 +92,18 @@ public final class FactoryBlueprintItem extends Item {
             return InteractionResult.FAIL;
         }
 
-        // Nothing walks into a room while its contents are being read out of it.
-        FactoryBlueprint blueprint = FactoryLocks.whileLocked(record.id(),
-                () -> FactoryBlueprint.capture(roomLevel, record, cell, FactoryBlueprint.newName()));
+        // Nothing walks into a room while its contents are being read out of it - including the rooms of
+        // the factories nested inside it, which are read out with it.
+        FactoryBlueprint blueprint;
+        try {
+            blueprint = FactoryLocks.whileLocked(record.id(),
+                    () -> FactoryBlueprint.capture(roomLevel, data, record, cell, FactoryBlueprint.newName()));
+        } catch (FactoryBlueprint.Refusal refusal) {
+            // Something standing inside the room, or inside a factory standing in it, cannot be copied:
+            // the capture says which, and nothing is written.
+            player.displayClientMessage(refusal.reason(), true);
+            return InteractionResult.FAIL;
+        }
         if (!blueprint.write(server)) {
             player.displayClientMessage(Component.translatable("message.recursivefactory.blueprint.failed"), true);
             return InteractionResult.FAIL;
@@ -103,7 +117,7 @@ public final class FactoryBlueprintItem extends Item {
             player.drop(copy, false);
         }
         player.displayClientMessage(Component.translatable("message.recursivefactory.blueprint.taken",
-                blueprint.size()), true);
+                blueprint.size(), blueprint.rooms().size()), true);
         return InteractionResult.CONSUME;
     }
 }

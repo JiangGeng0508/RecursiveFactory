@@ -3,6 +3,7 @@ package com.zinzinc.recursivefactory.data;
 import com.mojang.serialization.Codec;
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import net.minecraft.core.component.DataComponentType;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.neoforged.bus.api.IEventBus;
@@ -23,8 +24,8 @@ import net.neoforged.neoforge.registries.DeferredRegister;
  * made of.
  *
  * <p>A printer carries the work it has done so far on its item ({@link #ROOM}, {@link #PROGRESS},
- * {@link #FUEL}), so picking the machine up in the middle of a print and putting it down again carries on
- * where it left off rather than starting the room over.
+ * {@link #FUEL}, {@link #NESTED_ROOMS}), so picking the machine up in the middle of a print and putting it
+ * down again carries on where it left off rather than starting the rooms over.
  */
 public final class ModDataComponents {
     public static final DeferredRegister<DataComponentType<?>> COMPONENTS =
@@ -63,6 +64,18 @@ public final class ModDataComponents {
             COMPONENTS.register("fuel", () -> DataComponentType.<Integer>builder()
                     .persistent(Codec.INT)
                     .networkSynchronized(ByteBufCodecs.VAR_INT)
+                    .build());
+
+    /**
+     * What a printer working through a blueprint with factories nested in it has built so far: which of
+     * the blueprint's rooms it is on, and the room it built for each of the factories nested in it. The
+     * rooms of a blueprint are printed one after another, so this alongside {@link #PROGRESS} - the block
+     * of the room it is on - is the whole of where a print has got to.
+     */
+    public static final DeferredHolder<DataComponentType<?>, DataComponentType<CompoundTag>> NESTED_ROOMS =
+            COMPONENTS.register("nested_rooms", () -> DataComponentType.<CompoundTag>builder()
+                    .persistent(CompoundTag.CODEC)
+                    .networkSynchronized(ByteBufCodecs.COMPOUND_TAG)
                     .build());
 
     private ModDataComponents() {

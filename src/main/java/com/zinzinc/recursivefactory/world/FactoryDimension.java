@@ -5,7 +5,10 @@ import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.zinzinc.recursivefactory.block.ModBlocks;
+import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
+import com.zinzinc.recursivefactory.block.entity.FactoryRelay;
+import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryBarrierBlockEntity;
 import com.zinzinc.recursivefactory.config.FactoryConfig;
 import com.zinzinc.recursivefactory.data.FactoryColors;
@@ -16,6 +19,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -341,6 +345,58 @@ public final class FactoryDimension {
     /** Where a player arriving through this entrance cell lands: the middle of its room cell. */
     public static BlockPos entryTarget(FactoryData.FactoryRecord.Cell cell) {
         return cell.center();
+    }
+
+    /**
+     * A brand new room of its own, with its floor and its shell built and no entrance block leading into it
+     * yet - {@link #linkEntrance} is what puts one down and joins the two up. This is how a copy of a
+     * factory gets a room for every room the original had, including the ones nested inside it.
+     */
+    public static int newRoom(ServerLevel level, FactoryData data, @Nullable UUID owner, int colorIndex) {
+        FactoryData.FactoryRecord record = data.create(owner, colorIndex);
+        data.bindRoom(record.id());
+        FactoryData.FactoryRecord room = data.factory(record.id());
+        if (room != null) {
+            prepare(level, room);
+        }
+        LOGGER.info("Factory #{}: a room was built for it", record.id());
+        return record.id();
+    }
+
+    /**
+     * Points the entrance block standing at {@code pos} at the room {@code roomId}, which is already
+     * standing: the block is told which factory it leads into and is drawn in that factory's colour, the
+     * room takes the block as its own cell - moving the stand-in entrance it was built with to where the
+     * block actually stands - and the block is asked again which of its sides join up with the blocks
+     * beside it, which for a block that has just arrived is a question nobody could answer yet.
+     */
+    public static void linkEntrance(Level level, BlockPos pos, int roomId, int colorIndex) {
+        MinecraftServer server = level.getServer();
+        if (server == null || roomId <= 0) {
+            return;
+        }
+        FactoryData data = FactoryData.get(server);
+        data.bindRoomEntrance(roomId, level.dimension().location(), pos);
+        if (!(level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity entrance)) {
+            return;
+        }
+        entrance.setFactoryId(roomId);
+        entrance.setColorIndex(colorIndex);
+        RecursiveFactoryBlock.refreshConnections(level, pos);
+        FactoryRelay.updateFromNeighbours(entrance);
+    }
+
+    /**
+     * The room an entrance block standing at {@code pos} already leads into, or {@code -1} when it leads
+     * into none - a block that was never wired up, or one whose room has since gone.
+     */
+    public static int entranceRoomOf(Level level, FactoryData data, BlockPos pos) {
+        if (!(level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity entrance)
+                || !entrance.hasFactoryId()) {
+            return -1;
+        }
+        FactoryData.FactoryRecord record = data.factory(entrance.getFactoryId());
+        return record != null && record.cellAt(pos) != null ? record.id() : -1;
     }
 
     @Nullable

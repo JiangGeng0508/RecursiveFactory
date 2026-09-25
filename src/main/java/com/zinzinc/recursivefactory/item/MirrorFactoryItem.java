@@ -2,8 +2,6 @@ package com.zinzinc.recursivefactory.item;
 
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
-import com.zinzinc.recursivefactory.block.entity.FactoryRelay;
-import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import com.zinzinc.recursivefactory.data.ModDataComponents;
 import com.zinzinc.recursivefactory.world.FactoryBlueprint;
@@ -23,7 +21,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.shapes.CollisionContext;
 
@@ -118,24 +115,28 @@ public final class MirrorFactoryItem extends Item {
                         .setValue(FactoryColors.COLOR_PROPERTY, FactoryColors.stateValue(colorIndex)),
                 level,
                 pos);
+        BlockState replaced = level.getBlockState(pos);
         if (!level.isUnobstructed(state, pos, CollisionContext.empty()) || !level.setBlock(pos, state, Block.UPDATE_ALL)) {
             player.displayClientMessage(Component.translatable("message.recursivefactory.mirror.blocked"), true);
             return InteractionResult.FAIL;
         }
 
-        int targetId = bindToRoom(stack, server, roomLevel, data, source);
-        data.bindRoomEntrance(targetId, level.dimension().location(), pos);
-        if (level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity entrance) {
-            entrance.setFactoryId(targetId);
-            FactoryData.FactoryRecord room = data.factory(targetId);
-            entrance.setColorIndex(room == null ? colorIndex : room.colorIndex());
-            // The frame only carries on into another entrance block of the same room, and the copy just put
-            // down is a factory of its own: laying it beside an entrance block of another factory must leave
-            // both frames whole. The state worked out above could not know that yet, so it is asked again
-            // here, for this block and for the blocks beside it.
-            RecursiveFactoryBlock.refreshConnections(level, pos);
-            FactoryRelay.updateFromNeighbours(entrance);
+        int targetId;
+        try {
+            targetId = bindToRoom(stack, server, roomLevel, data, source);
+        } catch (FactoryBlueprint.Refusal refusal) {
+            // A factory standing inside the one being copied cannot be copied with it. The block put down
+            // for the copy goes back to what it replaced, so a refused copy leaves nothing behind.
+            level.setBlock(pos, replaced, Block.UPDATE_ALL);
+            player.displayClientMessage(refusal.reason(), true);
+            return InteractionResult.FAIL;
         }
+        FactoryData.FactoryRecord room = data.factory(targetId);
+        // The frame only carries on into another entrance block of the same room, and the copy just put
+        // down is a factory of its own: laying it beside an entrance block of another factory must leave
+        // both frames whole. The state worked out above could not know that yet, so the block is wired in
+        // through the same path a printed entrance block goes through, which asks it again.
+        FactoryDimension.linkEntrance(level, pos, targetId, room == null ? colorIndex : room.colorIndex());
         if (!player.isCreative()) {
             stack.shrink(1);
         }
@@ -149,6 +150,13 @@ public final class MirrorFactoryItem extends Item {
      * copy of that room if it already has an entrance - the same factory put down twice is two factories.
      * A room whose entrance block was broken and whose cell went with it is stood back up where it was,
      * so the way back to a copy of a factory is never lost for good.
+     *
+     * <p>A copy carries whatever the room it was taken from has in it, including the factories standing
+     * inside it: those are read out and built as rooms of their own, rather than being left as entrance
+     * blocks pointing back at the factories they were copied from.
+     *
+     * @throws FactoryBlueprint.Refusal when a factory standing inside the room cannot be copied as it
+     *     stands, see {@link FactoryBlueprint#capture}
      */
     private static int bindToRoom(ItemStack stack, MinecraftServer server, ServerLevel roomLevel,
                                   FactoryData data, FactoryData.FactoryRecord source) {
@@ -164,28 +172,27 @@ public final class MirrorFactoryItem extends Item {
         }
 
         int colorIndex = FactoryColors.kindOfFactory(source.colorIndex(), source.id());
-        FactoryData.FactoryRecord copy = data.create(source.owner(), colorIndex);
-        data.bindRoom(copy.id());
-        FactoryData.FactoryRecord room = data.factory(copy.id());
-        if (room == null) {
-            return copy.id();
-        }
-        FactoryDimension.prepare(roomLevel, room);
         FactoryData.FactoryRecord.Cell from = source.anchorCell();
-        FactoryData.FactoryRecord.Cell to = room.anchorCell();
-        if (to == null) {
-            return copy.id();
-        }
         if (from != null) {
-            FactoryBlueprint.copyInto(roomLevel, from, to);
-            return copy.id();
+            // The room the copy is made of is read out and built into the new room block for block, and
+            // every factory standing inside it is read and built with it: a copy of a factory that has a
+            // factory inside it comes with a factory of its own inside it rather than with an entrance
+            // block pointing back at the one it was copied from.
+            FactoryBlueprint read = FactoryBlueprint.capture(roomLevel, data, source, from,
+                    FactoryBlueprint.newName());
+            int copyId = FactoryDimension.newRoom(roomLevel, data, source.owner(), colorIndex);
+            read.placeAll(roomLevel, data, copyId, source.owner());
+            return copyId;
         }
-        // The room the copy was printed into is gone; build it from the file it was printed from instead.
+
+        // The room the copy was printed into is gone; build it from the file it was printed from instead,
+        // and the factories the file has nested in it with it.
+        int copyId = FactoryDimension.newRoom(roomLevel, data, source.owner(), colorIndex);
         String fileName = stack.get(ModDataComponents.BLUEPRINT.get());
         FactoryBlueprint blueprint = fileName == null ? null : FactoryBlueprint.read(server, fileName);
         if (blueprint != null) {
-            blueprint.placeAll(roomLevel, to);
+            blueprint.placeAll(roomLevel, data, copyId, source.owner());
         }
-        return copy.id();
+        return copyId;
     }
 }

@@ -271,6 +271,33 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     }
 
     /**
+     * Drops the parts of an endpoint's saved data that belong to where the block stands rather than to
+     * what the block is.
+     *
+     * <p>A copy of an endpoint block carries the block and how it was set up - an entrance block's six
+     * face modes, say - but never the factory it happens to be wired into, the colour it was painted, the
+     * items and redstone that were passing through it at the time, or the snapshot it was showing. A copy
+     * is wired into a factory of its own and painted in that factory's colour (see {@code FactoryBlueprint}
+     * and {@code FactoryDimension#linkEntrance}); carrying the original's id over instead would point the
+     * copy at the factory it was copied from, and the two would be one factory rather than two.
+     */
+    public static void stripPlaceBoundTags(CompoundTag tag) {
+        tag.remove(FACTORY_ID_TAG);
+        tag.remove(COLOR_TAG);
+        tag.remove(PENDING_STACK_TAG);
+        tag.remove(PENDING_INPUT_TAG);
+        tag.remove(PENDING_FLUID_TAG);
+        tag.remove(PENDING_FLUID_INPUT_TAG);
+        tag.remove(INPUT_POWER_TAG);
+        tag.remove(OUTPUT_POWER_TAG);
+        tag.remove(LEGACY_INPUT_FACES_TAG);
+        tag.remove(LEGACY_OUTPUT_FACES_TAG);
+        tag.remove(LEGACY_OUTPUT_DIRECTION_TAG);
+        tag.remove(LEGACY_REMOTE_POWERED_TAG);
+        tag.remove(PREVIEW_BLOCKS_TAG);
+    }
+
+    /**
      * What {@code face} of this block carries, see {@link FaceMode}.
      *
      * <p>Only the entrance block has modes of its own: a room's barrier wall is gated by the face of the
