@@ -60,7 +60,6 @@ public final class RecursiveFactory {
                         }
                         output.accept(ModBlocks.FACTORY_BARRIER_ITEM.get());
                         output.accept(ModBlocks.FACTORY_PRINTER_ITEM.get());
-                        output.accept(ModBlocks.FACTORY_BLUEPRINT_ITEM.get());
                         if (powerAvailable()) {
                             com.zinzinc.recursivefactory.power.FactoryPower.addItems(output);
                         }

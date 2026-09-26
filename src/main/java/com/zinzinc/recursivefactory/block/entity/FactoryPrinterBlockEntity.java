@@ -2,12 +2,13 @@ package com.zinzinc.recursivefactory.block.entity;
 
 import com.mojang.logging.LogUtils;
 import com.simibubi.create.AllBlocks;
+import com.simibubi.create.AllItems;
 import com.simibubi.create.content.schematics.requirement.ItemRequirement;
-import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.config.FactoryConfig;
 import com.zinzinc.recursivefactory.data.ModDataComponents;
 import com.zinzinc.recursivefactory.item.MirrorFactoryItem;
 import com.zinzinc.recursivefactory.world.FactoryBlueprint;
+import com.zinzinc.recursivefactory.world.FactoryBlueprintCapture;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import java.util.ArrayList;
@@ -402,9 +403,17 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
             blueprintUnreadable = true;
             return false;
         }
+        adopt(read);
+        return true;
+    }
+
+    /**
+     * Takes on a blueprint that has been read and checked: there is a slot per factory nested in it, which
+     * are the rooms after the one that was read out, and a print that is being carried on keeps the rooms
+     * it has already built.
+     */
+    private void adopt(FactoryBlueprint read) {
         blueprint = read;
-        // One slot per factory nested in the blueprint, which are the rooms after the one that was read
-        // out. A print that is being carried on keeps the rooms it has already built.
         if (nestedRoomIds.length < read.rooms().size() - 1) {
             int[] grown = new int[read.rooms().size() - 1];
             Arrays.fill(grown, -1);
@@ -413,7 +422,6 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
         }
         LOGGER.info("Factory printer at {}: took on the blueprint {} with {} rooms in it",
                 worldPosition, blueprintName, read.rooms().size());
-        return true;
     }
 
     /**
@@ -619,7 +627,7 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
      * whoever else would have taken it.
      */
     public boolean accepts(ItemStack held) {
-        return held.is(Items.SUGAR) || held.is(ModBlocks.FACTORY_BLUEPRINT_ITEM.get());
+        return held.is(Items.SUGAR) || held.is(AllItems.SCHEMATIC.get());
     }
 
     /**
@@ -635,37 +643,64 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
                     "message.recursivefactory.printer.fuel", fuel), true);
             return true;
         }
-        if (!held.is(ModBlocks.FACTORY_BLUEPRINT_ITEM.get())) {
+        if (!held.is(AllItems.SCHEMATIC.get())) {
             return false;
         }
         if (blueprintName != null) {
             player.displayClientMessage(Component.translatable("message.recursivefactory.printer.busy"), true);
             return true;
         }
-        String name = held.get(ModDataComponents.BLUEPRINT.get());
+        String name = FactoryBlueprintCapture.nameOf(held);
         if (name == null) {
             player.displayClientMessage(Component.translatable("message.recursivefactory.printer.not_a_blueprint"), true);
             return true;
         }
+        if (!take(name)) {
+            // A blueprint with no factory read into it - a plain Create schematic of something else - has
+            // no room for the printer to build, so it is handed back rather than burnt, along with a word
+            // on where a blueprint of a factory comes from.
+            player.displayClientMessage(Component.translatable("message.recursivefactory.printer.no_factory"), true);
+            player.displayClientMessage(Component.translatable("message.recursivefactory.blueprint.blank"), false);
+            return true;
+        }
+        if (!player.isCreative()) {
+            held.shrink(1);
+        }
+        player.displayClientMessage(Component.translatable("message.recursivefactory.printer.loaded"), true);
+        return true;
+    }
+
+    /**
+     * Takes on a blueprint by the name of its file: the print of it starts here, and it is what a player
+     * right clicking the machine with a blueprint does (see {@link #useItem}).
+     *
+     * <p>A blueprint always starts a print of its own, so the room the machine was last building in is let
+     * go here as well as at the end of a print: a printer that carries a stale room id - one written by a
+     * version that left it behind, or by a print that was picked up mid-way - must not print its next
+     * blueprint on top of the rooms the last one left standing.
+     *
+     * @return false when the file cannot be read as a blueprint of a factory, which leaves the machine as
+     *     it was
+     */
+    public boolean take(String name) {
+        if (level == null) {
+            return false;
+        }
+        FactoryBlueprint read = FactoryBlueprint.read(level.getServer(), name);
+        if (read == null || read.size() == 0) {
+            LOGGER.warn("Factory printer at {}: the blueprint {} holds no factory to print", worldPosition, name);
+            return false;
+        }
         blueprintName = name;
-        blueprint = null;
         blueprintUnreadable = false;
-        // A blueprint always starts a print of its own, so the room the machine was last building in is
-        // let go here as well as at the end of a print: a printer that carries a stale room id - one
-        // written by a version that left it behind, or by a print that was picked up mid-way - must not
-        // print its next blueprint on top of the rooms the last one left standing.
         roomId = -1;
         roomIndex = 0;
         nestedRoomIds = new int[0];
         progress = 0;
         cooldown = 0;
         missing = ItemStack.EMPTY;
-        if (!player.isCreative()) {
-            held.shrink(1);
-        }
+        adopt(read);
         setChanged();
-        player.displayClientMessage(Component.translatable("message.recursivefactory.printer.loaded"), true);
-        LOGGER.info("Factory printer at {}: took on the blueprint {}", worldPosition, name);
         return true;
     }
 

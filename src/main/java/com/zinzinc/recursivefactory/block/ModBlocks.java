@@ -1,7 +1,6 @@
 package com.zinzinc.recursivefactory.block;
 
 import com.zinzinc.recursivefactory.RecursiveFactory;
-import com.zinzinc.recursivefactory.item.FactoryBlueprintItem;
 import com.zinzinc.recursivefactory.item.MirrorFactoryItem;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.BlockItem;
@@ -99,12 +98,6 @@ public final class ModBlocks {
             "factory_printer",
             FACTORY_PRINTER,
             new Item.Properties().stacksTo(1)
-    );
-
-    /** The blueprint a player takes off a factory and loads into a printer. */
-    public static final DeferredItem<FactoryBlueprintItem> FACTORY_BLUEPRINT_ITEM = ITEMS.register(
-            "mirror_factory_blueprint",
-            () -> new FactoryBlueprintItem(new Item.Properties().stacksTo(1))
     );
 
     /** What a printer hands out: the copy of a factory, waiting for its entrance block to be put down. */

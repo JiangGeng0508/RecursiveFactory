@@ -2,6 +2,7 @@ package com.zinzinc.recursivefactory.world;
 
 import com.mojang.logging.LogUtils;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
+import com.simibubi.create.foundation.utility.CreatePaths;
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
@@ -38,7 +39,6 @@ import net.minecraft.world.level.block.EntityBlock;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
-import net.minecraft.world.level.storage.LevelResource;
 import org.slf4j.Logger;
 
 /**
@@ -60,14 +60,23 @@ import org.slf4j.Logger;
  * its own for every factory the original had inside it, rather than an entrance block pointing back at the
  * one that was copied. A file written before this carried one room and reads back as one room.
  *
- * <p>The name of the file is what a blueprint item carries. The file itself lives in the world's own
- * folder, {@code recursivefactory/blueprints}, so a room full of machinery never has to fit inside an
- * item's data.
+ * <p>The name of the file is what a blueprint item carries. The file itself is a Create blueprint: it
+ * lives in Create's own folder for blueprints - {@code schematics/uploaded/<player>/} - so a room full of
+ * machinery never has to fit inside an item's data, and what a factory is copied into is the very thing
+ * Create's own tools read and write. A blueprint of a factory is a Create schematic of the room's
+ * contents, which is why a Create blueprint item is what a capture hands out and what a printer takes, and
+ * why Create's cannon can build the machinery of a room wherever it likes without knowing about factories
+ * at all.
  */
 public final class FactoryBlueprint {
     private static final Logger LOGGER = LogUtils.getLogger();
-    /** Where the files live, relative to the world folder. */
-    public static final String FOLDER = "recursivefactory/blueprints";
+    /**
+     * The file a blueprint of one factory gets: the name of the player who took it, then the file itself,
+     * as Create lays its own blueprints out - {@code schematics/uploaded/<player>/<file>}. A name carries
+     * both halves because that is what Create's blueprint item carries: the file it points at, and whose
+     * folder it is in.
+     */
+    public static final String OWNER_SEPARATOR = "/";
     /**
      * How many factories may stand inside one another before a copy gives up on following them. A copy
      * builds a room of its own for every factory in the stack, so the figure is what keeps a factory
@@ -321,6 +330,11 @@ public final class FactoryBlueprint {
         private Refusal(Component reason) {
             super(reason.getString());
             this.reason = reason;
+        }
+
+        /** Gives up on a copy for a reason of the caller's own, with the line the player is told. */
+        public static Refusal of(Component reason) {
+            return new Refusal(reason);
         }
 
         /** What the player is told when a capture is given up on. */
@@ -638,13 +652,13 @@ public final class FactoryBlueprint {
 
     /** Writes the blueprint into the world's blueprint folder, answering whether it got there. */
     public boolean write(MinecraftServer server) {
-        Path folder = folder(server).normalize();
+        Path folder = folder().normalize();
         Path file = fileIn(folder, name);
         if (file == null) {
             return false;
         }
         try {
-            Files.createDirectories(folder);
+            Files.createDirectories(file.getParent());
             NbtIo.writeCompressed(serialize(server.registryAccess()), file);
             return true;
         } catch (IOException exception) {
@@ -731,7 +745,7 @@ public final class FactoryBlueprint {
 
     /** Reads a blueprint back, or {@code null} when the file is missing or unreadable. */
     public static @Nullable FactoryBlueprint read(MinecraftServer server, String name) {
-        Path folder = folder(server).normalize();
+        Path folder = folder().normalize();
         Path file = fileIn(folder, name);
         if (file == null || !Files.isRegularFile(file)) {
             LOGGER.warn("There is no blueprint file called {} in {}", name, folder);
@@ -835,9 +849,13 @@ public final class FactoryBlueprint {
         return new Room(blocks, roomColor == null ? FactoryColors.NO_COLOR : roomColor, anchor, cells);
     }
 
-    /** The folder the blueprint files live in, inside the world. */
-    public static Path folder(MinecraftServer server) {
-        return server.getWorldPath(LevelResource.ROOT).resolve(FOLDER);
+    /**
+     * The folder blueprint files live in: Create's own folder for blueprints it has been given, which is
+     * where Create's blueprint items look for them. It sits beside the game rather than inside a world, the
+     * way Create has it, so the blueprints of a factory travel with the pack and not with one save.
+     */
+    public static Path folder() {
+        return CreatePaths.UPLOADED_SCHEMATICS_DIR;
     }
 
     /**
@@ -850,17 +868,25 @@ public final class FactoryBlueprint {
      * {@code .\world\.}, so the two have to be compared in the same shape for the check to mean anything.
      */
     private static @Nullable Path fileIn(Path folder, String name) {
-        if (name.isEmpty() || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) {
+        if (name.isEmpty() || name.indexOf('\\') >= 0) {
             LOGGER.warn("Refusing a blueprint name that is not a plain file name: {}", name);
             return null;
         }
         Path file = folder.resolve(name).normalize();
-        return file.startsWith(folder) && file.getParent() != null && file.getParent().equals(folder)
-                ? file
-                : null;
+        Path parent = file.getParent();
+        boolean underFolder = parent != null && parent.equals(folder);
+        boolean inOwnersFolder = parent != null && parent.getParent() != null && parent.getParent().equals(folder);
+        if (!file.startsWith(folder) || !(underFolder || inOwnersFolder)) {
+            LOGGER.warn("Refusing a blueprint name that leads out of the blueprint folder: {}", name);
+            return null;
+        }
+        return file;
     }
 
-    /** A file name no other blueprint is using, so two blueprints never overwrite each other. */
+    /**
+     * A file name no other blueprint is using, so two blueprints never overwrite each other. It is the file
+     * half of a blueprint's name: what a capture puts in front of it is the folder of the player taking it.
+     */
     public static String newName() {
         return "blueprint-" + Long.toHexString(System.nanoTime()) + SUFFIX;
     }
