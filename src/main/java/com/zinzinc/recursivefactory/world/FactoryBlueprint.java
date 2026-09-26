@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -89,6 +90,12 @@ public final class FactoryBlueprint {
      * that room which leads to it ({@link #POS_TAG}).
      */
     private static final String ROOMS_TAG = "Rooms";
+    /**
+     * Our own addition to a room's structure: the cells the room stands on, as the offset of each from
+     * the room's own origin. One offset is a structure of one cell; a factory that had been grown before
+     * it was read out gives as many offsets as it stood on, which is how wide a copy is built.
+     */
+    private static final String CELLS_TAG = "Cells";
     private static final String PARENT_TAG = "Parent";
     private static final String POS_TAG = "Pos";
     private static final String SUFFIX = ".nbt";
@@ -104,12 +111,9 @@ public final class FactoryBlueprint {
     /**
      * One room of a blueprint: what stands in it, and the rooms the entrance blocks standing in it lead to.
      *
-     * <p>A factory inside a factory is a room of its own, standing elsewhere in the factory dimension; the
-     * only thing joining the two is the entrance block that leads from one into the other. A blueprint
-     * carries the two the same way: this room's blocks, and - by the offset of the entrance block that
-     * leads there - the room on the other side of it. A copy builds a room of its own for every one of
-     * them, so a factory copied out of a room comes with working factories inside it rather than with
-     * entrance blocks pointing back at the ones that were copied.
+     * <p>A room stands on one or more cells ({@link #cells()}), because a factory that was grown past one
+     * entrance block is one room several cells wide. A copy is built on as many cells, laid out the same
+     * way, so a grown factory can be copied out like any other.
      */
     public static final class Room {
         private final List<Entry> blocks;
@@ -119,20 +123,36 @@ public final class FactoryBlueprint {
         private final int colorIndex;
         /** The entrance block inside the parent room that leads here, or null for the room that was read. */
         private final @Nullable BlockPos anchor;
+        /**
+         * The room cells this room stands on, as the offset of each cell's own origin from the room's
+         * origin. A factory that has grown past one cell is several cells across, and a copy of one has
+         * to be as wide: the cell the entrance block leading here stands on comes first, at (0, 0).
+         */
+        private final List<BlockPos> cells;
         /** Where this room sits in {@link FactoryBlueprint#rooms()}; worked out while the rooms are listed. */
         private int index;
         /** The room this one stands inside, or -1 for the room that was read, see {@link #index}. */
         private int parentIndex = -1;
 
-        private Room(List<Entry> blocks, int colorIndex, @Nullable BlockPos anchor) {
+        private Room(List<Entry> blocks, int colorIndex, @Nullable BlockPos anchor, List<BlockPos> cells) {
             this.blocks = List.copyOf(blocks);
             this.colorIndex = colorIndex;
             this.anchor = anchor == null ? null : anchor.immutable();
+            this.cells = List.copyOf(cells);
         }
 
         /** Everything standing in the room, in the order it is printed back: floor first, then upwards. */
         public List<Entry> blocks() {
             return blocks;
+        }
+
+        /**
+         * The cells this room stands on, as offsets from the room's origin: one for a factory that has
+         * never been grown, one per cell of a factory that has, the entrance block's own cell first at
+         * (0, 0). A copy of the room is built on as many cells, laid out the same way.
+         */
+        public List<BlockPos> cells() {
+            return cells;
         }
 
         /** The rooms the entrance blocks standing in this one lead to, by the offset of that block. */
@@ -174,6 +194,27 @@ public final class FactoryBlueprint {
 
         public int size() {
             return blocks.size();
+        }
+
+        /** The room's footprint one way, from the lowest of its cells to the highest. */
+        public int width() {
+            return span(true);
+        }
+
+        /** The room's footprint the other way, from the lowest of its cells to the highest. */
+        public int depth() {
+            return span(false);
+        }
+
+        private int span(boolean across) {
+            int low = 0;
+            int high = 0;
+            for (BlockPos cell : cells) {
+                int value = across ? cell.getX() : cell.getZ();
+                low = Math.min(low, value);
+                high = Math.max(high, value);
+            }
+            return high - low + FactoryData.CELL_SIZE;
         }
     }
 
@@ -297,9 +338,9 @@ public final class FactoryBlueprint {
      * factory dimension - and that room is read out too, and so on (see {@link Room}). Entities are not
      * taken.
      *
-     * @throws Refusal when a factory nested in the room cannot be copied as it stands: one that has grown
-     *     past a single room cell, one nested deeper than {@link #MAX_NESTING_DEPTH}, or one that leads
-     *     back into a factory this same capture is already reading
+     * @throws Refusal when a factory nested in the room cannot be copied as it stands: one nested deeper
+     *     than {@link #MAX_NESTING_DEPTH}, or one that leads back into a factory this same capture is
+     *     already reading
      */
     public static FactoryBlueprint capture(ServerLevel roomLevel, FactoryData data,
                                            FactoryData.FactoryRecord record,
@@ -331,49 +372,61 @@ public final class FactoryBlueprint {
         BlockPos origin = origin(cell);
         int width = FactoryData.CELL_SIZE;
         int height = FactoryData.INNER_HEIGHT;
+        List<BlockPos> cells = new ArrayList<>(record.cells().size());
         List<Entry> captured = new ArrayList<>();
         Map<BlockPos, Room> nested = new LinkedHashMap<>();
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                for (int z = 0; z < width; z++) {
-                    BlockPos pos = origin.offset(x, y, z);
-                    BlockState state = level.getBlockState(pos);
-                    if (state.isAir() || state.is(ModBlocks.FACTORY_BARRIER.get())) {
-                        continue;
-                    }
-                    BlockPos offset = new BlockPos(x, y, z);
-                    captured.add(new Entry(offset, state, blockEntityTag(level, pos, state)));
-                    FactoryData.FactoryRecord inner = nestedFactory(level, data, pos, state);
-                    if (inner == null) {
-                        continue;
-                    }
-                    FactoryData.FactoryRecord.Cell innerCell = inner.cellAt(pos);
-                    if (innerCell == null) {
-                        // An entrance block left behind by a factory that has since lost this cell: there is
-                        // nothing behind it to read, so it travels as the block it is and is put down as one.
-                        LOGGER.warn("The entrance block at {} leads into factory #{} no longer standing"
-                                + " there; it is copied as a block of its own", pos, inner.id());
-                        continue;
-                    }
-                    if (inner.cells().size() != 1) {
-                        throw new Refusal(Component.translatable("message.recursivefactory.blueprint.grown"));
-                    }
-                    if (depth + 1 > MAX_NESTING_DEPTH) {
-                        throw new Refusal(Component.translatable("message.recursivefactory.blueprint.deep",
-                                MAX_NESTING_DEPTH));
-                    }
-                    if (!reading.add(inner.id())) {
-                        throw new Refusal(Component.translatable("message.recursivefactory.blueprint.loop"));
-                    }
-                    try {
-                        nested.put(offset, readRoom(level, data, inner, innerCell, reading, depth + 1, offset));
-                    } finally {
-                        reading.remove(inner.id());
+        // The cell the entrance block leading here stands on comes first: it is where the room's own
+        // origin sits, and where a copy of it is walked into (see FactoryDimension#sizeRoom). A factory
+        // that has grown past one cell is read out cell by cell, and every block is written at its offset
+        // from that origin, so a copy lays the blocks out where they stood.
+        List<FactoryData.FactoryRecord.Cell> parts = new ArrayList<>(record.cells());
+        parts.sort(Comparator.comparingInt(part ->
+                part.roomX() == cell.roomX() && part.roomZ() == cell.roomZ() ? 0 : 1));
+        for (FactoryData.FactoryRecord.Cell part : parts) {
+            BlockPos base = new BlockPos(part.roomX() - cell.roomX(), 0, part.roomZ() - cell.roomZ());
+            cells.add(base);
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    for (int z = 0; z < width; z++) {
+                        BlockPos pos = origin.offset(base).offset(x, y, z);
+                        BlockState state = level.getBlockState(pos);
+                        if (state.isAir() || state.is(ModBlocks.FACTORY_BARRIER.get())) {
+                            continue;
+                        }
+                        BlockPos offset = base.offset(x, y, z);
+                        captured.add(new Entry(offset, state, blockEntityTag(level, pos, state)));
+                        FactoryData.FactoryRecord inner = nestedFactory(level, data, pos, state);
+                        if (inner == null) {
+                            continue;
+                        }
+                        FactoryData.FactoryRecord.Cell innerCell = inner.cellAt(pos);
+                        if (innerCell == null) {
+                            // An entrance block left behind by a factory that has since lost this cell:
+                            // there is nothing behind it to read, so it travels as the block it is and is
+                            // put down as one.
+                            LOGGER.warn("The entrance block at {} leads into factory #{} no longer standing"
+                                    + " there; it is copied as a block of its own", pos, inner.id());
+                            continue;
+                        }
+                        if (depth + 1 > MAX_NESTING_DEPTH) {
+                            throw new Refusal(Component.translatable("message.recursivefactory.blueprint.deep",
+                                    MAX_NESTING_DEPTH));
+                        }
+                        if (!reading.add(inner.id())) {
+                            throw new Refusal(Component.translatable("message.recursivefactory.blueprint.loop"));
+                        }
+                        try {
+                            nested.put(offset,
+                                    readRoom(level, data, inner, innerCell, reading, depth + 1, offset));
+                        } finally {
+                            reading.remove(inner.id());
+                        }
                     }
                 }
             }
         }
-        Room room = new Room(captured, FactoryColors.kindOfFactory(record.colorIndex(), record.id()), anchor);
+        Room room = new Room(captured, FactoryColors.kindOfFactory(record.colorIndex(), record.id()),
+                anchor, cells);
         for (Map.Entry<BlockPos, Room> child : nested.entrySet()) {
             room.nested.put(child.getKey(), child.getValue());
         }
@@ -435,6 +488,9 @@ public final class FactoryBlueprint {
     }
 
     private int placeRoom(ServerLevel level, FactoryData data, int roomId, Room room, @Nullable UUID owner) {
+        // A copy of a room that was wider than one cell is built as wide as the room it was read from:
+        // the cells go up first, so every block of the copy has somewhere to stand.
+        FactoryDimension.sizeRoom(level, data, roomId, room.cells());
         FactoryData.FactoryRecord record = data.factory(roomId);
         FactoryData.FactoryRecord.Cell cell = record == null ? null : record.anchorCell();
         if (cell == null) {
@@ -526,6 +582,44 @@ public final class FactoryBlueprint {
     }
 
     /**
+     * The cells a room stands on, written as the offset of each from the room's origin, {@code x} then
+     * {@code z}. A file written before a room could be wider than one cell carries no cells at all, and
+     * reads back as the one cell its blocks are written in.
+     */
+    private static ListTag writeCells(List<BlockPos> cells) {
+        ListTag list = new ListTag();
+        for (BlockPos cell : cells) {
+            list.add(net.minecraft.nbt.IntTag.valueOf(cell.getX()));
+            list.add(net.minecraft.nbt.IntTag.valueOf(cell.getZ()));
+        }
+        return list;
+    }
+
+    /** The cells a room of a file stands on, or the one cell a file written before this starts at. */
+    private static List<BlockPos> readCells(CompoundTag tag) {
+        ListTag list = tag.getList(CELLS_TAG, Tag.TAG_INT);
+        List<BlockPos> cells = new ArrayList<>();
+        for (int i = 0; i + 1 < list.size(); i += 2) {
+            cells.add(new BlockPos(list.getInt(i), 0, list.getInt(i + 1)));
+        }
+        if (cells.isEmpty()) {
+            cells.add(BlockPos.ZERO);
+        }
+        return cells;
+    }
+
+    /** The lowest corner of a room's cells, which is where the offsets of its blocks are counted from. */
+    private static BlockPos minCorner(List<BlockPos> cells) {
+        int x = 0;
+        int z = 0;
+        for (BlockPos cell : cells) {
+            x = Math.min(x, cell.getX());
+            z = Math.min(z, cell.getZ());
+        }
+        return new BlockPos(x, 0, z);
+    }
+
+    /**
      * A block entity of the kind an entry carries, loaded with the tag the entry was taken with. This is
      * what tells a printer what one block of a blueprint costs: Create asks the block entity itself for the
      * items it needs (see {@code ItemRequirement#of}).
@@ -592,14 +686,16 @@ public final class FactoryBlueprint {
     /** One room as a structure: its size, the palette of the blocks in it, and the blocks themselves. */
     private static CompoundTag writeRoom(Room room) {
         CompoundTag tag = new CompoundTag();
-        tag.put(SIZE_TAG, newIntList(FactoryData.CELL_SIZE, FactoryData.INNER_HEIGHT, FactoryData.CELL_SIZE));
+        BlockPos min = minCorner(room.cells);
+        tag.put(SIZE_TAG, newIntList(room.width(), FactoryData.INNER_HEIGHT, room.depth()));
 
         ListTag palette = new ListTag();
         Map<BlockState, Integer> paletteIndex = new HashMap<>();
         ListTag blocks = new ListTag();
         for (Entry entry : room.blocks) {
             CompoundTag blockTag = new CompoundTag();
-            blockTag.put("pos", newIntList(entry.pos().getX(), entry.pos().getY(), entry.pos().getZ()));
+            blockTag.put("pos", newIntList(entry.pos().getX() - min.getX(), entry.pos().getY(),
+                    entry.pos().getZ() - min.getZ()));
             blockTag.putInt("state", paletteIndex.computeIfAbsent(entry.state(), state -> {
                 palette.add(NbtUtils.writeBlockState(state));
                 return palette.size() - 1;
@@ -611,6 +707,7 @@ public final class FactoryBlueprint {
         }
         tag.put(PALETTE_TAG, palette);
         tag.put(BLOCKS_TAG, blocks);
+        tag.put(CELLS_TAG, writeCells(room.cells));
         tag.put(ENTITIES_TAG, new ListTag());
         return tag;
     }
@@ -701,11 +798,18 @@ public final class FactoryBlueprint {
      */
     private static @Nullable Room readRoom(String name, CompoundTag tag, HolderLookup<Block> lookup,
                                            @Nullable BlockPos anchor, @Nullable Integer roomColor) {
-        ListTag palette = tag.getList(PALETTE_TAG, Tag.TAG_COMPOUND);
-        if (palette.isEmpty()) {
-            LOGGER.warn("The blueprint {} has a room with no palette in it", name);
+        // A room nothing was built in has an empty palette, and it has to come back as a room all the
+        // same: a factory nested in the room being copied can perfectly well be standing empty, and the
+        // entrance block leading into it is the one thing that room does hold - lose the room and a copy
+        // of the entrance block is an entrance block leading nowhere. What is not a room is a file with
+        // neither of the two lists a room is written with in it.
+        if (!tag.contains(PALETTE_TAG, Tag.TAG_LIST) && !tag.contains(BLOCKS_TAG, Tag.TAG_LIST)) {
+            LOGGER.warn("The blueprint {} has something in it that is not a room", name);
             return null;
         }
+        ListTag palette = tag.getList(PALETTE_TAG, Tag.TAG_COMPOUND);
+        List<BlockPos> cells = readCells(tag);
+        BlockPos min = minCorner(cells);
         List<BlockState> states = new ArrayList<>(palette.size());
         for (Tag entry : palette) {
             states.add(NbtUtils.readBlockState(lookup, (CompoundTag) entry));
@@ -723,12 +827,12 @@ public final class FactoryBlueprint {
                 continue;
             }
             blocks.add(new Entry(
-                    new BlockPos(pos.getInt(0), pos.getInt(1), pos.getInt(2)),
+                    new BlockPos(pos.getInt(0) + min.getX(), pos.getInt(1), pos.getInt(2) + min.getZ()),
                     states.get(index),
                     blockTag.contains("nbt", Tag.TAG_COMPOUND) ? blockTag.getCompound("nbt") : null
             ));
         }
-        return new Room(blocks, roomColor == null ? FactoryColors.NO_COLOR : roomColor, anchor);
+        return new Room(blocks, roomColor == null ? FactoryColors.NO_COLOR : roomColor, anchor, cells);
     }
 
     /** The folder the blueprint files live in, inside the world. */

@@ -16,6 +16,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.CreativeModeTab;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.NeoForge;
@@ -29,6 +30,13 @@ import org.slf4j.Logger;
 @Mod(RecursiveFactory.MODID)
 public final class RecursiveFactory {
     public static final String MODID = "recursivefactory";
+    /**
+     * The mod id of Create: Electro Energetics, which the power package is built against. That mod is
+     * optional, so whether it is there is asked here, on a class that names none of its types: asking
+     * the power package itself would load it, and loading it without the mod installed would take the
+     * game with it.
+     */
+    private static final String CEE_MODID = "electroenergetics";
     public static final Logger LOGGER = LogUtils.getLogger();
 
     public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS =
@@ -53,11 +61,17 @@ public final class RecursiveFactory {
                         output.accept(ModBlocks.FACTORY_BARRIER_ITEM.get());
                         output.accept(ModBlocks.FACTORY_PRINTER_ITEM.get());
                         output.accept(ModBlocks.FACTORY_BLUEPRINT_ITEM.get());
+                        if (powerAvailable()) {
+                            com.zinzinc.recursivefactory.power.FactoryPower.addItems(output);
+                        }
                     })
                     .build());
 
     public RecursiveFactory(IEventBus modEventBus, ModContainer modContainer) {
         ModBlocks.register(modEventBus);
+        if (powerAvailable()) {
+            com.zinzinc.recursivefactory.power.FactoryPower.register(modEventBus);
+        }
         ModBlockEntities.register(modEventBus);
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
         ModDataComponents.register(modEventBus);
@@ -65,6 +79,7 @@ public final class RecursiveFactory {
         modContainer.registerConfig(ModConfig.Type.COMMON, FactoryConfig.SPEC);
         modEventBus.addListener(ModNetworking::register);
         NeoForge.EVENT_BUS.addListener(this::onServerStarted);
+        NeoForge.EVENT_BUS.addListener(this::onServerTickPre);
         NeoForge.EVENT_BUS.addListener(this::onServerTick);
         NeoForge.EVENT_BUS.addListener(this::onBlockBreakAttempt);
         LOGGER.info("Recursive Factory initialized");
@@ -79,6 +94,21 @@ public final class RecursiveFactory {
     private void onBlockBreakAttempt(BlockEvent.BreakEvent event) {
         if (!event.getPlayer().isCreative() && event.getState().is(ModBlocks.FACTORY_BARRIER.get())) {
             event.setCanceled(true);
+        }
+    }
+
+    /** True when the electricity mod is installed, which is what the power package needs. */
+    private static boolean powerAvailable() {
+        return ModList.get().isLoaded(CEE_MODID);
+    }
+
+    /**
+     * The electrical links are looked at before the electricity mod's own simulation for the tick, so
+     * that what is worked out here is what that simulation is run with.
+     */
+    private void onServerTickPre(ServerTickEvent.Pre event) {
+        if (powerAvailable()) {
+            com.zinzinc.recursivefactory.power.FactoryPower.tick(event.getServer());
         }
     }
 

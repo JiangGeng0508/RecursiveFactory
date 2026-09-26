@@ -170,6 +170,9 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
         if (blueprintName == null) {
             return;
         }
+        // A room being printed has no entrance block yet, so nothing else would keep its chunk open: the
+        // print asks for it itself, and stops asking the moment it is done with it (see the room id below).
+        FactoryDimension.keepLoaded(roomId);
         if (neighbourCheck-- <= 0) {
             neighbourCheck = NEIGHBOUR_CHECKING;
             findInventories();
@@ -348,6 +351,8 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
             // goes down.
             nestedRoomIds[slot] = FactoryDimension.newRoom(roomLevel, data, owner,
                     room.nestedAt(entry.pos()).colorIndex());
+            FactoryDimension.sizeRoom(roomLevel, data, nestedRoomIds[slot],
+                    room.nestedAt(entry.pos()).cells());
             setChanged();
             return true;
         }
@@ -355,6 +360,8 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
         // the room is somewhere else entirely - so it is built and the block is wired into it.
         nestedRoomIds[slot] = FactoryDimension.newRoom(roomLevel, data, owner,
                 room.nestedAt(entry.pos()).colorIndex());
+        FactoryDimension.sizeRoom(roomLevel, data, nestedRoomIds[slot],
+                room.nestedAt(entry.pos()).cells());
         FactoryDimension.linkEntrance(roomLevel, target, nestedRoomIds[slot],
                 room.nestedAt(entry.pos()).colorIndex());
         LOGGER.info("Factory printer at {}: the entrance block at {} led nowhere; it leads into factory #{}",
@@ -418,23 +425,28 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
     @Nullable
     private FactoryData.FactoryRecord ensureRoom(MinecraftServer server, ServerLevel roomLevel, FactoryData data) {
         FactoryData.FactoryRecord record = roomId > 0 ? data.factory(roomId) : null;
-        if (record != null && !record.cells().isEmpty()) {
-            return record;
-        }
         if (record == null) {
             roomId = FactoryDimension.newRoom(roomLevel, data, owner,
                     blueprint == null ? 0 : blueprint.colorIndex());
             LOGGER.info("Factory printer at {}: printing factory #{}", worldPosition, roomId);
-            return data.factory(roomId);
+            record = data.factory(roomId);
+        } else if (record.cells().isEmpty()) {
+            data.bindRoom(record.id());
+            record = data.factory(record.id());
+            if (record != null) {
+                FactoryDimension.prepare(roomLevel, record);
+            }
+            LOGGER.info("Factory printer at {}: printing factory #{}", worldPosition,
+                    record == null ? -1 : record.id());
         }
-        data.bindRoom(record.id());
-        FactoryData.FactoryRecord room = data.factory(record.id());
-        if (room == null) {
-            return null;
+        if (record == null || blueprint == null) {
+            return record;
         }
-        FactoryDimension.prepare(roomLevel, room);
-        LOGGER.info("Factory printer at {}: printing factory #{}", worldPosition, room.id());
-        return room;
+        // A blueprint of a factory that had grown past one cell asks for a room as wide as the room it
+        // was read from: the further cells are built beside the first, and the blocks of each land in it.
+        FactoryDimension.sizeRoom(roomLevel, data, record.id(), blueprint.root().cells());
+        FactoryData.FactoryRecord sized = data.factory(record.id());
+        return sized == null ? record : sized;
     }
 
     /** The print is waiting for something: remember what, so the next look at the printer can say. */

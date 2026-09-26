@@ -159,6 +159,22 @@ public final class FactoryData extends SavedData {
             cells.add(new FactoryRecord.Cell(pos, roomX, roomZ, false));
             update(record.withCells(cells));
         }
+
+    }
+    /**
+     * Gives a room that was built from a blueprint one more cell, so a copy of a factory that had grown
+     * past one cell is as wide as the factory it was copied from. The cell carries no entrance block of
+     * its own - the copy is walked into through the one block the player puts down - so it keeps the
+     * stand-in entrance and is never bound to a block (see {@link #bindRoomEntrance}).
+     */
+    public void addRoomCell(int factoryId, int roomX, int roomZ) {
+        FactoryRecord record = factories.get(factoryId);
+        if (record == null) {
+            return;
+        }
+        List<FactoryRecord.Cell> cells = new ArrayList<>(record.cells());
+        cells.add(new FactoryRecord.Cell(UNBOUND_ENTRANCE, roomX, roomZ, false));
+        update(record.withCells(cells));
     }
 
     /**
@@ -184,10 +200,13 @@ public final class FactoryData extends SavedData {
     }
 
     /**
-     * Binds an entrance to a room that is already built, without building anything again: the cell's
-     * stand-in entrance becomes the block's position and everything else about the cell - where the room
-     * is, and the floor that was laid for it - stays as it is. This is how a printed or copied room gets
-     * the entrance block a player puts down for it.
+     * Binds an entrance to a room that is already built, without building anything again: the room's own
+     * cell's stand-in entrance becomes the block's position and everything else about the cell - where the
+     * room is, and the floor that was laid for it - stays as it is. This is how a printed or copied room
+     * gets the entrance block a player puts down for it.
+     *
+     * <p>Only the room's own cell is rebound. A room that was copied from a factory that had grown past
+     * one cell stands on several cells, and the further ones have no block of their own to be bound to.
      */
     public void bindRoomEntrance(int factoryId, ResourceLocation dimension, BlockPos pos) {
         FactoryRecord record = factories.get(factoryId);
@@ -195,10 +214,14 @@ public final class FactoryData extends SavedData {
             return;
         }
         List<FactoryRecord.Cell> cells = new ArrayList<>(record.cells().size());
+        boolean bound = false;
         for (FactoryRecord.Cell cell : record.cells()) {
-            cells.add(cell.entrance().equals(UNBOUND_ENTRANCE)
-                    ? new FactoryRecord.Cell(pos, cell.roomX(), cell.roomZ(), cell.floorLaid())
-                    : cell);
+            if (!bound && cell.entrance().equals(UNBOUND_ENTRANCE)) {
+                cells.add(new FactoryRecord.Cell(pos, cell.roomX(), cell.roomZ(), cell.floorLaid()));
+                bound = true;
+            } else {
+                cells.add(cell);
+            }
         }
         update(record.withEntrance(dimension, pos).withCells(cells));
     }
@@ -207,23 +230,27 @@ public final class FactoryData extends SavedData {
      * Notes that one of a factory's cells has had its checkerboard floor laid, so a room that is looked
      * at again does not lay it a second time. Nothing happens when the cell already says so, which keeps
      * the repeated looks at a room from dirtying the save on every entry.
+     *
+     * <p>The cell is named by the room it stands on rather than by an entrance block, because a room that
+     * was built from a blueprint stands on cells that carry no block of their own.
      */
-    public void markFloorLaid(int factoryId, BlockPos entrancePos) {
+    public void markFloorLaid(int factoryId, int roomX, int roomZ) {
         FactoryRecord record = factories.get(factoryId);
         if (record == null) {
             return;
         }
-        FactoryRecord.Cell cell = record.cellAt(entrancePos);
-        if (cell == null || cell.floorLaid()) {
-            return;
-        }
         List<FactoryRecord.Cell> cells = new ArrayList<>(record.cells());
+        boolean changed = false;
         for (int i = 0; i < cells.size(); i++) {
-            if (cells.get(i).entrance().equals(entrancePos)) {
-                cells.set(i, cells.get(i).withFloorLaid(true));
+            FactoryRecord.Cell cell = cells.get(i);
+            if (cell.roomX() == roomX && cell.roomZ() == roomZ && !cell.floorLaid()) {
+                cells.set(i, cell.withFloorLaid(true));
+                changed = true;
             }
         }
-        update(record.withCells(cells));
+        if (changed) {
+            update(record.withCells(cells));
+        }
     }
 
     /**

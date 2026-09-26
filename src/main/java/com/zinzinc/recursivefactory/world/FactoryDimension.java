@@ -13,6 +13,7 @@ import com.zinzinc.recursivefactory.block.entity.FactoryBarrierBlockEntity;
 import com.zinzinc.recursivefactory.config.FactoryConfig;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -28,6 +29,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
@@ -61,6 +63,22 @@ public final class FactoryDimension {
     private static final int TALLEST_SHELL_EVER = 32;
     /** The factories whose shell is still joined, and the look at them that comes next. */
     private static final Map<Integer, Integer> PENDING_SPLITS = new HashMap<>();
+    /**
+     * How far around a room's chunk its ticket reaches. Two chunks is the level a player's own chunk has,
+     * so a room that is held open for its entrance block ticks exactly as it would with a player in it.
+     */
+    private static final int ROOM_TICKET_DISTANCE = 2;
+    /**
+     * The ticket that holds a room's chunks open. Tickets like this one are not saved, so a room that is
+     * left behind by a server that stops is not loaded again until something asks for it - which is the
+     * whole point: a factory is kept running by the block leading into it, not by having been made once.
+     */
+    private static final TicketType<ChunkPos> ROOM_TICKET =
+            TicketType.create("recursivefactory_room", Comparator.comparingLong(ChunkPos::toLong));
+    /** Rooms something other than their entrance block is still working on, asked again every tick. */
+    private static final Set<Integer> KEEP_LOADED = new HashSet<>();
+    /** The room chunks this class is holding open, per factory, so they can be let go again. */
+    private static final Map<Integer, Set<Long>> ROOM_TICKETS = new HashMap<>();
 
     public static final ResourceKey<Level> LEVEL_KEY = ResourceKey.create(
             Registries.DIMENSION,
@@ -135,6 +153,7 @@ public final class FactoryDimension {
      * there.
      */
     public static void tick(MinecraftServer server) {
+        holdRoomsOpen(server);
         if (PENDING_SPLITS.isEmpty()) {
             return;
         }
@@ -176,6 +195,114 @@ public final class FactoryDimension {
         }
     }
 
+    /**
+     * Asks for a factory's room to stay loaded for the rest of this tick even though its entrance block is
+     * not loaded - or does not exist yet. A room is normally kept running by the block leading into it (see
+     * {@link #holdRoomsOpen}), which is what a player standing at that block has loaded; a machine that is
+     * building a room of its own, like the printer, has no entrance block to lean on and asks here instead.
+     *
+     * <p>Nothing is asked for a room that is not a factory at all, and the request has to be repeated every
+     * tick: it is let go of as soon as whoever asked stops asking.
+     */
+    public static void keepLoaded(int factoryId) {
+        if (factoryId > 0) {
+            KEEP_LOADED.add(factoryId);
+        }
+    }
+
+    /**
+     * Holds every factory's room open for as long as the factory is being used, and lets it go when it is
+     * not. A room is loaded while the block that leads into it is loaded, so a factory nobody is near is
+     * dormant rather than turning in the background: the machinery inside it stops, and the server is not
+     * made to keep a room per factory running for ever. A room whose shell has not come apart yet, and one
+     * a machine is still building, are held open as well, and while any room is held the level is told it
+     * is not empty, so that its machinery is not left unticked (see below).
+     */
+    private static void holdRoomsOpen(MinecraftServer server) {
+        ServerLevel roomLevel = server.getLevel(LEVEL_KEY);
+        Set<Integer> alive = new HashSet<>();
+        boolean holding = false;
+        for (FactoryData.FactoryRecord record : FactoryData.get(server).factories()) {
+            alive.add(record.id());
+            Set<Long> held = ROOM_TICKETS.computeIfAbsent(record.id(), id -> new HashSet<>());
+            Set<Long> wanted = roomLevel != null && wantsRoomLoaded(server, record)
+                    ? roomChunks(record)
+                    : Set.of();
+            holding |= !wanted.isEmpty();
+            if (held.equals(wanted)) {
+                continue;
+            }
+            for (long chunk : held) {
+                if (!wanted.contains(chunk)) {
+                    release(roomLevel, chunk);
+                }
+            }
+            for (long chunk : wanted) {
+                if (!held.contains(chunk)) {
+                    hold(roomLevel, chunk);
+                }
+            }
+            held.clear();
+            held.addAll(wanted);
+        }
+        // A factory that is gone - broken, or a print that was thrown away - lets its room go with it.
+        ROOM_TICKETS.entrySet().removeIf(entry -> {
+            if (alive.contains(entry.getKey())) {
+                return false;
+            }
+            for (long chunk : entry.getValue()) {
+                release(roomLevel, chunk);
+            }
+            return true;
+        });
+        if (holding) {
+            // A level whose only company is the rooms this class holds open is treated as empty after a
+            // while, and an empty level stops ticking entities and block entities altogether (vanilla
+            // ServerLevel#tick) - which would stop every machine in every room, since the factory
+            // dimension is exactly such a level: nobody stands in it, and nobody puts a chunk of it on
+            // /forceload. Saying it is not empty is what the block leading into a room used to say by
+            // being force loaded; the room is still only held for as long as that block is loaded.
+            roomLevel.resetEmptyTime();
+        }
+        KEEP_LOADED.clear();
+    }
+
+    /** Whether a factory's room is wanted right now, which is what the block leading into it decides. */
+    private static boolean wantsRoomLoaded(MinecraftServer server, FactoryData.FactoryRecord record) {
+        if (KEEP_LOADED.contains(record.id()) || PENDING_SPLITS.containsKey(record.id())) {
+            return true;
+        }
+        ResourceLocation dimension = record.entranceDimension();
+        if (dimension == null) {
+            return false;
+        }
+        ServerLevel entranceLevel = server.getLevel(ResourceKey.create(Registries.DIMENSION, dimension));
+        return entranceLevel != null && entranceLevel.isLoaded(record.entrancePos());
+    }
+
+    /** The chunks of a factory's room, one per cell: a cell is exactly one chunk across. */
+    private static Set<Long> roomChunks(FactoryData.FactoryRecord record) {
+        Set<Long> chunks = new HashSet<>();
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            chunks.add(ChunkPos.asLong(cell.roomX() >> 4, cell.roomZ() >> 4));
+        }
+        return chunks;
+    }
+
+    private static void hold(@Nullable ServerLevel roomLevel, long chunk) {
+        if (roomLevel != null) {
+            ChunkPos pos = new ChunkPos(chunk);
+            roomLevel.getChunkSource().addRegionTicket(ROOM_TICKET, pos, ROOM_TICKET_DISTANCE, pos);
+        }
+    }
+
+    private static void release(@Nullable ServerLevel roomLevel, long chunk) {
+        if (roomLevel != null) {
+            ChunkPos pos = new ChunkPos(chunk);
+            roomLevel.getChunkSource().removeRegionTicket(ROOM_TICKET, pos, ROOM_TICKET_DISTANCE, pos);
+        }
+    }
+
     /** Builds (or rebuilds) everything a factory's room is made of. */
     public static void prepare(ServerLevel level, FactoryData.FactoryRecord record) {
         if (record.cells().isEmpty()) {
@@ -185,15 +312,13 @@ public final class FactoryDimension {
         FactoryData data = server == null ? null : FactoryData.get(server);
         boolean grewFloor = false;
         for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
-            ChunkPos chunk = new ChunkPos(cell.roomX() >> 4, cell.roomZ() >> 4);
-            level.setChunkForced(chunk.x, chunk.z, true);
             if (generateFloor(level, cell)) {
                 // The floor went down for the first time: remember it, so it is not laid again.
                 grewFloor = true;
                 LOGGER.debug("Factory #{}: laid the floor of the room cell at {} for the first time",
                         record.id(), cell.entrance().toShortString());
                 if (data != null) {
-                    data.markFloorLaid(record.id(), cell.entrance());
+                    data.markFloorLaid(record.id(), cell.roomX(), cell.roomZ());
                 }
             }
             sealFloor(level, cell);
@@ -361,6 +486,39 @@ public final class FactoryDimension {
         }
         LOGGER.info("Factory #{}: a room was built for it", record.id());
         return record.id();
+    }
+
+    /**
+     * Makes a room as wide as the room of a blueprint it is being built from: the cells the blueprint's room
+     * stood on are put up beside the room's own cell, and the room is built again so the new cells get their
+     * floor and their shell. A room that is already as wide - a print that is being carried on, or a copy of
+     * a factory that has not grown - is left as it is, so asking twice builds nothing twice.
+     */
+    public static void sizeRoom(ServerLevel level, FactoryData data, int roomId, List<BlockPos> offsets) {
+        FactoryData.FactoryRecord record = data.factory(roomId);
+        if (record == null) {
+            return;
+        }
+        FactoryData.FactoryRecord.Cell anchor = record.anchorCell();
+        if (anchor == null) {
+            return;
+        }
+        Set<Long> laid = new HashSet<>();
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            laid.add(ChunkPos.asLong(cell.roomX() - anchor.roomX(), cell.roomZ() - anchor.roomZ()));
+        }
+        boolean grew = false;
+        for (BlockPos offset : offsets) {
+            if (!laid.add(ChunkPos.asLong(offset.getX(), offset.getZ()))) {
+                continue;
+            }
+            data.addRoomCell(roomId, anchor.roomX() + offset.getX(), anchor.roomZ() + offset.getZ());
+            grew = true;
+        }
+        FactoryData.FactoryRecord sized = data.factory(roomId);
+        if (grew && sized != null) {
+            prepare(level, sized);
+        }
     }
 
     /**

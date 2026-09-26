@@ -1,10 +1,7 @@
 package com.zinzinc.recursivefactory.block;
 
-import com.mojang.logging.LogUtils;
 import com.mojang.serialization.MapCodec;
-import com.simibubi.create.content.equipment.wrench.IWrenchable;
 import com.simibubi.create.content.kinetics.base.IRotate;
-import com.zinzinc.recursivefactory.data.FaceMode;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryRelay;
 import com.zinzinc.recursivefactory.block.entity.KineticRelay;
@@ -20,11 +17,9 @@ import java.util.UUID;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -50,7 +45,6 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
-import org.slf4j.Logger;
 
 /**
  * The factory's entrance block. Placing one next to another entrance block grows that factory's room
@@ -64,9 +58,8 @@ import org.slf4j.Logger;
  * kind the block was crafted in when it starts a factory, and from the factory itself when it is laid
  * down next to one.
  */
-public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRotate, IWrenchable {
+public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRotate {
     public static final MapCodec<RecursiveFactoryBlock> CODEC = simpleCodec(RecursiveFactoryBlock::new);
-    private static final Logger LOGGER = LogUtils.getLogger();
     /**
      * A whole block, even though the model is a frame with its middle open: the preview of the room hangs
      * in that opening, and a player walking up to the block should not step into the room's miniature.
@@ -245,79 +238,14 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
         if (level.isClientSide()) {
             return InteractionResult.SUCCESS;
         }
-        if (!(level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity)
-                || !blockEntity.hasFactoryId()) {
-            return InteractionResult.PASS;
-        }
-        // Sneaking switches what the face that was clicked carries; anything else walks in. The face is the
-        // one the click landed on, so a player can set up the side of the factory they are standing at
-        // without having to walk round it.
-        if (player.isShiftKeyDown()) {
-            return cycleFaceMode(level, blockEntity, hitResult.getDirection(), player)
+        if (player instanceof ServerPlayer serverPlayer
+                && level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity
+                && blockEntity.hasFactoryId()) {
+            return FactoryTeleporter.enter(serverPlayer, blockEntity.getFactoryId(), pos)
                     ? InteractionResult.CONSUME
-                    : InteractionResult.PASS;
+                    : InteractionResult.FAIL;
         }
-        return player instanceof ServerPlayer serverPlayer
-                && FactoryTeleporter.enter(serverPlayer, blockEntity.getFactoryId(), pos)
-                ? InteractionResult.CONSUME
-                : InteractionResult.FAIL;
-    }
-
-    /**
-     * A wrench switches the face it is aimed at, exactly as sneaking with a bare hand does, and does not
-     * turn the block or take it up: the face a wrench is pointed at means nothing to the direction this
-     * block faces, which only ever marks where its relay is driving redstone, and picking the block up
-     * would leave the room behind it without an entrance.
-     */
-    @Override
-    public InteractionResult onWrenched(BlockState state, UseOnContext context) {
-        return wrenchFace(context, true);
-    }
-
-    @Override
-    public InteractionResult onSneakWrenched(BlockState state, UseOnContext context) {
-        return wrenchFace(context, true);
-    }
-
-    private static InteractionResult wrenchFace(UseOnContext context, boolean playSound) {
-        Level level = context.getLevel();
-        BlockPos pos = context.getClickedPos();
-        if (!(level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity)
-                || !blockEntity.hasFactoryId()) {
-            return InteractionResult.PASS;
-        }
-        if (level.isClientSide()) {
-            return InteractionResult.SUCCESS;
-        }
-        if (!cycleFaceMode(level, blockEntity, context.getClickedFace(), context.getPlayer())) {
-            return InteractionResult.PASS;
-        }
-        if (playSound) {
-            IWrenchable.playRotateSound(level, pos);
-        }
-        return InteractionResult.SUCCESS;
-    }
-
-    /**
-     * Moves one face on to the next mode and says so on the player's action bar, which is the only place a
-     * face can be read as more than a colour. Answers whether the face moved at all.
-     */
-    private static boolean cycleFaceMode(Level level, RecursiveFactoryBlockEntity blockEntity, Direction face,
-                                        @Nullable Player player) {
-        FaceMode mode = blockEntity.faceMode(face).next();
-        if (!blockEntity.setFaceMode(face, mode)) {
-            return false;
-        }
-        LOGGER.debug("Factory #{}: {} face of {} now carries {}", blockEntity.getFactoryId(),
-                face.getSerializedName(), blockEntity.getBlockPos(), mode.getSerializedName());
-        if (player != null) {
-            player.displayClientMessage(Component.translatable(
-                    "message.recursivefactory.face_mode",
-                    Component.translatable("face.recursivefactory." + face.getSerializedName()),
-                    mode.displayName()
-            ), true);
-        }
-        return true;
+        return InteractionResult.PASS;
     }
 
     @Override

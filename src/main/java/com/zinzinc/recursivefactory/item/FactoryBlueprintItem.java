@@ -27,11 +27,10 @@ import net.minecraft.world.level.Level;
  * travel inside the item, so a room full of machinery is a file on disk and a few bytes in a stack.
  *
  * <p>A factory standing inside the room - an entrance block that was put down in there - is copied with
- * it, room and all, and so is any factory standing inside that one (see {@link FactoryBlueprint}). A
- * factory that has grown past one room cell would not fit a copy, one nested deeper than
- * {@link FactoryBlueprint#MAX_NESTING_DEPTH} is not followed, and a factory that leads back into one this
- * capture is already reading would never end: on any of those the capture is given up on rather than half
- * done, and the item says which it was.
+ * it, room and all, and so is any factory standing inside that one: a room as wide as it was, one cell or
+ * several (see {@link FactoryBlueprint}). One nested deeper than {@link FactoryBlueprint#MAX_NESTING_DEPTH}
+ * is not followed, and a factory that leads back into one this capture is already reading would never end:
+ * on either of those the capture is given up on rather than half done, and the item says which it was.
  */
 public final class FactoryBlueprintItem extends Item {
     public FactoryBlueprintItem(Item.Properties properties) {
@@ -80,10 +79,6 @@ public final class FactoryBlueprintItem extends Item {
         FactoryData.FactoryRecord record = data.factory(entrance.getFactoryId());
         if (record == null) {
             player.displayClientMessage(Component.translatable("message.recursivefactory.missing"), true);
-            return InteractionResult.FAIL;
-        }
-        if (record.cells().size() != 1) {
-            player.displayClientMessage(Component.translatable("message.recursivefactory.blueprint.grown"), true);
             return InteractionResult.FAIL;
         }
         FactoryData.FactoryRecord.Cell cell = record.anchorCell();

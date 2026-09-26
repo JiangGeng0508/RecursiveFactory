@@ -55,10 +55,18 @@ public final class ModBlocks {
             .sound(SoundType.METAL)
             .pushReaction(PushReaction.BLOCK);
 
+    /**
+     * The printer's model is a plate, a body and a cap, not a full cube, so it must not be asked to hide
+     * the faces of the blocks around it: a block that occludes has its neighbours cull the face they turn
+     * towards it, and a neighbour culled against a model with gaps in it shows the world behind itself
+     * through the printer. Like the entrance block, the machine is given no occlusion of its own; its
+     * collision stays a full block, which keeps machines and players standing on it as they were.
+     */
     private static final BlockBehaviour.Properties PRINTER_PROPERTIES = BlockBehaviour.Properties.of()
             .mapColor(MapColor.METAL)
             .strength(5.0F, 1200.0F)
             .sound(SoundType.METAL)
+            .noOcclusion()
             .pushReaction(PushReaction.BLOCK);
 
     public static final DeferredBlock<RecursiveFactoryBlock> RECURSIVE_FACTORY = BLOCKS.register(

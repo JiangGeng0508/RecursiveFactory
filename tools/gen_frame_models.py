@@ -1,12 +1,9 @@
 """Generates the entrance block's frame models and its blockstate.
 
 The block is a frame: twelve one sixteenth bars along the edges of the block with the middle open, so the
-preview of the room shows through it (see RecursiveFactoryRenderer). A face of a bar is tinted when it lies
-on the outer surface of the block, in the color of the side of the room whose plane that surface is, which
-is FactoryColors.FACE_TINT_BASE + the data value of the direction the face points in. The faces that look
-into the hollow of the frame carry tint index 0, the factory's own color instead: the two faces across a one
-sixteenth bar are the two sides of the same sliver, and tinting the inward one by whichever direction it
-happens to point in repaints the far side of the frame along with the near one.
+preview of the room shows through it (see RecursiveFactoryRenderer). Every face of every bar carries tint
+index 0, the color of the factory the block belongs to (see FactoryColors), so the whole frame comes out
+the same color as the walls of the room it leads into.
 
 Every bar lies in the plane of each of the two sides of the room it touches, so a side that carries on into
 the entrance block beside it - a factory that has grown past one cell - drops the four bars of that plane:
@@ -33,9 +30,7 @@ MODELS = "src/main/resources/assets/recursivefactory/models/block"
 BLOCKSTATES = "src/main/resources/assets/recursivefactory/blockstates"
 NAMESPACE = "recursivefactory"
 FRAME_TEXTURE = NAMESPACE + ":block/recursive_factory"
-FACE_TINT_BASE = 100
-
-# Direction#get3DDataValue(), the order the face modes are stored and asked about in.
+# Direction#get3DDataValue(), the order the sides of the room are named in.
 DIRS = ["down", "up", "north", "south", "west", "east"]
 AXES = ("x", "y", "z")
 # Which side of the room the low and the high end of each axis is.
@@ -57,8 +52,6 @@ FACES = {
 }
 # Where along each axis the low end of it starts, and how far apart the two ends of a face are.
 SPAN = {"x": (0, 3), "y": (1, 4), "z": (2, 5)}
-# The tint index of each side of the room, in the order the face modes are numbered in.
-TINT = {side: FACE_TINT_BASE + index for index, side in enumerate(DIRS)}
 
 
 def sides_of(box):
@@ -98,22 +91,9 @@ def bar_name(box):
     return "frame_edge_" + "_".join(sides_of(box))
 
 
-def outer_face(box, face):
-    """Whether this face of the bar lies on the outer surface of the block.
-
-    A bar sits on an edge of the block, so the faces of it that look out of the block sit on the block's own
-    surface, at 0 or 16 along their axis; the other ones look into the hollow of the frame, and belong to no
-    side of the room at all.
-    """
-    axis, low = FACES[face]
-    first, last = SPAN[axis]
-    return box[first if low else last] == (0 if low else 16)
-
-
 def bar_model(box):
-    """One bar, each face of it asking about the side of the room it lies in, or about no side at all."""
-    faces = {face: {"texture": "#0", "tintindex": TINT[face] if outer_face(box, face) else 0}
-             for face in DIRS}
+    """One bar, every face of it asking for the color of the factory the block belongs to."""
+    faces = {face: {"texture": "#0", "tintindex": 0} for face in DIRS}
     return {
         "parent": NAMESPACE + ":block/frame_part",
         "elements": [{"from": list(box[:3]), "to": list(box[3:]), "faces": faces}],

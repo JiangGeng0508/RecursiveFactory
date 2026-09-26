@@ -5,7 +5,6 @@ import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import com.zinzinc.recursivefactory.block.FactoryBarrierBlock;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
-import com.zinzinc.recursivefactory.data.FaceMode;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import java.util.ArrayList;
@@ -122,11 +121,6 @@ public final class KineticRelay {
     private static boolean outwardFaceOpen(LevelReader level, BlockPos pos, Direction face, BlockPos neighbour) {
         if (!(level instanceof ServerLevel) || !(level.getBlockEntity(pos) instanceof EndpointBlockEntity entrance)) {
             return true;
-        }
-        if (!FactoryRelay.faceCarries(entrance, face, FaceMode.STRESS)) {
-            // Not a stress face: a shaft built against it does not reach the factory at all, so the
-            // machinery out there stands still however fast it is going of its own accord.
-            return false;
         }
         EndpointBlockEntity anchor = anchorOf(entrance);
         if (anchor != null && anchor.isSource()) {
@@ -287,14 +281,6 @@ public final class KineticRelay {
         for (Direction side : SIDES) {
             EndpointBlockEntity wall = channelBarrier(room, record, side);
             if (wall == null) {
-                continue;
-            }
-            if (!entrance.faceCarries(side, FaceMode.STRESS)) {
-                // The face of the entrance block on this side is not a stress face, so the wall of this
-                // side of the room is not part of the link: it is let go of, and whatever turns it turns
-                // on its own. Every side is weighed this way before anything is handed over, so a side
-                // that has just been switched away from stress does not keep turning the room.
-                wall.setBridge(0, 0, 0);
                 continue;
             }
             walls.put(side, wall);

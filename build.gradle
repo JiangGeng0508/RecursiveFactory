@@ -39,6 +39,11 @@ repositories {
         name = 'NeoForged Releases'
         url = 'https://maven.neoforged.net/releases'
     }
+    // Create: Electro Energetics is published on Modrinth.
+    maven {
+        name = 'Modrinth'
+        url = 'https://api.modrinth.com/maven'
+    }
 }
 
 base {
@@ -122,6 +127,14 @@ dependencies {
     implementation('dev.engine-room.flywheel:flywheel-neoforge-1.21.1:1.0.6') { transitive = false }
     implementation('net.createmod.ponder:ponder-neoforge:1.0.82+mc1.21.1') { transitive = false }
     implementation('com.tterrag.registrate:Registrate:MC1.21-1.3.0+67') { transitive = false }
+
+    // Create: Electro Energetics, which the power terminal on a factory's face is built against. It is
+    // an optional dependency, so it is compile-only: its classes are only ever touched behind a ModList
+    // check (see RecursiveFactory), and the jar is neither shipped nor required - a pack that wants
+    // electricity installs the mod itself. To try the terminal out in a dev run, add it to localRuntime
+    // along with the run-time libraries its own mod page asks for, e.g.
+    //     localRuntime('maven.modrinth:create-electro-energetics:1.21.1-1.1.1')
+    compileOnly('maven.modrinth:create-electro-energetics:1.21.1-1.1.1')
 
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime

@@ -4,7 +4,6 @@ import com.mojang.logging.LogUtils;
 import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
 import com.zinzinc.recursivefactory.data.FactoryColors;
-import com.zinzinc.recursivefactory.data.FaceMode;
 import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -297,23 +296,6 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         tag.remove(PREVIEW_BLOCKS_TAG);
     }
 
-    /**
-     * What {@code face} of this block carries, see {@link FaceMode}.
-     *
-     * <p>Only the entrance block has modes of its own: a room's barrier wall is gated by the face of the
-     * entrance block that leads to it rather than by anything of its own (see {@code FactoryRelay}), so a
-     * block that is not an entrance block answers {@link FaceMode#TRANSPARENT} and its callers read that as
-     * "no gate here".
-     */
-    public FaceMode faceMode(Direction face) {
-        return FaceMode.TRANSPARENT;
-    }
-
-    /** Whether {@code face} of this block carries exactly this kind of thing right now. */
-    public boolean faceCarries(Direction face, FaceMode mode) {
-        return faceMode(face) == mode;
-    }
-
     public int getFactoryId() {
         return factoryId;
     }
@@ -375,10 +357,6 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         if (stack.isEmpty() || !hasFactoryId()) {
             return stack;
         }
-        if (inputSide != null && !FactoryRelay.faceCarries(this, inputSide, FaceMode.LOGISTICS)) {
-            return stack;
-        }
-
         if (!pendingStack.isEmpty()) {
             if (pendingInput != inputSide || !ItemStack.isSameItemSameComponents(pendingStack, stack)) {
                 return stack;
@@ -447,9 +425,6 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
      */
     public int roomForFluid(FluidStack stack, @Nullable Direction inputSide) {
         if (stack.isEmpty() || !hasFactoryId()) {
-            return 0;
-        }
-        if (inputSide != null && !FactoryRelay.faceCarries(this, inputSide, FaceMode.FLUID)) {
             return 0;
         }
         if (!pendingFluid.isEmpty()

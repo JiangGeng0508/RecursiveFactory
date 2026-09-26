@@ -1,7 +1,6 @@
 package com.zinzinc.recursivefactory.data;
 
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
-import com.zinzinc.recursivefactory.data.FaceMode;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -46,14 +45,6 @@ public final class FactoryColors {
      * placed before the factory was known, and every block from a save older than this, reads as.
      */
     public static final IntegerProperty COLOR_PROPERTY = IntegerProperty.create("color", 0, COLOR_COUNT);
-    /**
-     * The first tint index the entrance block's model uses to ask about one of its faces: the index
-     * {@code FACE_TINT_BASE + face.get3DDataValue()} is the outer side of that face of the frame. Tint
-     * indexes below this one are the plain factory colour, which is what the barrier's model asks for on
-     * every face of the shell.
-     */
-    public static final int FACE_TINT_BASE = 100;
-
     private FactoryColors() {
     }
 
@@ -134,27 +125,4 @@ public final class FactoryColors {
         return UNKNOWN;
     }
 
-    /**
-     * What one face of a block is drawn in, which is the whole of what the six modes look like: a face that
-     * carries something is drawn in that thing's colour, and a face that carries nothing - one left
-     * transparent - is drawn in the colour of its factory, so a window does not stand out from the rest of
-     * the block.
-     *
-     * <p>The mode is asked of the block entity, so this is only ever answered for a block that is there: a
-     * model being baked for the inventory, or for a block whose entity has not arrived yet, falls back on
-     * the factory's own colour.
-     */
-    public static int tint(BlockState state, @Nullable BlockAndTintGetter level, @Nullable BlockPos pos,
-                           int tintIndex) {
-        int faceIndex = tintIndex - FACE_TINT_BASE;
-        if (faceIndex >= 0 && faceIndex < Direction.values().length
-                && level != null && pos != null
-                && level.getBlockEntity(pos) instanceof EndpointBlockEntity endpoint) {
-            FaceMode mode = endpoint.faceMode(Direction.from3DDataValue(faceIndex));
-            if (mode.hasTint()) {
-                return mode.tint();
-            }
-        }
-        return at(state, level, pos);
-    }
 }

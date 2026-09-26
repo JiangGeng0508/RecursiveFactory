@@ -20,10 +20,5 @@ public final class ModNetworking {
                 EndpointPreviewPackets.Sync.STREAM_CODEC,
                 EndpointPreviewPackets.Sync::handle
         );
-        registrar.playToClient(
-                EndpointModePackets.Sync.TYPE,
-                EndpointModePackets.Sync.STREAM_CODEC,
-                EndpointModePackets.Sync::handle
-        );
     }
 }

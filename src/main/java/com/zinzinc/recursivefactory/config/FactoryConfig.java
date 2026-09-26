@@ -41,7 +41,73 @@ public final class FactoryConfig {
             )
             .defineInRange("printer.shotsPerSugar", 400, 1, 100000);
 
+    public static final ModConfigSpec.BooleanValue POWER_LINK_ENABLED = BUILDER
+            .comment(
+                    "Whether the two ends of a factory face's electrical link are tied together.",
+                    "On (the default): a factory_power_terminal against the entrance block outside and",
+                    "one against the room's wall inside are one connection, so the room's grid and the",
+                    "grid outside feed each other. Off: every terminal is left to itself, as a plain",
+                    "terminal the mod does nothing with. Only matters when Create: Electro Energetics",
+                    "is installed."
+            )
+            .define("power.linkEnabled", true);
+
+    public static final ModConfigSpec.DoubleValue POWER_LINK_RESISTANCE = BUILDER
+            .comment(
+                    "The series resistance of each end of an electrical link, in ohms. It is also the",
+                    "resistance the link itself shows the player's meters, and the two ends together are",
+                    "one wire of twice this value.",
+                    "Keep it comfortably above the resistance of the grids being joined, or the link will",
+                    "overpower the very grids it is reading: an end measures its grid through this",
+                    "resistance, so one that is small next to the grid's own (a ground rod is one ohm)",
+                    "lets the end hold the grid at its own setpoint and then read that back as the grid's",
+                    "voltage. The link then misses the voltage standing on the far side, drags the grid",
+                    "down to nothing, and pushes whatever current the two can agree on through the",
+                    "player's wires until they give out. Ten ohms is ten times a ground rod, and near",
+                    "enough to an ideal connection for a room's worth of machines."
+            )
+            .defineInRange("power.linkResistance", 10.0D, 1.0E-6D, 100.0D);
+
+    public static final ModConfigSpec.DoubleValue POWER_LINK_RESPONSE = BUILDER
+            .comment(
+                    "How much of the way an electrical link moves towards its new setpoint each tick.",
+                    "One would snap straight to it; a fraction lets the two ends settle instead of",
+                    "ringing against each other."
+            )
+            .defineInRange("power.linkResponse", 0.5D, 0.01D, 1.0D);
+
+    public static final ModConfigSpec.DoubleValue POWER_LINK_MAX_CURRENT = BUILDER
+            .comment(
+                    "The most current, in amperes, one end of an electrical link will ask of a grid",
+                    "through its own resistance: an end never drives its setpoint more than this much",
+                    "times power.linkResistance away from the voltage it last measured, which is the",
+                    "same as never asking for more than this much current.",
+                    "Lowering power.linkResistance tightens that band along with it, since the two",
+                    "together are one voltage."
+            )
+            .defineInRange("power.linkMaxCurrent", 1000.0D, 1.0D, 1.0E7D);
+
     public static final ModConfigSpec SPEC = BUILDER.build();
+
+    /** True when the two ends of a factory face's electrical link are tied together. */
+    public static boolean powerLinkEnabled() {
+        return !SPEC.isLoaded() || POWER_LINK_ENABLED.getAsBoolean();
+    }
+
+    /** The series resistance of each end of an electrical link, in ohms. */
+    public static double powerLinkResistance() {
+        return SPEC.isLoaded() ? POWER_LINK_RESISTANCE.getAsDouble() : POWER_LINK_RESISTANCE.getDefault();
+    }
+
+    /** How much of the way an electrical link moves towards its setpoint each tick. */
+    public static double powerLinkResponse() {
+        return SPEC.isLoaded() ? POWER_LINK_RESPONSE.getAsDouble() : POWER_LINK_RESPONSE.getDefault();
+    }
+
+    /** The most current one end of an electrical link will push through itself, in amperes. */
+    public static double powerLinkMaxCurrent() {
+        return SPEC.isLoaded() ? POWER_LINK_MAX_CURRENT.getAsDouble() : POWER_LINK_MAX_CURRENT.getDefault();
+    }
 
     private FactoryConfig() {
     }

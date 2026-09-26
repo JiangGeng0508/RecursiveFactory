@@ -31,3 +31,12 @@ type="required"
 versionRange="[6.0.10,)"
 ordering="AFTER"
 side="BOTH"
+
+[[dependencies.${mod_id}]]
+modId="electroenergetics"
+# Optional: only the power terminal on a factory face needs it. Everything else in the mod runs
+# without it, so a pack that does not want electricity simply leaves it out.
+type="optional"
+versionRange="[1.1.1,)"
+ordering="AFTER"
+side="BOTH"

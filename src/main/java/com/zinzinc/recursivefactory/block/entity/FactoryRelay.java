@@ -4,7 +4,6 @@ import com.mojang.logging.LogUtils;
 import com.simibubi.create.content.fluids.FluidPropagator;
 import com.zinzinc.recursivefactory.block.FactoryBarrierBlock;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
-import com.zinzinc.recursivefactory.data.FaceMode;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import java.util.ArrayList;
@@ -68,7 +67,7 @@ public final class FactoryRelay {
         }
 
         List<RemoteEndpoint> remotes =
-                resolveRemotes(localLevel, local, local.getPendingInput(), FaceMode.LOGISTICS);
+                resolveRemotes(localLevel, local, local.getPendingInput());
         if (remotes.isEmpty()) {
             return;
         }
@@ -128,7 +127,7 @@ public final class FactoryRelay {
         }
 
         List<RemoteEndpoint> remotes =
-                resolveRemotes(localLevel, local, local.getPendingFluidInput(), FaceMode.FLUID);
+                resolveRemotes(localLevel, local, local.getPendingFluidInput());
         if (remotes.isEmpty()) {
             return;
         }
@@ -183,7 +182,7 @@ public final class FactoryRelay {
         }
         for (Direction inputFace : face == null ? Direction.values() : new Direction[]{face}) {
             Direction outputSide = inputFace.getOpposite();
-            for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace, FaceMode.LOGISTICS)) {
+            for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace)) {
                 IItemHandler target = remote.level().getCapability(
                         Capabilities.ItemHandler.BLOCK,
                         remote.outputPos(outputSide),
@@ -224,7 +223,7 @@ public final class FactoryRelay {
                 simulate ? IFluidHandler.FluidAction.SIMULATE : IFluidHandler.FluidAction.EXECUTE;
         for (Direction inputFace : face == null ? Direction.values() : new Direction[]{face}) {
             Direction outputSide = inputFace.getOpposite();
-            for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace, FaceMode.FLUID)) {
+            for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace)) {
                 IFluidHandler target = remote.level().getCapability(
                         Capabilities.FluidHandler.BLOCK,
                         remote.outputPos(outputSide),
@@ -320,7 +319,7 @@ public final class FactoryRelay {
     private static void driveRemotes(ServerLevel localLevel, EndpointBlockEntity local, Direction inputFace,
                                      int power) {
         Direction driven = inputFace.getOpposite();
-        for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace, FaceMode.REDSTONE)) {
+        for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace)) {
             if (remote.level().getBlockEntity(remote.pos()) instanceof EndpointBlockEntity endpoint) {
                 endpoint.setOutputPower(driven, power);
                 updateOutputState(endpoint);
@@ -344,36 +343,6 @@ public final class FactoryRelay {
             return;
         }
         syncPower(local, inputs);
-    }
-
-    /**
-     * Looks at both ends of a channel again after the entrance block's face {@code face} has been given
-     * another mode. Everything that uses a channel reads the mode live, but redstone is event driven: a
-     * face that has just become a redstone face would otherwise sit with a signal wired against it and
-     * never pick it up, and one that has just stopped being one would keep driving the wall it was feeding.
-     * The wall's own barriers are looked at as well, which covers the other direction - a dust line inside
-     * the room feeding a wall the player has just closed off is let go of.
-     */
-    public static void onFaceModeChanged(EndpointBlockEntity entrance, Direction face) {
-        updateFromNeighbours(entrance);
-        if (!(entrance instanceof RecursiveFactoryBlockEntity) || !entrance.hasFactoryId()
-                || !(entrance.getLevel() instanceof ServerLevel entranceLevel)) {
-            return;
-        }
-        MinecraftServer server = entranceLevel.getServer();
-        ServerLevel room = server == null ? null : server.getLevel(FactoryDimension.LEVEL_KEY);
-        FactoryData.FactoryRecord record = server == null
-                ? null
-                : FactoryData.get(server).factory(entrance.getFactoryId());
-        FactoryData.FactoryRecord.Cell cell = record == null ? null : record.cellAt(entrance.getBlockPos());
-        if (room == null || record == null || cell == null) {
-            return;
-        }
-        for (BlockPos wall : FactoryDimension.wallLine(record, cell, face)) {
-            if (room.getBlockEntity(wall) instanceof EndpointBlockEntity barrier) {
-                updateFromNeighbours(barrier);
-            }
-        }
     }
 
     /**
@@ -409,10 +378,6 @@ public final class FactoryRelay {
     private static int[] readInputs(Level level, BlockPos pos, EndpointBlockEntity local) {
         int[] inputs = new int[Direction.values().length];
         for (Direction direction : Direction.values()) {
-            if (!faceCarries(local, direction, FaceMode.REDSTONE)) {
-                // Not a redstone face: whatever is built against it is not wired to this factory.
-                continue;
-            }
             if (local.getOutputPower(direction) > 0) {
                 continue;
             }
@@ -484,31 +449,6 @@ public final class FactoryRelay {
         return state.getBlock() instanceof RecursiveFactoryBlock || state.getBlock() instanceof FactoryBarrierBlock;
     }
 
-    /**
-     * Whether the link carries {@code mode}'s kind of thing across {@code face} of {@code local}.
-     *
-     * <p>The modes live on the entrance block and name the sides of the room: its north face is the room's
-     * north side. The barrier wall of a room has no modes of its own - the wall is not the gate, the face of
-     * the entrance block that leads to it is - and a barrier's own face points into the room where the
-     * matching face of the entrance block points out of it, so a barrier answers for the opposite face. An
-     * item pushed at the room's north wall from inside therefore leaves by the entrance block's north face,
-     * which is the face whose mode has to allow it.
-     *
-     * <p>A face nobody has said anything about - one whose entrance block cannot be reached, or a block that
-     * is not part of a factory at all - counts as open: there is no gate to hold anything back, and the walk
-     * to the far end will find nothing to hand it to anyway.
-     */
-    public static boolean faceCarries(EndpointBlockEntity local, @Nullable Direction face, FaceMode mode) {
-        if (face == null) {
-            return false;
-        }
-        if (local instanceof RecursiveFactoryBlockEntity entrance) {
-            return entrance.faceCarries(face, mode);
-        }
-        EndpointBlockEntity entrance = entranceOf(local);
-        return entrance == null || entrance.faceCarries(face.getOpposite(), mode);
-    }
-
     /** The entrance block a room's barrier relays to, or null while it cannot be reached. */
     private static @Nullable EndpointBlockEntity entranceOf(EndpointBlockEntity barrier) {
         if (!(barrier.getLevel() instanceof ServerLevel level) || !barrier.hasFactoryId()) {
@@ -535,16 +475,9 @@ public final class FactoryRelay {
      * the face of the entrance block the item or the signal entered on, and it is what picks the side of
      * the room the link answers on (see {@link FactoryDimension#wallLine}). Fed from the north, for
      * instance, things come out along the room's north wall, facing into the room.
-     *
-     * <p>Nothing comes back for a face that is not set to {@code mode}: a face carries one kind of thing
-     * at a time (see {@link FaceMode}), so a mouth that is not the mouth for what is travelling is the
-     * same as no mouth at all.
      */
     private static List<RemoteEndpoint> resolveRemotes(ServerLevel localLevel, EndpointBlockEntity local,
-                                                       @Nullable Direction inputFace, FaceMode mode) {
-        if (!faceCarries(local, inputFace, mode)) {
-            return List.of();
-        }
+                                                       @Nullable Direction inputFace) {
         MinecraftServer server = localLevel.getServer();
         if (server == null) {
             return List.of();
