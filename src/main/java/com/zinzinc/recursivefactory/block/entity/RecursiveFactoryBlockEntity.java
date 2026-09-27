@@ -6,7 +6,10 @@ import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import java.util.List;
+import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
@@ -15,6 +18,23 @@ import org.slf4j.Logger;
 
 public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
     private static final Logger LOGGER = LogUtils.getLogger();
+    /**
+     * The blueprint file this block is the door of, written onto the block by the file it came out of and
+     * read back the moment the block is put down. It is what turns the block into a factory's door: the
+     * room, its contents and the factories standing inside it are built behind the block here and now,
+     * rather than an empty factory being started. It is let go as soon as that is done, so a block that is
+     * broken and put down again is an ordinary entrance block, and so a cannon that fires the same file at
+     * a hundred places builds a hundred factories rather than one that is re-entered at every block.
+     */
+    public static final String BLUEPRINT_TAG = "FactoryRoom";
+    /**
+     * The save the blueprint a block was put down out of was taken in, written onto the block by the file
+     * and read back with the block. It is what tells the factory the block stands for apart from a factory
+     * of another save that happens to carry the same number (see FactoryData#origin): a block taken out of
+     * this save is a door for the factory it names, one taken out of another save starts an empty factory
+     * the way any entrance block does.
+     */
+    public static final String ORIGIN_TAG = "FactoryOrigin";
     /**
      * One whole cell, edge to edge. The sixteen columns of the cell are the sixteen sixteenths of the
      * block's face, so the preview of one entrance block meets the preview of the entrance block next to
@@ -42,6 +62,22 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
     /** Whether the sides of the frame have been worked out yet, which a block from an older save needs. */
     private boolean connectionsChecked;
     private boolean hadAudience;
+    /**
+     * The blueprint file this block was put down out of, for as long as the factory it names has not been
+     * built behind it yet. It is both how a file reaches a block that is put down and how a block that is
+     * carried about - in a Create cannon's shot, or as a blueprint read by Create's own tools - hands the
+     * name on to the block that is finally placed, see {@link #writeSafe}.
+     */
+    @Nullable
+    private String blueprintFile;
+    /**
+     * The save the blueprint this block was put down out of was taken in, for as long as the factory it
+     * names has not been built behind it yet. It travels the same way the file name does, through
+     * {@link #writeSafe}, and says the same sort of thing about the block: not what the block leads into,
+     * but which factory it was copied from and where that factory is.
+     */
+    @Nullable
+    private String blueprintOrigin;
 
     public RecursiveFactoryBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.RECURSIVE_FACTORY.get(), pos, state);
@@ -91,6 +127,32 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
         return false;
     }
 
+    /**
+     * The blueprint file this block is the door of, or null for a block that starts a factory of its own -
+     * which is every block but one that has just been put down out of a blueprint.
+     */
+    public @Nullable String blueprintFile() {
+        return blueprintFile;
+    }
+
+    /**
+     * The save the blueprint this block was put down out of was taken in, or null for a block that did not
+     * come out of one - a block a player put down, and a block that came out of this save's own doorway to
+     * Create's blueprint folder alike (see {@link #ORIGIN_TAG}).
+     */
+    public @Nullable String blueprintOrigin() {
+        return blueprintOrigin;
+    }
+
+    /** Drops what this block was a door of, once the factory it stands for is built behind it. */
+    public void clearDoor() {
+        if (blueprintFile != null || blueprintOrigin != null) {
+            blueprintFile = null;
+            blueprintOrigin = null;
+            setChanged();
+        }
+    }
+
     /** Samples the middle of this entrance block's own cell, which is what its face preview shows. */
     public void refreshPreviewSnapshot() {
         if (!(level instanceof ServerLevel serverLevel)) {
@@ -128,5 +190,60 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
                 samplePreviewEntities(factoryLevel, previewCenter, PREVIEW_SIZE, PREVIEW_HEIGHT),
                 samplePreviewBlockEntities(factoryLevel, previewCenter, blocks)
         );
+    }
+
+    /**
+     * Reads what this block was put down out of, which the file itself wrote onto the block. The block is a
+     * factory's door for as long as it carries any of it, see {@link #BLUEPRINT_TAG} and {@link #ORIGIN_TAG}.
+     */
+    @Override
+    protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
+        super.read(tag, registries, clientPacket);
+        blueprintFile = tag.contains(BLUEPRINT_TAG) ? tag.getString(BLUEPRINT_TAG) : null;
+        blueprintOrigin = tag.contains(ORIGIN_TAG) ? tag.getString(ORIGIN_TAG) : null;
+    }
+
+    /**
+     * Writes the blueprint file this block is still a door of, and the save it came out of. A block that has
+     * been put down has built its factory and let both go, so this is only ever written for a block that is
+     * being carried about - or read back with the factory it stands for, which is what a snapshot of the
+     * world is written with: the factory a block leads into travels with it as a number, and that number is
+     * only worth anything next to the save it was taken in.
+     */
+    @Override
+    protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
+        super.write(tag, registries, clientPacket);
+        if (blueprintFile != null) {
+            tag.putString(BLUEPRINT_TAG, blueprintFile);
+        }
+        // What is written is this save's name, not the one the block was read with: a block that was copied
+        // into this save leads into a factory of this save, and is taken out of it as one of its own.
+        if (!clientPacket && hasFactoryId() && level instanceof ServerLevel serverLevel
+                && serverLevel.getServer() != null) {
+            tag.putString(ORIGIN_TAG, FactoryData.get(serverLevel.getServer()).origin().toString());
+        }
+    }
+
+    /**
+     * What Create carries of this block when it copies it into a blueprint. Create takes only what a block
+     * entity itself says is safe to carry, and that leaves out every tag this mod writes - a blueprint of a
+     * factory's door would be a blueprint of an entrance block with no factory behind it, which is exactly
+     * what a cannon or a creative deploy used to build. What has to be carried is the name of the file the
+     * block came out of, for a door that is still one, and the factory the block stands for together with
+     * the save it was taken in, for a block that was copied out of the world - neither Create nor the block
+     * that is put down in the end can work either out for itself.
+     */
+    @Override
+    public void writeSafe(CompoundTag tag, HolderLookup.Provider registries) {
+        super.writeSafe(tag, registries);
+        if (blueprintFile != null) {
+            tag.putString(BLUEPRINT_TAG, blueprintFile);
+        }
+        if (hasFactoryId()) {
+            tag.putInt(FACTORY_ID_TAG, getFactoryId());
+            if (blueprintOrigin != null) {
+                tag.putString(ORIGIN_TAG, blueprintOrigin);
+            }
+        }
     }
 }

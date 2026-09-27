@@ -42,31 +42,34 @@ import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import org.slf4j.Logger;
 
 /**
- * A copy of what stands inside one factory room, written to disk as a blueprint file.
+ * A copy of one factory - the room it leads into and everything standing in that room - written to disk as
+ * a blueprint file.
  *
  * <p>The file is a structure file in the vanilla shape - a {@code size}, a {@code palette} and a list of
  * {@code blocks} carrying a palette index and a block entity tag - which is the same thing a Create
- * schematic is, so the file can be read by anything that reads blueprints. The blocks are written in the
- * order they are printed back: floor first, then upwards, one row at a time, which is what lets a printer
- * hand a player the materials for the part it is about to build rather than for the whole room.
+ * schematic is, so the file can be read by anything that reads blueprints. What stands at the top of it is
+ * the factory's <em>door</em>: one entrance block, carrying the name of the file it was taken from. Putting
+ * that file down - with Create's cannon, or with a creative deploy - therefore puts down that one block,
+ * and the block builds the factory the file names: the room, its contents, and the factories standing
+ * inside it, each in a room of its own. A copy the printer makes is built the same way, a block at a time
+ * and out of the materials in the containers touching it.
  *
- * <p>What a blueprint holds is the room's <em>contents</em>: the free space from the floor up to the
- * ceiling, without the checkerboard floor itself and without the barrier shell. Those are what
- * {@link FactoryDimension#prepare} builds for every room, so a copy does not have to carry them.
- *
- * <p>A factory standing inside the room is a room of its own, and the file carries it the same way: the
- * entrance block that leads there travels as the block it is, and the room behind it is written beside it
- * under {@link #ROOMS_TAG}, joined to the room that holds the block. A copy therefore builds a factory of
- * its own for every factory the original had inside it, rather than an entrance block pointing back at the
- * one that was copied. A file written before this carried one room and reads back as one room.
+ * <p>What the rooms are made of is written beside the door, under {@link #ROOMS_TAG}: every room the
+ * factory is made of as a structure of its own - the one the entrance block leads into first, then the ones
+ * nested inside it, each with the room it hangs off and the entrance block in that room which leads to it.
+ * What those structures hold is a room's <em>contents</em>: the free space from the floor up to the
+ * ceiling, without the checkerboard floor itself and without the barrier shell, which
+ * {@link FactoryDimension#prepare} builds for every room. The blocks are written in the order they are
+ * printed back: floor first, then upwards, one row at a time, which is what lets a printer hand a player
+ * the materials for the part it is about to build rather than for the whole room. A file written before
+ * the door was carried reads back as the one room it holds.
  *
  * <p>The name of the file is what a blueprint item carries. The file itself is a Create blueprint: it
  * lives in Create's own folder for blueprints - {@code schematics/uploaded/<player>/} - so a room full of
  * machinery never has to fit inside an item's data, and what a factory is copied into is the very thing
- * Create's own tools read and write. A blueprint of a factory is a Create schematic of the room's
- * contents, which is why a Create blueprint item is what a capture hands out and what a printer takes, and
- * why Create's cannon can build the machinery of a room wherever it likes without knowing about factories
- * at all.
+ * Create's own tools read and write. A blueprint of a factory is a Create blueprint of the factory's door,
+ * which is why a Create blueprint item is what a capture hands out and what a printer takes, and why
+ * Create's own tools build a factory with it rather than a heap of its machines.
  */
 public final class FactoryBlueprint {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -370,6 +373,93 @@ public final class FactoryBlueprint {
     }
 
     /**
+     * Builds the factory a door names: the mirror image of {@link #capture}, and what a block put down out
+     * of a blueprint file does as it lands.
+     *
+     * <p>A file is a blueprint of one block - the factory's door (see {@link #serialize}) - and that block
+     * carries the name of the file, so whichever tool puts it down, Create's cannon and a creative deploy
+     * included, the factory is built behind it here: a room of the room's own size, everything standing in
+     * it, and a room of its own for every factory standing inside it, each built the same way from the
+     * rooms the file carries. The block that was put down becomes the room's own entrance, so the factory
+     * is walked into through it (see {@link FactoryDimension#linkEntrance}).
+     *
+     * <p>The factory is built by the block, not by the file: neither Create nor anybody else who puts the
+     * file down has to know what a factory is - the file has one block in it, and that one block is where
+     * the factory comes from.
+     *
+     * @param doorLevel the level the door block stands in, which is where the factory is walked into from
+     * @return the room the door now leads into, or {@code -1} when the file cannot be read, which leaves
+     *     the block to start an empty factory the way any entrance block does
+     */
+    public static int build(ServerLevel doorLevel, BlockPos doorPos, String name, @Nullable UUID owner) {
+        MinecraftServer server = doorLevel.getServer();
+        FactoryBlueprint blueprint = server == null ? null : read(server, name);
+        if (server == null || blueprint == null) {
+            LOGGER.warn("The door at {} came out of the blueprint {} and the file cannot be read; it is left"
+                    + " as an entrance block of no factory", doorPos.toShortString(), name);
+            return -1;
+        }
+        return build(doorLevel, doorPos, blueprint, -1, "the blueprint " + name, owner);
+    }
+
+    /**
+     * Copies a factory that is standing in this world behind a block that was put down for it. What a
+     * blueprint taken out of the world carries is the factory the block it was taken from stood in, and
+     * nothing of the room: the room stands in another dimension, which no snapshot of the world reaches,
+     * so the factory is read out of the world here and built behind the block - the mirror image of
+     * {@link #capture}, and the same thing {@link #build} does with a file, with the rooms the factory is
+     * made of and the factories standing inside it all.
+     *
+     * @return the room the block now leads into, or {@code -1} when there is nothing to copy, which leaves
+     *     the block to start an empty factory the way any entrance block does
+     */
+    public static int copy(ServerLevel doorLevel, BlockPos doorPos, FactoryData.FactoryRecord source,
+                           @Nullable UUID owner) {
+        MinecraftServer server = doorLevel.getServer();
+        ServerLevel roomLevel = server == null ? null : server.getLevel(FactoryDimension.LEVEL_KEY);
+        FactoryData.FactoryRecord.Cell cell = source.anchorCell();
+        if (server == null || roomLevel == null || cell == null) {
+            return -1;
+        }
+        FactoryData data = FactoryData.get(server);
+        FactoryBlueprint blueprint;
+        try {
+            blueprint = capture(roomLevel, data, source, cell, "factory #" + source.id());
+        } catch (Refusal refusal) {
+            LOGGER.warn("The factory #{} a block was put down for cannot be copied: {}", source.id(),
+                    refusal.reason().getString());
+            return -1;
+        }
+        return build(doorLevel, doorPos, blueprint, source.id(), "factory #" + source.id(), owner);
+    }
+
+    /**
+     * The one thing both ways of building a factory come down to: a room of its own is made for it, the
+     * blueprint - read from a file, or read out of the world - is built into that room, and the block that
+     * was put down becomes the room's own entrance.
+     *
+     * @param copiedFrom the factory this one is a copy of, or {@code -1} for a factory that was built from
+     *     a file of its own rather than from one standing in this world, see
+     *     {@link FactoryData#markCopiedFrom}
+     */
+    private static int build(ServerLevel doorLevel, BlockPos doorPos, FactoryBlueprint blueprint, int copiedFrom,
+                             String described, @Nullable UUID owner) {
+        MinecraftServer server = doorLevel.getServer();
+        ServerLevel roomLevel = server == null ? null : server.getLevel(FactoryDimension.LEVEL_KEY);
+        if (server == null || roomLevel == null) {
+            return -1;
+        }
+        FactoryData data = FactoryData.get(server);
+        int roomId = FactoryDimension.newRoom(roomLevel, data, owner, blueprint.colorIndex());
+        data.markCopiedFrom(roomId, copiedFrom);
+        int placed = blueprint.placeAll(roomLevel, data, roomId, owner);
+        FactoryDimension.linkEntrance(doorLevel, doorPos, roomId, blueprint.colorIndex());
+        LOGGER.info("The door at {} built factory #{} out of {}, {} blocks in {} rooms",
+                doorPos.toShortString(), roomId, described, placed, blueprint.rooms().size());
+        return roomId;
+    }
+
+    /**
      * Everything standing inside one room cell, in the order it is printed back: floor first, then up one
      * row at a time. Air and the barrier shell are left out - they are what a room is built with, not what
      * a player put in it - so what comes back is the contents of the room rather than the room itself.
@@ -668,33 +758,65 @@ public final class FactoryBlueprint {
     }
 
     /**
-     * The file's contents as NBT: the structure itself, plus a note of where it came from and the rooms
-     * standing inside it.
+     * The file's contents as NBT: the door a placement puts down, plus a note of where the factory came
+     * from and one structure per room the factory is made of.
      *
-     * <p>The room that was read out stays where a structure file keeps one - {@code size}, {@code palette}
-     * and {@code blocks} at the top - so the file still opens in anything that reads blueprints, and only
-     * the rooms nested in it are written under a key of our own.
+     * <p>The door stands where a structure file keeps its blocks - {@code size}, {@code palette} and
+     * {@code blocks} at the top - so the file still opens in anything that reads blueprints; what it leads
+     * into is written under a key of our own, and the door carries the name of the file so that the block
+     * that is put down knows which factory to build. The room that was read out is listed first, with
+     * {@link #PARENT_TAG} left at -1, which is what tells a reader that the file carries a door rather
+     * than a room.
      */
     private CompoundTag serialize(HolderLookup.Provider registries) {
-        CompoundTag root = writeRoom(this.root);
-        root.put(META_TAG, writeMeta(colorIndex));
+        CompoundTag root = writeDoor();
+        CompoundTag meta = writeMeta(colorIndex);
 
         ListTag rooms = new ListTag();
         for (Room room : this.rooms) {
-            if (room == this.root) {
-                continue;
-            }
             CompoundTag roomTag = writeRoom(room);
             roomTag.putInt(PARENT_TAG, room.parentIndex);
-            roomTag.put(POS_TAG, newIntList(room.anchor.getX(), room.anchor.getY(), room.anchor.getZ()));
+            if (room.anchor != null) {
+                roomTag.put(POS_TAG, newIntList(room.anchor.getX(), room.anchor.getY(), room.anchor.getZ()));
+            }
             roomTag.put(META_TAG, writeMeta(room.colorIndex));
             rooms.add(roomTag);
         }
-        if (!rooms.isEmpty()) {
-            root.getCompound(META_TAG).put(ROOMS_TAG, rooms);
-        }
+        meta.put(ROOMS_TAG, rooms);
+        root.put(META_TAG, meta);
         NbtUtils.addCurrentDataVersion(root);
         return root;
+    }
+
+    /**
+     * The one block a placement of this blueprint puts down: the entrance block a factory is walked into
+     * through, written where a structure keeps its first block, in the colour the factory is painted and
+     * carrying the name of the file it came from.
+     *
+     * <p>It is the block that builds the factory, not the file: whoever puts the file down - Create's
+     * cannon, a blueprint deployed in creative, a schematic pasted in - puts down this one block, and the
+     * block leaves the room to be built behind it (see {@code RecursiveFactoryBlock#setPlacedBy}).
+     */
+    private CompoundTag writeDoor() {
+        CompoundTag tag = new CompoundTag();
+        tag.put(SIZE_TAG, newIntList(1, 1, 1));
+        ListTag palette = new ListTag();
+        palette.add(NbtUtils.writeBlockState(ModBlocks.RECURSIVE_FACTORY.get()
+                .defaultBlockState()
+                .setValue(FactoryColors.COLOR_PROPERTY, FactoryColors.stateValue(colorIndex))));
+        tag.put(PALETTE_TAG, palette);
+
+        CompoundTag block = new CompoundTag();
+        block.put("pos", newIntList(0, 0, 0));
+        block.putInt("state", 0);
+        CompoundTag nbt = new CompoundTag();
+        nbt.putString(RecursiveFactoryBlockEntity.BLUEPRINT_TAG, name);
+        block.put("nbt", nbt);
+        ListTag blocks = new ListTag();
+        blocks.add(block);
+        tag.put(BLOCKS_TAG, blocks);
+        tag.put(ENTITIES_TAG, new ListTag());
+        return tag;
     }
 
     /** One room as a structure: its size, the palette of the blocks in it, and the blocks themselves. */
@@ -771,7 +893,12 @@ public final class FactoryBlueprint {
         int sourceFactory = meta.contains(SOURCE_TAG) ? meta.getInt(SOURCE_TAG) : -1;
         String storedName = meta.contains(NAME_TAG) ? meta.getString(NAME_TAG) : name;
 
-        Room top = readRoom(storedName, root, lookup, null, colorIndex);
+        // Every room of the factory is listed, the one that was read out first with no room it hangs off:
+        // that is the room the door leads into. A file written before the door was carried has the room
+        // itself at the top and only the rooms nested in it listed, and is read the way it was written.
+        ListTag roomTags = meta.getList(ROOMS_TAG, Tag.TAG_COMPOUND);
+        boolean door = !roomTags.isEmpty() && ((CompoundTag) roomTags.get(0)).getInt(PARENT_TAG) < 0;
+        Room top = readRoom(storedName, door ? (CompoundTag) roomTags.get(0) : root, lookup, null, colorIndex);
         if (top == null) {
             return null;
         }
@@ -781,8 +908,9 @@ public final class FactoryBlueprint {
         // room whose parent is not in the list yet is one a hand-edited file got wrong, and is left out.
         FactoryBlueprint blueprint = new FactoryBlueprint(storedName, top, colorIndex, sourceFactory);
         List<Room> added = new ArrayList<>(blueprint.rooms());
-        for (Tag tag : meta.getList(ROOMS_TAG, Tag.TAG_COMPOUND)) {
-            CompoundTag roomTag = (CompoundTag) tag;
+        List<Tag> listed = meta.getList(ROOMS_TAG, Tag.TAG_COMPOUND);
+        for (int index = door ? 1 : 0; index < listed.size(); index++) {
+            CompoundTag roomTag = (CompoundTag) listed.get(index);
             int parentIndex = roomTag.getInt(PARENT_TAG);
             ListTag pos = roomTag.getList(POS_TAG, Tag.TAG_INT);
             if (parentIndex < 0 || parentIndex >= added.size() || pos.size() != 3) {

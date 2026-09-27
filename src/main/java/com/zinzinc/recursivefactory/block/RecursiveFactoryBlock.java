@@ -9,6 +9,7 @@ import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import com.zinzinc.recursivefactory.data.ModDataComponents;
+import com.zinzinc.recursivefactory.world.FactoryBlueprint;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import com.zinzinc.recursivefactory.world.FactoryTeleporter;
@@ -252,48 +253,70 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
     public void setPlacedBy(Level level, BlockPos pos, BlockState state, @Nullable LivingEntity placer, ItemStack stack) {
         super.setPlacedBy(level, pos, state, placer, stack);
         if (level.isClientSide() || level.getServer() == null
+                || !(level instanceof ServerLevel serverLevel)
                 || !(level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity)) {
             return;
         }
 
         // Which of the sixteen colour kinds this block was crafted in. A factory is painted one colour,
         // so this only decides the colour of a factory that is being started here: a block laid down next
-        // to an existing factory joins that factory and takes the colour it already has.
-        int colorIndex = FactoryColors.colorOf(stack);
+        // to an existing factory joins that factory and takes the colour it already has. A block a
+        // creative deploy put down comes with no stack at all, which reads as no colour of its own.
+        int colorIndex = stack == null ? FactoryColors.NO_COLOR : FactoryColors.colorOf(stack);
         UUID owner = placer instanceof Player player ? player.getUUID() : null;
         FactoryData data = FactoryData.get(level.getServer());
         ServerLevel factoryLevel = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
 
-        // Next to an existing entrance, this block grows that factory: the room layout mirrors the
-        // entrance layout, so the new cell's room cell is the neighbour's shifted by the same offset.
-        // Any adjacent cell gives the same answer, so the first one found is enough.
+        // A block that was put down out of a blueprint file is that factory's door: the file names the
+        // factory, and the room, its contents and the factories standing inside it are built behind the
+        // block here and now. What a block was a door of is let go of first, so a file that cannot be read
+        // leaves an ordinary entrance block behind rather than a block that is a door for ever, and a
+        // cannon that fires the same file at a hundred places makes a hundred factories rather than
+        // rebuilding one a hundred times. This is the path a cannon's block, a blueprint deployed in
+        // creative and a printed block all arrive by: whoever put the block down, its block entity already
+        // carries the file, or the factory it was copied out of.
+        String blueprintFile = blockEntity.blueprintFile();
+        String blueprintOrigin = blockEntity.blueprintOrigin();
+        int sourceFactory = blockEntity.hasFactoryId() ? blockEntity.getFactoryId() : -1;
+        blockEntity.clearDoor();
+
+        if (blueprintFile != null) {
+            if (FactoryBlueprint.build(serverLevel, pos, blueprintFile, owner) > 0) {
+                return;
+            }
+        } else if (sourceFactory > 0 && takenInThisSave(data, blueprintOrigin)) {
+            // A block that was copied out of the world - by Create's own blueprint and quill, or by
+            // anything else that takes a snapshot of what stands there - carries the factory it stood in
+            // and nothing of the room, which is in another dimension and is not in the snapshot. So the
+            // factory is copied behind the block here and now, the factories standing inside it and all.
+            // The save it was taken in has to be this one, or the number would name whatever factory of
+            // this save happened to carry it (see takenInThisSave).
+            FactoryData.FactoryRecord source = data.factory(sourceFactory);
+            if (source != null) {
+                // The other blocks of the same file are put down beside this one and join the copy rather
+                // than copying the same factory again, which is what the copy remembers it was made from
+                // for (see FactoryData#markCopiedFrom).
+                FactoryData.FactoryRecord copy = copiedFactoryBeside(level, data, pos, sourceFactory);
+                if (copy != null && joinFactory(level, pos, data, factoryLevel, blockEntity, copy)) {
+                    return;
+                }
+                if (FactoryBlueprint.copy(serverLevel, pos, source, owner) > 0) {
+                    return;
+                }
+            }
+        }
+
+        // Next to an existing entrance, this block grows that factory. Any adjacent cell gives the same
+        // answer, so the first one found is enough.
         for (Direction direction : Direction.Plane.HORIZONTAL) {
             BlockPos neighbourPos = pos.relative(direction);
             FactoryData.FactoryRecord neighbour = data.factoryWithEntranceCell(
                     level.dimension().location(),
                     neighbourPos
             );
-            if (neighbour == null) {
-                continue;
+            if (neighbour != null && joinFactory(level, pos, data, factoryLevel, blockEntity, neighbour)) {
+                return;
             }
-            FactoryData.FactoryRecord.Cell adjacentCell = neighbour.cellAt(neighbourPos);
-            int roomX = adjacentCell.roomX()
-                    + (pos.getX() - adjacentCell.entrance().getX()) * FactoryData.CELL_SIZE;
-            int roomZ = adjacentCell.roomZ()
-                    + (pos.getZ() - adjacentCell.entrance().getZ()) * FactoryData.CELL_SIZE;
-            data.addEntrance(neighbour.id(), level.dimension().location(), pos, roomX, roomZ);
-            blockEntity.setFactoryId(neighbour.id());
-
-            FactoryData.FactoryRecord grown = data.factory(neighbour.id());
-            if (grown != null) {
-                blockEntity.setColorIndex(grown.colorIndex());
-            }
-            if (factoryLevel != null && grown != null) {
-                FactoryDimension.prepare(factoryLevel, grown);
-            }
-            refreshConnections(level, pos);
-            FactoryRelay.updateFromNeighbours(blockEntity);
-            return;
         }
 
         FactoryData.FactoryRecord record = data.create(owner, colorIndex);
@@ -308,6 +331,84 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
         refreshConnections(level, pos);
         // A lever or a dust line may already be waiting next to the block it was placed against.
         FactoryRelay.updateFromNeighbours(blockEntity);
+    }
+
+    /**
+     * Whether the factory number an entrance block carries out of a snapshot names a factory of this save,
+     * so that copying that factory is the right thing to do.
+     *
+     * <p>A block carries the origin of the save it was copied out of (see
+     * RecursiveFactoryBlockEntity#ORIGIN_TAG), and a snapshot naming another save is turned down: its
+     * number would name whatever factory of this save happened to carry it. A snapshot with no origin at
+     * all was taken before the origin was written - by this mod's own earlier version, or by a tool that
+     * dropped the tag - and is taken at its word rather than turned into an empty factory.
+     */
+    private static boolean takenInThisSave(FactoryData data, @Nullable String blueprintOrigin) {
+        return blueprintOrigin == null || data.origin().toString().equals(blueprintOrigin);
+    }
+
+    /**
+     * Points an entrance block that has just been put down at the factory it stands beside: the room
+     * layout mirrors the entrance layout, so the new cell's room cell is a cell of that factory shifted
+     * by the same offset. A cell the factory already stands on - a room that was copied from a blueprint
+     * was built wide enough for every block the file carries - is taken over by the block rather than
+     * grown a second time (see FactoryData#addEntrance).
+     *
+     * @return whether a cell of that factory stands beside the block, which leaves the block joined to it
+     */
+    private static boolean joinFactory(Level level, BlockPos pos, FactoryData data,
+                                       @Nullable ServerLevel factoryLevel,
+                                       RecursiveFactoryBlockEntity blockEntity,
+                                       FactoryData.FactoryRecord factory) {
+        FactoryData.FactoryRecord.Cell adjacentCell = null;
+        for (Direction direction : Direction.Plane.HORIZONTAL) {
+            FactoryData.FactoryRecord.Cell cell = factory.cellAt(pos.relative(direction));
+            if (cell != null) {
+                adjacentCell = cell;
+                break;
+            }
+        }
+        if (adjacentCell == null) {
+            return false;
+        }
+        int roomX = adjacentCell.roomX()
+                + (pos.getX() - adjacentCell.entrance().getX()) * FactoryData.CELL_SIZE;
+        int roomZ = adjacentCell.roomZ()
+                + (pos.getZ() - adjacentCell.entrance().getZ()) * FactoryData.CELL_SIZE;
+        data.addEntrance(factory.id(), level.dimension().location(), pos, roomX, roomZ);
+        blockEntity.setFactoryId(factory.id());
+
+        FactoryData.FactoryRecord grown = data.factory(factory.id());
+        if (grown != null) {
+            blockEntity.setColorIndex(grown.colorIndex());
+        }
+        if (factoryLevel != null && grown != null) {
+            FactoryDimension.prepare(factoryLevel, grown);
+        }
+        refreshConnections(level, pos);
+        FactoryRelay.updateFromNeighbours(blockEntity);
+        return true;
+    }
+
+    /**
+     * The factory standing beside this block that was copied from the factory this block names, or null
+     * when there is none: the first block a blueprint puts down copies the factory behind it, and the
+     * blocks of that same blueprint put down beside it join that copy rather than copying the same factory
+     * again.
+     */
+    private static @Nullable FactoryData.FactoryRecord copiedFactoryBeside(Level level, FactoryData data,
+                                                                          BlockPos pos, int sourceFactory) {
+        for (Direction direction : Direction.Plane.HORIZONTAL) {
+            BlockPos neighbourPos = pos.relative(direction);
+            FactoryData.FactoryRecord neighbour = data.factoryWithEntranceCell(
+                    level.dimension().location(),
+                    neighbourPos
+            );
+            if (neighbour != null && neighbour.copiedFrom() == sourceFactory) {
+                return neighbour;
+            }
+        }
+        return null;
     }
 
     /**

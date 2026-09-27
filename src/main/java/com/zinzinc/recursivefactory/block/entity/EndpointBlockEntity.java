@@ -37,7 +37,7 @@ import org.slf4j.Logger;
 
 public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     private static final Logger LOGGER = LogUtils.getLogger();
-    private static final String FACTORY_ID_TAG = "FactoryId";
+    static final String FACTORY_ID_TAG = "FactoryId";
     private static final String COLOR_TAG = "Color";
     private static final String PENDING_STACK_TAG = "PendingStack";
     private static final String PENDING_INPUT_TAG = "PendingInput";
@@ -294,6 +294,14 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         tag.remove(LEGACY_OUTPUT_DIRECTION_TAG);
         tag.remove(LEGACY_REMOTE_POWERED_TAG);
         tag.remove(PREVIEW_BLOCKS_TAG);
+        // A block that was put down out of a blueprint is a door for its factory for as long as it takes
+        // that factory to be built, and never again: a copy of such a block is a copy of the block, not a
+        // second factory built behind it (see RecursiveFactoryBlockEntity#blueprintFile).
+        tag.remove(RecursiveFactoryBlockEntity.BLUEPRINT_TAG);
+        // The save the block was taken in goes with it: a copy of an entrance block is a copy of the block,
+        // and what that block leads into is the room the copy is printed into rather than a factory of
+        // whatever save it happened to be copied out of (see RecursiveFactoryBlockEntity#blueprintOrigin).
+        tag.remove(RecursiveFactoryBlockEntity.ORIGIN_TAG);
     }
 
     public int getFactoryId() {

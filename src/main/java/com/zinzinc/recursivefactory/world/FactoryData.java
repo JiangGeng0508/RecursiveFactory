@@ -62,6 +62,15 @@ public final class FactoryData extends SavedData {
     private final Map<Integer, FactoryRecord> factories = new LinkedHashMap<>();
     private int nextFactoryId = 1;
     private int nextSlotIndex;
+    /**
+     * Names this save, and with it the factories in it. A blueprint taken out of the world carries the
+     * factory a block stood in as a number (see {@link FactoryBlueprint#copy}), and a number means nothing
+     * on its own: without this, a blueprint from another save would be read as naming whichever factory of
+     * this save happened to carry the same one. A factory is only copied out of a block that was taken in
+     * this save; a blueprint from anywhere else starts an empty factory, the way any entrance block does.
+     */
+    @Nullable
+    private UUID origin;
 
     public static FactoryData get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(
@@ -70,10 +79,24 @@ public final class FactoryData extends SavedData {
         );
     }
 
+    /**
+     * The name of this save, worked out the first time it is asked for and kept with the save from then on.
+     * Every entrance block is written out with it, so a blueprint of a factory can be told apart from one
+     * taken in another save (see {@link #origin}).
+     */
+    public UUID origin() {
+        if (origin == null) {
+            origin = UUID.randomUUID();
+            setDirty();
+        }
+        return origin;
+    }
+
     private static FactoryData load(CompoundTag tag, HolderLookup.Provider registries) {
         FactoryData data = new FactoryData();
         data.nextFactoryId = Math.max(1, tag.getInt("NextFactoryId"));
         data.nextSlotIndex = tag.getInt("NextSlotIndex");
+        data.origin = tag.hasUUID("Origin") ? tag.getUUID("Origin") : null;
 
         ListTag factoriesTag = tag.getList("Factories", Tag.TAG_COMPOUND);
         for (Tag entry : factoriesTag) {
@@ -87,6 +110,9 @@ public final class FactoryData extends SavedData {
     public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
         tag.putInt("NextFactoryId", nextFactoryId);
         tag.putInt("NextSlotIndex", nextSlotIndex);
+        if (origin != null) {
+            tag.putUUID("Origin", origin);
+        }
 
         ListTag factoriesTag = new ListTag();
         for (FactoryRecord record : factories.values()) {
@@ -119,7 +145,9 @@ public final class FactoryData extends SavedData {
                 slotZ,
                 null,
                 BlockPos.ZERO,
-                List.of()
+                List.of(),
+                // A factory a player started stands for itself rather than for one that was copied.
+                -1
         );
         factories.put(factoryId, record);
         setDirty();
@@ -155,11 +183,38 @@ public final class FactoryData extends SavedData {
         FactoryRecord record = factories.get(factoryId);
         if (record != null && dimension.equals(record.entranceDimension())) {
             List<FactoryRecord.Cell> cells = new ArrayList<>(record.cells());
+            // A room that was copied from a blueprint already stands on a cell here - it is built as wide
+            // as the room it was copied from, so it has a cell for every block the file carries, and this
+            // block is one of the further ones (see bindRoom). It takes that cell rather than a second one
+            // being grown on top of it, and keeps the floor the copy already laid for it. The cell is taken
+            // in place, so the room itself never moves.
+            for (int i = 0; i < cells.size(); i++) {
+                FactoryRecord.Cell cell = cells.get(i);
+                if (cell.entrance().equals(UNBOUND_ENTRANCE)
+                        && cell.roomX() == roomX && cell.roomZ() == roomZ) {
+                    cells.set(i, new FactoryRecord.Cell(pos, roomX, roomZ, cell.floorLaid()));
+                    update(record.withCells(cells));
+                    return;
+                }
+            }
             // The cell that just joined has no floor yet, including the seam it shares with its neighbour.
             cells.add(new FactoryRecord.Cell(pos, roomX, roomZ, false));
             update(record.withCells(cells));
         }
 
+    }
+
+    /**
+     * Notes which factory of this save a factory was copied from, so that the other blocks of the same
+     * blueprint recognise it: the first block a file puts down copies the factory behind it, and the blocks
+     * put down beside it join that copy rather than copying the same factory a second time. {@code -1} says
+     * a factory was not copied from one.
+     */
+    public void markCopiedFrom(int factoryId, int sourceFactory) {
+        FactoryRecord record = factories.get(factoryId);
+        if (record != null && record.copiedFrom() != sourceFactory) {
+            update(record.withCopiedFrom(sourceFactory));
+        }
     }
     /**
      * Gives a room that was built from a blueprint one more cell, so a copy of a factory that had grown
@@ -313,7 +368,15 @@ public final class FactoryData extends SavedData {
             int slotZ,
             @Nullable ResourceLocation entranceDimension,
             BlockPos entrancePos,
-            List<Cell> cells
+            List<Cell> cells,
+            /**
+             * The factory of this save this one was copied from, or {@code -1} for a factory that was not
+             * copied from one. A factory built behind a block put down out of a blueprint taken out of the
+             * world stands for the factory that block stood in (see {@link FactoryBlueprint#copy}), and this
+             * is what tells the other blocks of that same blueprint which factory to join rather than
+             * copying the same one again.
+             */
+            int copiedFrom
     ) {
         /**
          * One entrance block and the room cell it stands for. The room origin is saved per cell so the
@@ -394,11 +457,17 @@ public final class FactoryData extends SavedData {
         }
 
         public FactoryRecord withEntrance(@Nullable ResourceLocation dimension, BlockPos pos) {
-            return new FactoryRecord(id, owner, colorIndex, slotX, slotZ, dimension, pos, cells);
+            return new FactoryRecord(id, owner, colorIndex, slotX, slotZ, dimension, pos, cells, copiedFrom);
         }
 
         public FactoryRecord withCells(List<Cell> updatedCells) {
-            return new FactoryRecord(id, owner, colorIndex, slotX, slotZ, entranceDimension, entrancePos, updatedCells);
+            return new FactoryRecord(id, owner, colorIndex, slotX, slotZ, entranceDimension, entrancePos,
+                    updatedCells, copiedFrom);
+        }
+
+        public FactoryRecord withCopiedFrom(int sourceFactory) {
+            return new FactoryRecord(id, owner, colorIndex, slotX, slotZ, entranceDimension, entrancePos, cells,
+                    sourceFactory);
         }
 
         private CompoundTag save() {
@@ -409,6 +478,9 @@ public final class FactoryData extends SavedData {
             }
             tag.putInt("SlotX", slotX);
             tag.putInt("SlotZ", slotZ);
+            if (copiedFrom > 0) {
+                tag.putInt("CopiedFrom", copiedFrom);
+            }
             if (colorIndex != FactoryColors.NO_COLOR) {
                 tag.putInt("Color", colorIndex);
             }
@@ -456,7 +528,9 @@ public final class FactoryData extends SavedData {
                     tag.getInt("SlotZ"),
                     entrance.dimension(),
                     entrance.pos(),
-                    cells
+                    cells,
+                    // Factories saved before a copy was noted count as ones that are not copies of anything.
+                    tag.contains("CopiedFrom") ? tag.getInt("CopiedFrom") : -1
             );
             // Records saved before a factory could hold several cells: the one entrance is the one cell.
             if (record.cells().isEmpty() && record.entranceDimension() != null) {
