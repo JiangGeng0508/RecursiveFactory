@@ -36,6 +36,15 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
      */
     public static final String ORIGIN_TAG = "FactoryOrigin";
     /**
+     * Which cell of the factory this block stands on, as the offset of that cell's room from the room of
+     * the factory's anchor cell, in blocks and never anything but a whole number of cells. A snapshot of
+     * the world carries the block and not the room it stands on - the room is in another dimension - so
+     * what says where in the factory the block stood is this offset, and without it a door put down away
+     * from the factory's anchor cell would build the factory around the wrong cell (see
+     * FactoryBlueprint#copy).
+     */
+    public static final String CELL_TAG = "FactoryCell";
+    /**
      * One whole cell, edge to edge. The sixteen columns of the cell are the sixteen sixteenths of the
      * block's face, so the preview of one entrance block meets the preview of the entrance block next to
      * it exactly: nothing of either cell is cut off at the seam between them.
@@ -78,6 +87,14 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
      */
     @Nullable
     private String blueprintOrigin;
+    /**
+     * The cell of the factory the block was copied out of, for as long as the factory it names has not
+     * been built behind it yet. It travels the way the file name and the save's name do, through
+     * {@link #writeSafe} and a snapshot of the world, and it is where the copy puts the cell this block
+     * stood on (see {@link #CELL_TAG}).
+     */
+    @Nullable
+    private BlockPos roomCell;
 
     public RecursiveFactoryBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.RECURSIVE_FACTORY.get(), pos, state);
@@ -144,11 +161,17 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
         return blueprintOrigin;
     }
 
+    /** The cell of the factory this block was copied out of, or null for a block that names none. */
+    public @Nullable BlockPos roomCell() {
+        return roomCell;
+    }
+
     /** Drops what this block was a door of, once the factory it stands for is built behind it. */
     public void clearDoor() {
-        if (blueprintFile != null || blueprintOrigin != null) {
+        if (blueprintFile != null || blueprintOrigin != null || roomCell != null) {
             blueprintFile = null;
             blueprintOrigin = null;
+            roomCell = null;
             setChanged();
         }
     }
@@ -201,6 +224,8 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
         super.read(tag, registries, clientPacket);
         blueprintFile = tag.contains(BLUEPRINT_TAG) ? tag.getString(BLUEPRINT_TAG) : null;
         blueprintOrigin = tag.contains(ORIGIN_TAG) ? tag.getString(ORIGIN_TAG) : null;
+        int[] cell = tag.getIntArray(CELL_TAG);
+        roomCell = cell.length == 2 ? new BlockPos(cell[0], 0, cell[1]) : null;
     }
 
     /**
@@ -220,7 +245,19 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
         // into this save leads into a factory of this save, and is taken out of it as one of its own.
         if (!clientPacket && hasFactoryId() && level instanceof ServerLevel serverLevel
                 && serverLevel.getServer() != null) {
-            tag.putString(ORIGIN_TAG, FactoryData.get(serverLevel.getServer()).origin().toString());
+            FactoryData data = FactoryData.get(serverLevel.getServer());
+            tag.putString(ORIGIN_TAG, data.origin().toString());
+            // Which cell the block stands on, worked out from the factory it leads into rather than carried
+            // along: that is what a snapshot of this block has to hold on to.
+            FactoryData.FactoryRecord record = data.factory(getFactoryId());
+            FactoryData.FactoryRecord.Cell anchor = record == null ? null : record.anchorCell();
+            FactoryData.FactoryRecord.Cell cell = record == null ? null : record.cellAt(worldPosition);
+            if (anchor != null && cell != null) {
+                tag.putIntArray(CELL_TAG, new int[] {
+                        cell.roomX() - anchor.roomX(),
+                        cell.roomZ() - anchor.roomZ()
+                });
+            }
         }
     }
 
@@ -243,6 +280,9 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
             tag.putInt(FACTORY_ID_TAG, getFactoryId());
             if (blueprintOrigin != null) {
                 tag.putString(ORIGIN_TAG, blueprintOrigin);
+            }
+            if (roomCell != null) {
+                tag.putIntArray(CELL_TAG, new int[] {roomCell.getX(), roomCell.getZ()});
             }
         }
     }

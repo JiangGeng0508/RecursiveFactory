@@ -302,6 +302,10 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         // and what that block leads into is the room the copy is printed into rather than a factory of
         // whatever save it happened to be copied out of (see RecursiveFactoryBlockEntity#blueprintOrigin).
         tag.remove(RecursiveFactoryBlockEntity.ORIGIN_TAG);
+        // Which cell of that factory the block stood on goes with them: the copy stands in the room that
+        // was built for it, not in the cell the block was read out of (see
+        // RecursiveFactoryBlockEntity#roomCell).
+        tag.remove(RecursiveFactoryBlockEntity.CELL_TAG);
     }
 
     public int getFactoryId() {

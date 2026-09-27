@@ -417,6 +417,17 @@ public final class FactoryData extends SavedData {
             cells = List.copyOf(cells);
         }
 
+        /** The cell standing on the given room coordinates, or null when this factory has no cell there. */
+        @Nullable
+        public Cell cellAtRoom(int roomX, int roomZ) {
+            for (Cell cell : cells) {
+                if (cell.roomX() == roomX && cell.roomZ() == roomZ) {
+                    return cell;
+                }
+            }
+            return null;
+        }
+
         @Nullable
         public Cell cellAt(BlockPos pos) {
             for (Cell cell : cells) {

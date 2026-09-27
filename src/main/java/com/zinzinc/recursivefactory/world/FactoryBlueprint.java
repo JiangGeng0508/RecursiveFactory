@@ -414,12 +414,27 @@ public final class FactoryBlueprint {
      *     the block to start an empty factory the way any entrance block does
      */
     public static int copy(ServerLevel doorLevel, BlockPos doorPos, FactoryData.FactoryRecord source,
-                           @Nullable UUID owner) {
+                           @Nullable BlockPos cellOffset, @Nullable UUID owner) {
         MinecraftServer server = doorLevel.getServer();
         ServerLevel roomLevel = server == null ? null : server.getLevel(FactoryDimension.LEVEL_KEY);
-        FactoryData.FactoryRecord.Cell cell = source.anchorCell();
-        if (server == null || roomLevel == null || cell == null) {
+        FactoryData.FactoryRecord.Cell anchor = source.anchorCell();
+        if (server == null || roomLevel == null || anchor == null) {
             return -1;
+        }
+        // The block stood on one cell of the factory, and that cell - not the factory's anchor cell - is
+        // what the copy is built around: the room is read out with this cell at its origin, so every door
+        // of a snapshot leads into the cell it stood on, and a factory grown past one cell is copied the
+        // way round its doors were put down. A block taken out before the cell was carried - a snapshot of
+        // an older version - names no cell, and the factory is read around its anchor cell as before.
+        FactoryData.FactoryRecord.Cell cell = anchor;
+        if (cellOffset != null) {
+            int roomX = anchor.roomX() + cellOffset.getX();
+            int roomZ = anchor.roomZ() + cellOffset.getZ();
+            FactoryData.FactoryRecord.Cell here = source.cellAtRoom(roomX, roomZ);
+            // A factory that has changed since the snapshot was taken no longer stands on that cell: the
+            // reading is still taken from there, so the rest of the factory lands where the doors say.
+            cell = here != null ? here
+                    : new FactoryData.FactoryRecord.Cell(anchor.entrance(), roomX, roomZ, false);
         }
         FactoryData data = FactoryData.get(server);
         FactoryBlueprint blueprint;

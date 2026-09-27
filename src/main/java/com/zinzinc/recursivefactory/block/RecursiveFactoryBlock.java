@@ -277,6 +277,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
         // carries the file, or the factory it was copied out of.
         String blueprintFile = blockEntity.blueprintFile();
         String blueprintOrigin = blockEntity.blueprintOrigin();
+        BlockPos sourceCell = blockEntity.roomCell();
         int sourceFactory = blockEntity.hasFactoryId() ? blockEntity.getFactoryId() : -1;
         blockEntity.clearDoor();
 
@@ -300,7 +301,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
                 if (copy != null && joinFactory(level, pos, data, factoryLevel, blockEntity, copy)) {
                     return;
                 }
-                if (FactoryBlueprint.copy(serverLevel, pos, source, owner) > 0) {
+                if (FactoryBlueprint.copy(serverLevel, pos, source, sourceCell, owner) > 0) {
                     return;
                 }
             }
