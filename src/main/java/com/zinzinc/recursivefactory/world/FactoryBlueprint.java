@@ -416,10 +416,34 @@ public final class FactoryBlueprint {
     public static int copy(ServerLevel doorLevel, BlockPos doorPos, FactoryData.FactoryRecord source,
                            @Nullable BlockPos cellOffset, @Nullable UUID owner) {
         MinecraftServer server = doorLevel.getServer();
-        ServerLevel roomLevel = server == null ? null : server.getLevel(FactoryDimension.LEVEL_KEY);
-        FactoryData.FactoryRecord.Cell anchor = source.anchorCell();
-        if (server == null || roomLevel == null || anchor == null) {
+        if (server == null) {
             return -1;
+        }
+        FactoryBlueprint blueprint = captureAround(server, source, cellOffset, "factory #" + source.id());
+        if (blueprint == null) {
+            return -1;
+        }
+        return build(doorLevel, doorPos, blueprint, source.id(), "factory #" + source.id(), owner);
+    }
+
+    /**
+     * Reads the factory a block that was put down for it stands for out of the world: the room around the
+     * cell the block stood on, and the factories standing inside it (see {@link #capture}). This is the
+     * reading both a placement and the question "what is that placement made of?" are answered with, so a
+     * cannon asks for the very materials the copy it is about to make is built out of.
+     *
+     * @param cellOffset which cell of the factory the block stood on, as the offset of that cell's room
+     *     from the room of the factory's anchor cell, or null for a block taken out before the cell was
+     *     carried along, which is read around the factory's anchor cell
+     * @return the blueprint, or null when the factory stands in no room that can be read, or cannot be
+     *     copied as it stands
+     */
+    public static @Nullable FactoryBlueprint captureAround(MinecraftServer server, FactoryData.FactoryRecord source,
+                                                           @Nullable BlockPos cellOffset, String described) {
+        ServerLevel roomLevel = server.getLevel(FactoryDimension.LEVEL_KEY);
+        FactoryData.FactoryRecord.Cell anchor = source.anchorCell();
+        if (roomLevel == null || anchor == null) {
+            return null;
         }
         // The block stood on one cell of the factory, and that cell - not the factory's anchor cell - is
         // what the copy is built around: the room is read out with this cell at its origin, so every door
@@ -437,15 +461,13 @@ public final class FactoryBlueprint {
                     : new FactoryData.FactoryRecord.Cell(anchor.entrance(), roomX, roomZ, false);
         }
         FactoryData data = FactoryData.get(server);
-        FactoryBlueprint blueprint;
         try {
-            blueprint = capture(roomLevel, data, source, cell, "factory #" + source.id());
+            return capture(roomLevel, data, source, cell, described);
         } catch (Refusal refusal) {
             LOGGER.warn("The factory #{} a block was put down for cannot be copied: {}", source.id(),
                     refusal.reason().getString());
-            return -1;
+            return null;
         }
-        return build(doorLevel, doorPos, blueprint, source.id(), "factory #" + source.id(), owner);
     }
 
     /**
@@ -740,17 +762,17 @@ public final class FactoryBlueprint {
 
     /**
      * A block entity of the kind an entry carries, loaded with the tag the entry was taken with. This is
-     * what tells a printer what one block of a blueprint costs: Create asks the block entity itself for the
-     * items it needs (see {@code ItemRequirement#of}).
+     * what tells a printer what one block of a blueprint costs - and a cannon too: both ask Create what the
+     * block itself says it is made of (see {@code ItemRequirement#of}).
      */
-    public static @Nullable BlockEntity newBlockEntity(ServerLevel level, Entry entry) {
+    public static @Nullable BlockEntity newBlockEntity(HolderLookup.Provider registries, Entry entry) {
         if (entry.nbt() == null || !entry.state().hasBlockEntity()
                 || !(entry.state().getBlock() instanceof EntityBlock entityBlock)) {
             return null;
         }
         BlockEntity blockEntity = entityBlock.newBlockEntity(BlockPos.ZERO, entry.state());
         if (blockEntity != null) {
-            blockEntity.loadWithComponents(entry.nbt(), level.registryAccess());
+            blockEntity.loadWithComponents(entry.nbt(), registries);
         }
         return blockEntity;
     }

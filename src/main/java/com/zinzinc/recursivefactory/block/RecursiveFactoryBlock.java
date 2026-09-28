@@ -1,7 +1,9 @@
 package com.zinzinc.recursivefactory.block;
 
 import com.mojang.serialization.MapCodec;
+import com.simibubi.create.api.schematic.requirement.SpecialBlockItemRequirement;
 import com.simibubi.create.content.kinetics.base.IRotate;
+import com.simibubi.create.content.schematics.requirement.ItemRequirement;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryRelay;
 import com.zinzinc.recursivefactory.block.entity.KineticRelay;
@@ -13,11 +15,14 @@ import com.zinzinc.recursivefactory.world.FactoryBlueprint;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import com.zinzinc.recursivefactory.world.FactoryTeleporter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
@@ -46,6 +51,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 /**
  * The factory's entrance block. Placing one next to another entrance block grows that factory's room
@@ -59,7 +65,8 @@ import net.minecraft.world.phys.shapes.VoxelShape;
  * kind the block was crafted in when it starts a factory, and from the factory itself when it is laid
  * down next to one.
  */
-public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRotate {
+public final class RecursiveFactoryBlock extends BaseEntityBlock
+        implements IRotate, SpecialBlockItemRequirement {
     public static final MapCodec<RecursiveFactoryBlock> CODEC = simpleCodec(RecursiveFactoryBlock::new);
     /**
      * A whole block, even though the model is a frame with its middle open: the preview of the room hangs
@@ -410,6 +417,136 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock implements IRot
             }
         }
         return null;
+    }
+
+    /**
+     * What Create's tools ask for before this block is put down: the entrance block itself, and - when the
+     * block is a door - everything the factory behind it is made of. A cannon fires a blueprint of a
+     * factory by putting down this one block and letting the block build the factory, and the block is that
+     * factory's door for as long as it is being carried (see
+     * {@link RecursiveFactoryBlockEntity#blueprintFile}), so the whole factory is worked out here, before
+     * the block lands, out of the same two things {@link #setPlacedBy} reads: the file the block came out
+     * of, or the factory of this save it stood for. A cannon therefore has to have the factory's own
+     * materials on hand, and spends them, rather than building a factory out of the one block it was
+     * charged for.
+     *
+     * <p>A block that is no door - a plain entrance block, put down by hand - asks for itself and no more,
+     * and a caller that cannot be told which factory the block stands for, or names a factory that cannot
+     * be read, is left with the entrance block the way it was before.
+     */
+    @Override
+    public ItemRequirement getRequiredItems(BlockState state, @Nullable BlockEntity blockEntity) {
+        List<ItemRequirement.StackRequirement> items = new ArrayList<>();
+        add(items, new ItemStack(asItem()), ItemRequirement.ItemUseType.CONSUME, false);
+        if (blockEntity instanceof RecursiveFactoryBlockEntity door) {
+            MinecraftServer server = serverOf(door);
+            FactoryBlueprint blueprint = server == null ? null : blueprintBehind(server, door);
+            if (blueprint != null) {
+                HolderLookup.Provider registries = server.registryAccess();
+                for (FactoryBlueprint.Room room : blueprint.rooms()) {
+                    for (FactoryBlueprint.Entry entry : room.blocks()) {
+                        add(items, ItemRequirement.of(entry.state(),
+                                FactoryBlueprint.newBlockEntity(registries, entry)));
+                    }
+                }
+            }
+        }
+        return new ItemRequirement(items);
+    }
+
+    /**
+     * The factory a block that has not landed yet stands for: the blueprint file the block was cut out of,
+     * or - for a block carried out of the world by Create's own blueprint and quill, which holds the
+     * factory it stood in and none of the room around it - that factory, read out of the world here and
+     * now, the same reading {@link #setPlacedBy} builds the copy out of. Null when the block is no door, or
+     * names something that cannot be read.
+     */
+    private static @Nullable FactoryBlueprint blueprintBehind(MinecraftServer server,
+                                                              RecursiveFactoryBlockEntity door) {
+        String file = door.blueprintFile();
+        if (file != null) {
+            return FactoryBlueprint.read(server, file);
+        }
+        if (!door.hasFactoryId()) {
+            return null;
+        }
+        FactoryData data = FactoryData.get(server);
+        FactoryData.FactoryRecord source = takenInThisSave(data, door.blueprintOrigin())
+                ? data.factory(door.getFactoryId())
+                : null;
+        if (source == null) {
+            return null;
+        }
+        return FactoryBlueprint.captureAround(server, source, door.roomCell(), "factory #" + source.id());
+    }
+
+    /**
+     * The server a block entity belongs to, or the one that is running. A block entity a blueprint carries
+     * has no level yet - it was made to answer the one question "what does this block cost?", and put
+     * nowhere - so the server has to be found another way. Null on a caller with no server at all, which is
+     * left with the entrance block as the whole requirement.
+     */
+    private static @Nullable MinecraftServer serverOf(RecursiveFactoryBlockEntity door) {
+        Level level = door.getLevel();
+        if (level != null && level.getServer() != null) {
+            return level.getServer();
+        }
+        return ServerLifecycleHooks.getCurrentServer();
+    }
+
+    /**
+     * Folds one more thing a placement asks for into the list, counting it with the rest of its kind and cut
+     * into whole stacks. Sixty-four of the same cobblestone are one thing to fetch, not sixty-four: a cannon
+     * holds the requirement up against the containers beside it a stack at a time, so what a room costs is
+     * asked for as the stacks it would take to pay for it. Counting it out in stacks also keeps a cannon
+     * that is short of a material from spending the little it has and building the room anyway: it will not
+     * put a block down until it can answer for a whole stack of what the factory is built out of.
+     */
+    private static void add(List<ItemRequirement.StackRequirement> items, ItemRequirement requirement) {
+        if (requirement == null || requirement.isEmpty() || requirement.isInvalid()) {
+            // A block with no item form at all - water, or something another mod plants rather than places
+            // - is not asked for, the way a printer passes such a block by (see FactoryPrinterBlockEntity).
+            return;
+        }
+        for (ItemRequirement.StackRequirement required : requirement.getRequiredItems()) {
+            add(items, required.stack, required.usage,
+                    required instanceof ItemRequirement.StrictNbtStackRequirement);
+        }
+    }
+
+    /**
+     * One thing a placement asks for, put with the rest of its kind: what is already being asked for is
+     * topped up, and what is left over starts further stacks. A block that is only itself with its own data
+     * on it - a banner, say - is kept apart from the plain ones rather than counted in with them.
+     */
+    private static void add(List<ItemRequirement.StackRequirement> items, ItemStack stack,
+                            ItemRequirement.ItemUseType usage, boolean strict) {
+        if (stack.isEmpty()) {
+            return;
+        }
+        int perStack = Math.max(1, Math.min(stack.getMaxStackSize(), 64));
+        int remaining = stack.getCount();
+        for (ItemRequirement.StackRequirement existing : items) {
+            if (existing instanceof ItemRequirement.StrictNbtStackRequirement != strict
+                    || existing.usage != usage || existing.stack.getCount() >= perStack
+                    || !ItemStack.isSameItemSameComponents(existing.stack, stack)) {
+                continue;
+            }
+            int take = Math.min(perStack - existing.stack.getCount(), remaining);
+            existing.stack.grow(take);
+            remaining -= take;
+            if (remaining == 0) {
+                return;
+            }
+        }
+        while (remaining > 0) {
+            int take = Math.min(perStack, remaining);
+            ItemStack part = stack.copyWithCount(take);
+            items.add(strict
+                    ? new ItemRequirement.StrictNbtStackRequirement(part, usage)
+                    : new ItemRequirement.StackRequirement(part, usage));
+            remaining -= take;
+        }
     }
 
     /**

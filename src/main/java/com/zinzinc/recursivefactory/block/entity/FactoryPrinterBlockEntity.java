@@ -390,7 +390,8 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
 
     /** What one block of a blueprint asks the containers around the printer for. */
     private static ItemRequirement requirementOf(ServerLevel level, FactoryBlueprint.Entry entry) {
-        return ItemRequirement.of(entry.state(), FactoryBlueprint.newBlockEntity(level, entry));
+        return ItemRequirement.of(entry.state(),
+                FactoryBlueprint.newBlockEntity(level.registryAccess(), entry));
     }
 
     private boolean loadBlueprint(MinecraftServer server) {
