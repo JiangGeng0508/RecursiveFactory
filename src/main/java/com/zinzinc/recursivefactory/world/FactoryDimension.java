@@ -89,6 +89,14 @@ public final class FactoryDimension {
     }
 
     public static void initialize(MinecraftServer server) {
+        // A process can run more than one server - a single player client leaves a world and enters the next
+        // one without shutting down - and the rooms of the server that stopped are still written down here.
+        // Those tickets belong to a chunk source that is gone, and a room the notes call "already held" would
+        // never be held on the new one (see holdRoomsOpen): the notes are dropped so that the first tick of
+        // the new server works every room out again from the block leading into it.
+        ROOM_TICKETS.clear();
+        PENDING_SPLITS.clear();
+        KEEP_LOADED.clear();
         ServerLevel level = server.getLevel(LEVEL_KEY);
         if (level == null) {
             return;
