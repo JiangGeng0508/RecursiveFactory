@@ -28,9 +28,5 @@
   "message.recursivefactory.printer.working": "已打印 %1$s / %2$s 个方块。",
   "message.recursivefactory.printer.fuel": "燃料：还能打 %s 个方块。",
   "message.recursivefactory.printer.waiting": "正在等 %s。",
-  "message.recursivefactory.printer.unreadable": "这台打印机读不了蓝图 %s。",
-  "block.recursivefactory.factory_power_terminal": "工厂输电端子",
-  "recursivefactory.nodes.power_terminal": "接线端子",
-  "recursivefactory.nodes.power_reference": "内部参考端",
-  "message.recursivefactory.power.unlinked": "没有可连接的东西：请把端子贴在工厂入口方块上，或贴在房间的墙上。"
+  "message.recursivefactory.printer.unreadable": "这台打印机读不了蓝图 %s。"
 }

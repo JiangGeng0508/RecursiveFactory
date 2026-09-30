@@ -1,20 +1,13 @@
 package com.zinzinc.recursivefactory.power;
 
 import com.zinzinc.recursivefactory.config.FactoryConfig;
-import com.zinzinc.recursivefactory.world.FactoryData;
-import com.zinzinc.recursivefactory.world.FactoryDimension;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
-import javax.annotation.Nullable;
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 
 /**
- * The bookkeeping behind the factory's electrical links: one entry per factory face that has a terminal
+ * The bookkeeping behind the factory's electrical links: one entry per factory face that carries a node
  * on both sides of it, holding the state the two ends need to agree on.
  *
  * <p>The two ends sit in two different dimensions, and the electricity mod runs one simulation per
@@ -25,10 +18,9 @@ import net.minecraft.util.Mth;
  * delivers. Power is conserved and the link bootstraps from whichever side is live, with no notion of a
  * direction the power is meant to flow in.
  *
- * <p>Which end is which is worked out from where the terminal stands, every tick, rather than being
- * written down: a terminal against an entrance block is the outside end of that face, and a terminal
- * against the wall of a room is the room's end of the side it stands on. That also means a room that is
- * copied or printed comes back with its terminals wired up by itself.
+ * <p>Where the two ends stand is not written down here: it is worked out from the factory's own data
+ * every tick (see {@link FactoryPowerNodes}), so a room that is copied or printed comes back with its
+ * faces wired up by itself.
  */
 public final class FactoryPowerLinks {
     /** The end outside the room, in whatever dimension the entrance block stands in. */
@@ -41,7 +33,7 @@ public final class FactoryPowerLinks {
     private FactoryPowerLinks() {
     }
 
-    /** The face of a factory an end belongs to. */
+    /** The face of a factory a link belongs to. */
     record LinkKey(int factoryId, Direction face) {
     }
 
@@ -65,85 +57,24 @@ public final class FactoryPowerLinks {
         return LINKS.computeIfAbsent(key, ignored -> new Link());
     }
 
-    /**
-     * Which end of which link the terminal at this position is, or null when it is not one: a terminal
-     * that is not against an entrance block and not against the wall of a room does nothing.
-     */
-    @Nullable
-    static End endOf(ServerLevel level, BlockPos pos) {
-        MinecraftServer server = level.getServer();
-        if (server == null) {
-            return null;
-        }
-        FactoryData data = FactoryData.get(server);
-        for (Direction side : Direction.values()) {
-            BlockPos entrancePos = pos.relative(side);
-            if (!level.isLoaded(entrancePos)) {
-                continue;
-            }
-            int roomId = FactoryDimension.entranceRoomOf(level, data, entrancePos);
-            if (roomId > 0) {
-                // side points from the terminal at the entrance block, so the face of the entrance the
-                // terminal hangs on is the other way round - and it is that face, not the direction the
-                // terminal was found in, that the room's own end answers on.
-                return new End(new LinkKey(roomId, side.getOpposite()), OUTSIDE);
-            }
-        }
-        if (!level.dimension().equals(FactoryDimension.LEVEL_KEY)) {
-            return null;
-        }
-        FactoryData.FactoryRecord record = data.factoryAt(pos);
-        if (record == null) {
-            return null;
-        }
-        Direction face = wallFace(record, pos);
-        return face == null ? null : new End(new LinkKey(record.id(), face), INSIDE);
+    /** Drops a link: the face it belongs to carries no node any more, so there is nothing to settle. */
+    static void forget(LinkKey key) {
+        LINKS.remove(key);
     }
 
-    /**
-     * The side of the room a terminal inside it answers on: the one side of the shell it stands against.
-     *
-     * <p>A terminal can touch two sides at once - standing on the floor in a corner touches the floor and
-     * a wall - and a wall is what a terminal is put against, so a wall is preferred over the floor or the
-     * ceiling. Two walls at once is a corner proper and answers on neither, so a corner never picks a
-     * side for the player by accident; shellSide answers a corner column the way the item link's wall
-     * does.
-     */
-    @Nullable
-    static Direction wallFace(FactoryData.FactoryRecord record, BlockPos pos) {
-        Direction wall = null;
-        int walls = 0;
-        Direction floorOrCeiling = null;
-        int floorsAndCeilings = 0;
-        for (Direction side : Direction.values()) {
-            if (FactoryDimension.shellSide(record, pos.relative(side)) != side) {
-                continue;
-            }
-            if (side.getAxis().isHorizontal()) {
-                wall = side;
-                walls++;
-            } else {
-                floorOrCeiling = side;
-                floorsAndCeilings++;
-            }
-        }
-        if (walls == 1) {
-            return wall;
-        }
-        if (walls == 0 && floorsAndCeilings == 1) {
-            return floorOrCeiling;
-        }
-        return null;
+    /** Forgets every link: a server does not inherit the links of the one before it. */
+    static void reset() {
+        LINKS.clear();
     }
 
     /**
      * One look at every link: the ends that answered the tick before are settled against each other, and
-     * a link neither of whose ends answered is forgotten.
+     * every answer is cleared again for the tick to come. A link whose ends both stopped answering is
+     * kept rather than forgotten - its factory is still standing, and the ends answer again the moment
+     * the chunks they stand in come back (see {@link FactoryPowerNodes#tick}).
      */
-    static void tick(MinecraftServer server) {
-        Iterator<Map.Entry<LinkKey, Link>> entries = LINKS.entrySet().iterator();
-        while (entries.hasNext()) {
-            Link link = entries.next().getValue();
+    static void tick() {
+        for (Link link : LINKS.values()) {
             boolean live = link.seen[OUTSIDE] && link.seen[INSIDE];
             if (live && !link.live) {
                 // The link is coming up: neither end was driving on the last look - that is what not
@@ -161,10 +92,6 @@ public final class FactoryPowerLinks {
             } else {
                 link.target[OUTSIDE] = 0;
                 link.target[INSIDE] = 0;
-            }
-            if (!link.seen[OUTSIDE] && !link.seen[INSIDE]) {
-                entries.remove();
-                continue;
             }
             link.seen[OUTSIDE] = false;
             link.seen[INSIDE] = false;

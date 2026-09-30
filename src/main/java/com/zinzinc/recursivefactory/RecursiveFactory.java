@@ -60,16 +60,13 @@ public final class RecursiveFactory {
                         }
                         output.accept(ModBlocks.FACTORY_BARRIER_ITEM.get());
                         output.accept(ModBlocks.FACTORY_PRINTER_ITEM.get());
-                        if (powerAvailable()) {
-                            com.zinzinc.recursivefactory.power.FactoryPower.addItems(output);
-                        }
                     })
                     .build());
 
     public RecursiveFactory(IEventBus modEventBus, ModContainer modContainer) {
         ModBlocks.register(modEventBus);
         if (powerAvailable()) {
-            com.zinzinc.recursivefactory.power.FactoryPower.register(modEventBus);
+            com.zinzinc.recursivefactory.power.FactoryPower.register();
         }
         ModBlockEntities.register(modEventBus);
         ModAttachments.ATTACHMENT_TYPES.register(modEventBus);
@@ -113,6 +110,9 @@ public final class RecursiveFactory {
 
     private void onServerStarted(ServerStartedEvent event) {
         FactoryDimension.initialize(event.getServer());
+        if (powerAvailable()) {
+            com.zinzinc.recursivefactory.power.FactoryPower.initialize();
+        }
     }
 
     private void onServerTick(ServerTickEvent.Post event) {

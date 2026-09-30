@@ -28,9 +28,5 @@
   "message.recursivefactory.printer.working": "Printed %1$s of %2$s blocks.",
   "message.recursivefactory.printer.fuel": "Fuel: %s blocks left.",
   "message.recursivefactory.printer.waiting": "Waiting for %s.",
-  "message.recursivefactory.printer.unreadable": "This printer cannot read the blueprint %s.",
-  "block.recursivefactory.factory_power_terminal": "Factory Power Terminal",
-  "recursivefactory.nodes.power_terminal": "Power Terminal",
-  "recursivefactory.nodes.power_reference": "Power Reference",
-  "message.recursivefactory.power.unlinked": "Nothing to connect to: put the terminal against a factory's entrance block, or against a room's wall."
+  "message.recursivefactory.printer.unreadable": "This printer cannot read the blueprint %s."
 }

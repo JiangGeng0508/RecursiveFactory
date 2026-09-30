@@ -44,11 +44,10 @@ public final class FactoryConfig {
     public static final ModConfigSpec.BooleanValue POWER_LINK_ENABLED = BUILDER
             .comment(
                     "Whether the two ends of a factory face's electrical link are tied together.",
-                    "On (the default): a factory_power_terminal against the entrance block outside and",
-                    "one against the room's wall inside are one connection, so the room's grid and the",
-                    "grid outside feed each other. Off: every terminal is left to itself, as a plain",
-                    "terminal the mod does nothing with. Only matters when Create: Electro Energetics",
-                    "is installed."
+                    "On (the default): the node on the entrance block outside and the node on the",
+                    "room's wall behind it are one connection, so the room's grid and the grid outside",
+                    "feed each other. Off: the nodes are left to themselves, as plain nodes the mod",
+                    "does nothing with. Only matters when Create: Electro Energetics is installed."
             )
             .define("power.linkEnabled", true);
 
