@@ -26,8 +26,15 @@ public final class FactoryData extends SavedData {
      * copied from another room, stands there with a cell of its own before anybody has put a block down to
      * walk in through. Binding an entrance later moves this stand-in to the block's own position, so the
      * room never moves and never has to be built a second time (see {@link #bindRoomEntrance}).
+     *
+     * <p>The stand-in stands outside the world's build height, where no block can be put. A position a
+     * block could stand on cannot be told apart from a cell that really has one - written as the origin,
+     * which is what the stand-in used to be, a factory whose own entrance block stands at the origin reads
+     * as one with no block at all, and asking about the block beside a stand-in puts a question about the
+     * origin to a level that need never hear it (see {@code KineticRelay#hookedUpSides}). Records written
+     * before the stand-in moved are read back the old way (see {@code FactoryRecord#readCellEntrance}).
      */
-    public static final BlockPos UNBOUND_ENTRANCE = BlockPos.ZERO;
+    public static final BlockPos UNBOUND_ENTRANCE = new BlockPos(0, Integer.MIN_VALUE, 0);
     /** Side of one room cell, and with it the footprint of the whole room shell. */
     public static final int CELL_SIZE = 16;
     /**
@@ -97,10 +104,14 @@ public final class FactoryData extends SavedData {
         data.nextFactoryId = Math.max(1, tag.getInt("NextFactoryId"));
         data.nextSlotIndex = tag.getInt("NextSlotIndex");
         data.origin = tag.hasUUID("Origin") ? tag.getUUID("Origin") : null;
+        // A save written before UNBOUND_ENTRANCE moved out of the world's reach wrote its stand-ins as the
+        // origin, which is a spot a block can stand on; a save that says it writes them out of reach is
+        // taken at its word and its cells are read as they are (see FactoryRecord#readCellEntrance).
+        boolean standInsOutOfReach = tag.getBoolean("StandInsOutOfReach");
 
         ListTag factoriesTag = tag.getList("Factories", Tag.TAG_COMPOUND);
         for (Tag entry : factoriesTag) {
-            FactoryRecord record = FactoryRecord.load((CompoundTag) entry);
+            FactoryRecord record = FactoryRecord.load((CompoundTag) entry, !standInsOutOfReach);
             data.factories.put(record.id(), record);
         }
         return data;
@@ -113,6 +124,8 @@ public final class FactoryData extends SavedData {
         if (origin != null) {
             tag.putUUID("Origin", origin);
         }
+
+        tag.putBoolean("StandInsOutOfReach", true);
 
         ListTag factoriesTag = new ListTag();
         for (FactoryRecord record : factories.values()) {
@@ -309,8 +322,13 @@ public final class FactoryData extends SavedData {
     }
 
     /**
-     * Removes one entrance cell. A factory that still has cells keeps going with the rest - the anchor
-     * moves to another cell - and only a factory with no cells left loses its entrance.
+     * Removes one entrance cell. A factory that still has cells keeps going with the rest - the anchor moves
+     * to another cell - and only a factory with no cells left loses its entrance.
+     *
+     * <p>The anchor that is moved to has to be a cell a block stands on: a copy that grew past one cell
+     * stands on cells no block was put down for, and breaking the only block such a factory had leaves a
+     * room nobody can walk into rather than a factory whose entrance is a spot with nothing on it. A room
+     * left like that is the room a print stands on before its block goes down (see {@link #bindRoom}).
      */
     public void clearEntrance(int factoryId, ResourceLocation dimension, BlockPos pos) {
         FactoryRecord record = factories.get(factoryId);
@@ -319,14 +337,21 @@ public final class FactoryData extends SavedData {
         }
         List<FactoryRecord.Cell> remaining = new ArrayList<>(record.cells());
         remaining.removeIf(cell -> cell.entrance().equals(pos));
-        if (remaining.isEmpty()) {
-            update(record.withEntrance(null, BlockPos.ZERO).withCells(List.of()));
+        BlockPos anchor = null;
+        if (!record.entrancePos().equals(pos)) {
+            // Some other cell's block was the one broken: the anchor is untouched.
+            anchor = record.entrancePos();
         } else {
-            BlockPos anchor = record.entrancePos().equals(pos)
-                    ? remaining.get(0).entrance()
-                    : record.entrancePos();
-            update(record.withEntrance(dimension, anchor).withCells(remaining));
+            for (FactoryRecord.Cell cell : remaining) {
+                if (!cell.entrance().equals(UNBOUND_ENTRANCE)) {
+                    anchor = cell.entrance();
+                    break;
+                }
+            }
         }
+        update(anchor == null
+                ? record.withEntrance(null, BlockPos.ZERO).withCells(remaining)
+                : record.withEntrance(dimension, anchor).withCells(remaining));
     }
 
     /** The factory whose entrance takes up this cell, if any. */
@@ -512,7 +537,7 @@ public final class FactoryData extends SavedData {
             return tag;
         }
 
-        private static FactoryRecord load(CompoundTag tag) {
+        private static FactoryRecord load(CompoundTag tag, boolean readLegacyStandIns) {
             UUID owner = tag.hasUUID("Owner") ? tag.getUUID("Owner") : null;
             Endpoint entrance = readEndpoint(tag, "Entrance");
             int colorIndex = tag.contains("Color") ? tag.getInt("Color") : FactoryColors.NO_COLOR;
@@ -522,7 +547,7 @@ public final class FactoryData extends SavedData {
             for (Tag entry : cellsTag) {
                 CompoundTag cellTag = (CompoundTag) entry;
                 cells.add(new Cell(
-                        new BlockPos(cellTag.getInt("X"), cellTag.getInt("Y"), cellTag.getInt("Z")),
+                        readCellEntrance(cellTag, entrance, readLegacyStandIns),
                         cellTag.getInt("RoomX"),
                         cellTag.getInt("RoomZ"),
                         // Cells saved before the floor was tracked count as laid: an older save is not
@@ -553,6 +578,28 @@ public final class FactoryData extends SavedData {
                 )));
             }
             return record;
+        }
+
+        /**
+         * Where one cell's entrance block stood, as a save has it. A cell that carries no block of its own -
+         * one of a room that was printed or copied, standing there before a block was put down for it - is
+         * saved as the {@link FactoryData#UNBOUND_ENTRANCE} stand-in, which stands outside the world's build
+         * height where no block can be put, so a saved position is read back as it was written.
+         *
+         * <p>Records written before the stand-in moved out of the world's reach wrote it as the origin, which
+         * a block can stand on, and are read the old way ({@code readLegacyStandIns}): a cell saved at the
+         * origin whose factory carries no entrance of its own, or whose own block stands somewhere else, was
+         * a stand-in. A factory whose block really did stand at the origin keeps it. That is as far as the
+         * old files can be told apart - a factory whose <em>second</em> block stood at the origin is read as
+         * having a cell with no block there - which is what the flag on the save is for: a save that says it
+         * writes its stand-ins out of reach is read without any of this.
+         */
+        private static BlockPos readCellEntrance(CompoundTag cellTag, Endpoint entrance,
+                                                 boolean readLegacyStandIns) {
+            BlockPos pos = new BlockPos(cellTag.getInt("X"), cellTag.getInt("Y"), cellTag.getInt("Z"));
+            boolean standIn = readLegacyStandIns && pos.equals(BlockPos.ZERO)
+                    && (entrance.dimension() == null || !pos.equals(entrance.pos()));
+            return standIn ? UNBOUND_ENTRANCE : pos;
         }
 
         private static void putEndpoint(CompoundTag tag, String prefix, @Nullable ResourceLocation dimension, BlockPos pos) {

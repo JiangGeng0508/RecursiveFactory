@@ -541,11 +541,17 @@ public final class FactoryDimension {
         if (server == null || roomId <= 0) {
             return;
         }
-        FactoryData data = FactoryData.get(server);
-        data.bindRoomEntrance(roomId, level.dimension().location(), pos);
+        // A room is bound to a block, not to a place: asked for a spot with no entrance block standing on
+        // it - a print whose block could not go down - the room is left unbound rather than tied to a place,
+        // which would leave it standing with nobody able to walk in and held open by a chunk instead of by
+        // a block.
         if (!(level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity entrance)) {
+            LOGGER.warn("Factory #{}: no entrance block stands at {}; the room is left unbound",
+                    roomId, pos.toShortString());
             return;
         }
+        FactoryData data = FactoryData.get(server);
+        data.bindRoomEntrance(roomId, level.dimension().location(), pos);
         entrance.setFactoryId(roomId);
         entrance.setColorIndex(colorIndex);
         RecursiveFactoryBlock.refreshConnections(level, pos);
