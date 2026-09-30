@@ -275,9 +275,10 @@ public final class FactoryPowerNodes {
                 FactoryPowerLinks.LinkKey key = new FactoryPowerLinks.LinkKey(record.id(), face);
                 spots.put(new FactoryPowerLinks.End(key, FactoryPowerLinks.INSIDE),
                         new Spot(room, off(entry, face), wall));
-                if (outside != null && !cell.entrance().equals(FactoryData.UNBOUND_ENTRANCE)) {
+                BlockPos entrance = outerEntrance(record, face, anchor);
+                if (outside != null && entrance != null) {
                     spots.put(new FactoryPowerLinks.End(key, FactoryPowerLinks.OUTSIDE),
-                            new Spot(outside, off(cell.entrance(), face), wall));
+                            new Spot(outside, off(entrance, face), wall));
                 }
             }
         }
@@ -285,10 +286,11 @@ public final class FactoryPowerNodes {
     }
 
     /**
-     * The cell a face's link stands on: the one carrying that side of the room nearest the factory's
+     * The cell whose wall a face's room end answers on: the one carrying that side nearest the factory's
      * anchor cell, so a room of several cells still answers on one part of a side rather than on all of
      * it. A cell the room does not reach the outside on - one with another cell behind it - has no wall
-     * on that side and is passed over.
+     * on that side and is passed over. Where the wall line ends does not depend on the cell chosen (see
+     * {@link #middleWall}), so a room that has grown still answers on its far wall.
      */
     @Nullable
     private static FactoryData.FactoryRecord.Cell outerCell(FactoryData.FactoryRecord record, Direction face,
@@ -329,6 +331,37 @@ public final class FactoryPowerNodes {
             if (distance < bestDistance) {
                 bestDistance = distance;
                 best = wall;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * The entrance block a face's outside end stands on: one of the factory's own blocks out there, with
+     * none of the same factory's other blocks against that face. A factory of one cell has exactly one of
+     * these per face and it is that cell's block; a factory that has grown answers on its far blocks
+     * instead, so a node never ends up buried between two blocks of the same factory. Where several
+     * blocks share a side - a row of them along the other axis - the one nearest the anchor is taken,
+     * which keeps the outside end on the same row as the room end. Null while no block is out there.
+     */
+    @Nullable
+    private static BlockPos outerEntrance(FactoryData.FactoryRecord record, Direction face,
+                                          FactoryData.FactoryRecord.Cell anchor) {
+        BlockPos anchorEntrance = anchor.entrance();
+        BlockPos best = null;
+        double bestDistance = Double.MAX_VALUE;
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            BlockPos entrance = cell.entrance();
+            if (entrance.equals(FactoryData.UNBOUND_ENTRANCE)) {
+                continue;
+            }
+            if (record.cellAt(entrance.relative(face)) != null) {
+                continue;
+            }
+            double distance = entrance.distSqr(anchorEntrance);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = entrance;
             }
         }
         return best;
