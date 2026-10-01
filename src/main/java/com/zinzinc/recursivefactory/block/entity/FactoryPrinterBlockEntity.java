@@ -123,14 +123,17 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
 
     /** Everything a print is made of, written on the machine so it can be picked up and put back down. */
     public void readFromItem(ItemStack stack) {
+        // Fuel also belongs to an idle printer, before loading a blueprint or after finishing one.
+        // A schematic may have loaded the block entity already and pass an empty placement stack.
+        fuel = Math.max(0, stack.getOrDefault(ModDataComponents.FUEL.get(), fuel));
         String name = stack.get(ModDataComponents.BLUEPRINT.get());
         if (name == null) {
+            setChanged();
             return;
         }
         blueprintName = name;
         roomId = stack.getOrDefault(ModDataComponents.ROOM.get(), -1);
         progress = Math.max(0, stack.getOrDefault(ModDataComponents.PROGRESS.get(), 0));
-        fuel = Math.max(0, stack.getOrDefault(ModDataComponents.FUEL.get(), 0));
         CompoundTag nested = stack.get(ModDataComponents.NESTED_ROOMS.get());
         if (nested != null) {
             roomIndex = nested.getInt(ROOM_INDEX_TAG);
@@ -146,13 +149,17 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
 
     /** Writes the print's state onto the item this machine drops, so a print survives being moved. */
     public void writeToItem(ItemStack stack) {
+        if (fuel > 0) {
+            stack.set(ModDataComponents.FUEL.get(), fuel);
+        } else {
+            stack.remove(ModDataComponents.FUEL.get());
+        }
         if (blueprintName == null) {
             return;
         }
         stack.set(ModDataComponents.BLUEPRINT.get(), blueprintName);
         stack.set(ModDataComponents.ROOM.get(), roomId);
         stack.set(ModDataComponents.PROGRESS.get(), progress);
-        stack.set(ModDataComponents.FUEL.get(), fuel);
         CompoundTag nested = new CompoundTag();
         nested.putInt(ROOM_INDEX_TAG, roomIndex);
         nested.putIntArray(NESTED_ROOMS_TAG, nestedRoomIds);
@@ -555,9 +562,14 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
         int found = 0;
         for (IItemHandler handler : inventories) {
             for (int slot = 0; slot < handler.getSlots(); slot++) {
-                ItemStack stack = handler.getStackInSlot(slot);
+                // Visible contents may be locked or exposed on an insert-only side. Only count
+                // what the same extraction used by takeMatching can actually take.
+                ItemStack stack = handler.extractItem(slot, required.stack.getCount() - found, true);
                 if (required.matches(stack)) {
                     found += stack.getCount();
+                    if (found >= required.stack.getCount()) {
+                        return found;
+                    }
                 }
             }
         }

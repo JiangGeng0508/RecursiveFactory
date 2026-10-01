@@ -360,37 +360,35 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         level.setBlock(worldPosition, state.setValue(FactoryColors.COLOR_PROPERTY, wanted), Block.UPDATE_ALL);
     }
 
-    /**
-     * Takes a stack pushed in through {@code inputSide}. A face that is not a logistics face turns the push
-     * away here rather than letting it sit in the buffer waiting for a mouth that is not there: the block
-     * that pushed it should back up straight away, which is what tells the player the face is closed.
-     */
+    /** Takes a stack through a named face; the face determines where the buffer sends it. */
     public ItemStack offer(ItemStack stack, @Nullable Direction inputSide) {
-        if (stack.isEmpty() || !hasFactoryId()) {
+        return offer(stack, inputSide, false);
+    }
+
+    /** Simulation and execution share the same capacity, identity and input-face checks. */
+    public ItemStack offer(ItemStack stack, @Nullable Direction inputSide, boolean simulate) {
+        if (stack.isEmpty() || !hasFactoryId() || inputSide == null) {
             return stack;
         }
-        if (!pendingStack.isEmpty()) {
-            if (pendingInput != inputSide || !ItemStack.isSameItemSameComponents(pendingStack, stack)) {
-                return stack;
-            }
-
-            int space = stack.getMaxStackSize() - pendingStack.getCount();
-            int accepted = Math.min(space, stack.getCount());
-            if (accepted <= 0) {
-                return stack;
-            }
-
-            pendingStack.grow(accepted);
-            setChanged();
-            ItemStack remainder = stack.copy();
-            remainder.shrink(accepted);
-            return remainder;
+        if (!pendingStack.isEmpty()
+                && (pendingInput != inputSide || !ItemStack.isSameItemSameComponents(pendingStack, stack))) {
+            return stack;
         }
-
-        pendingInput = inputSide;
-        pendingStack = stack.copy();
-        setChanged();
-        return ItemStack.EMPTY;
+        int space = Math.min(64, stack.getMaxStackSize()) - pendingStack.getCount();
+        int accepted = Math.min(space, stack.getCount());
+        if (accepted <= 0) {
+            return stack;
+        }
+        if (!simulate) {
+            if (pendingStack.isEmpty()) {
+                pendingInput = inputSide;
+                pendingStack = stack.copyWithCount(accepted);
+            } else {
+                pendingStack.grow(accepted);
+            }
+            setChanged();
+        }
+        return stack.copyWithCount(stack.getCount() - accepted);
     }
 
     public ItemStack getPendingStack() {
@@ -436,7 +434,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
      * the far end of its own link first, or it would come out of the wrong side of the room.
      */
     public int roomForFluid(FluidStack stack, @Nullable Direction inputSide) {
-        if (stack.isEmpty() || !hasFactoryId()) {
+        if (stack.isEmpty() || !hasFactoryId() || inputSide == null) {
             return 0;
         }
         if (!pendingFluid.isEmpty()

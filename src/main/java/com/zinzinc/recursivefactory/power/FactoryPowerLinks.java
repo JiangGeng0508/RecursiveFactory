@@ -18,9 +18,8 @@ import net.minecraft.util.Mth;
  * delivers. Power is conserved and the link bootstraps from whichever side is live, with no notion of a
  * direction the power is meant to flow in.
  *
- * <p>Where the two ends stand is not written down here: it is worked out from the factory's own data
- * every tick (see {@link FactoryPowerNodes}), so a room that is copied or printed comes back with its
- * faces wired up by itself.
+ * <p>The nodes and wires are saved by CEE. FactoryPowerNodes identifies the player-installed ends
+ * by their positions; copied or printed rooms need their own nodes and wiring.
  */
 public final class FactoryPowerLinks {
     /** The end outside the room, in whatever dimension the entrance block stands in. */

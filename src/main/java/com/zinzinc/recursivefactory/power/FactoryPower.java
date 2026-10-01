@@ -29,6 +29,8 @@ public final class FactoryPower {
     public static void register() {
         NeoForge.EVENT_BUS.addListener(FactoryPowerNodes::onAddToElectricGraph);
         NeoForge.EVENT_BUS.addListener(FactoryPowerNodes::onFinishElectricSimulation);
+        NeoForge.EVENT_BUS.addListener(FactoryPowerNodes::onBlockPlace);
+        NeoForge.EVENT_BUS.addListener(FactoryPowerNodes::onUseConnector);
     }
 
     /** Forgets the nodes and the links the server before this one was holding. */

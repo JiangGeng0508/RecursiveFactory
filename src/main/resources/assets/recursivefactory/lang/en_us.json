@@ -28,5 +28,7 @@
   "message.recursivefactory.printer.working": "Printed %1$s of %2$s blocks.",
   "message.recursivefactory.printer.fuel": "Fuel: %s blocks left.",
   "message.recursivefactory.printer.waiting": "Waiting for %s.",
-  "message.recursivefactory.printer.unreadable": "This printer cannot read the blueprint %s."
+  "message.recursivefactory.printer.unreadable": "This printer cannot read the blueprint %s.",
+  "message.recursivefactory.power.terminal": "Factory power node installed.",
+  "message.recursivefactory.power.terminal_taken": "This face already has a node. Remove it with a wrench first."
 }

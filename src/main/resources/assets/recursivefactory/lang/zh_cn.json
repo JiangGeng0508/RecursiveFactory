@@ -28,5 +28,7 @@
   "message.recursivefactory.printer.working": "已打印 %1$s / %2$s 个方块。",
   "message.recursivefactory.printer.fuel": "燃料：还能打 %s 个方块。",
   "message.recursivefactory.printer.waiting": "正在等 %s。",
-  "message.recursivefactory.printer.unreadable": "这台打印机读不了蓝图 %s。"
+  "message.recursivefactory.printer.unreadable": "这台打印机读不了蓝图 %s。",
+  "message.recursivefactory.power.terminal": "已安装工厂输电节点。",
+  "message.recursivefactory.power.terminal_taken": "这一面的节点已安装；请先用扳手拆除原节点。"
 }

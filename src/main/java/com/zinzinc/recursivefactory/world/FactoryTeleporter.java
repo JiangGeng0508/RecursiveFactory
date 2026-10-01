@@ -77,6 +77,7 @@ public final class FactoryTeleporter {
         double y;
         double z;
         float yRot;
+        float xRot;
         if (returnPoint != null) {
             ResourceKey<Level> dimensionKey = returnPoint.dimensionKey();
             targetLevel = server.getLevel(dimensionKey);
@@ -84,6 +85,7 @@ public final class FactoryTeleporter {
             y = returnPoint.y();
             z = returnPoint.z();
             yRot = returnPoint.yRot();
+            xRot = returnPoint.xRot();
         } else {
             ResourceKey<Level> dimensionKey = record.entranceDimension() == null
                     ? Level.OVERWORLD
@@ -94,6 +96,7 @@ public final class FactoryTeleporter {
             y = fallback.getY() + 0.1D;
             z = fallback.getZ() + 0.5D;
             yRot = player.getYRot();
+            xRot = player.getXRot();
         }
 
         if (targetLevel == null) {
@@ -103,9 +106,10 @@ public final class FactoryTeleporter {
             y = spawn.getY() + 0.1D;
             z = spawn.getZ() + 0.5D;
             yRot = 0.0F;
+            xRot = player.getXRot();
         }
 
-        player.teleportTo(targetLevel, x, y, z, yRot, player.getXRot());
+        player.teleportTo(targetLevel, x, y, z, yRot, xRot);
         player.sendSystemMessage(Component.translatable("message.recursivefactory.exited", factoryId));
         return true;
     }

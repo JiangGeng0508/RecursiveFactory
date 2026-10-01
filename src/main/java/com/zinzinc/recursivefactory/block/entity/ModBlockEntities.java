@@ -148,10 +148,7 @@ public final class ModBlockEntities {
             if (slot != 0) {
                 return stack;
             }
-            if (simulate) {
-                return endpoint.getPendingStack().isEmpty() ? net.minecraft.world.item.ItemStack.EMPTY : stack;
-            }
-            return endpoint.offer(stack, side);
+            return endpoint.offer(stack, side, simulate);
         }
 
         @Override
