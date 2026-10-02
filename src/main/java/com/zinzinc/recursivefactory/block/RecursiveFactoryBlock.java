@@ -1,6 +1,7 @@
 package com.zinzinc.recursivefactory.block;
 
 import com.zinzinc.recursivefactory.power.FactoryWires;
+import com.zinzinc.recursivefactory.power.FactoryWireSchematics;
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.mojang.serialization.MapCodec;
 import com.simibubi.create.api.schematic.requirement.SpecialBlockItemRequirement;
@@ -449,6 +450,11 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
                 if (!nodes.isEmpty()) {
                     copiesRoom = true;
                     add(items, FactoryWires.requirements(nodes));
+                }
+                var wires = door.blueprintEntranceWires();
+                if (!wires.isEmpty()) {
+                    copiesRoom = true;
+                    add(items, FactoryWireSchematics.requirements(wires));
                 }
             }
             MinecraftServer server = serverOf(door);

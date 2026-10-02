@@ -463,6 +463,16 @@ public final class FactoryData extends SavedData {
             return null;
         }
 
+        /** The room cell containing a wall, floor or machine position. */
+        @Nullable
+        public Cell cellContaining(BlockPos pos) {
+            for (Cell cell : cells) {
+                if (pos.getX() >= cell.roomX() && pos.getX() < cell.roomX() + CELL_SIZE
+                        && pos.getZ() >= cell.roomZ() && pos.getZ() < cell.roomZ() + CELL_SIZE) return cell;
+            }
+            return null;
+        }
+
         public boolean roomContains(BlockPos pos) {
             return roomContains(pos.getX(), pos.getZ());
         }

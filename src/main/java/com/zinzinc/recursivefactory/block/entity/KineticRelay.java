@@ -3,6 +3,7 @@ package com.zinzinc.recursivefactory.block.entity;
 import com.mojang.logging.LogUtils;
 import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
+import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
 import com.zinzinc.recursivefactory.block.FactoryBarrierBlock;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
 import com.zinzinc.recursivefactory.world.FactoryData;
@@ -88,9 +89,8 @@ public final class KineticRelay {
      * the player builds. The entrance block outside has no room around it, and answers one face at a
      * time ({@link #outwardFaceOpen}): a face is only live while a generator is feeding power in through
      * it, so driving one face of the block does not drag machinery built against the other five along.
-     * The row of entrance blocks laid down for one factory is still one machine - the face toward a
-     * neighbour of the same factory answers on it - so the machinery outside can be hooked up to any
-     * cell of the factory, and the anchor block carries the link for all of them.
+     * Each entrance carries only its own room cell. Adjacent entrances and adjacent wall sections
+     * belonging to different cells do not couple directly.
      */
     public static boolean takesShaft(LevelReader level, BlockPos pos, BlockState state, Direction face) {
         BlockPos neighbour = pos.relative(face);
@@ -122,36 +122,14 @@ public final class KineticRelay {
         if (!(level instanceof ServerLevel) || !(level.getBlockEntity(pos) instanceof EndpointBlockEntity entrance)) {
             return true;
         }
-        EndpointBlockEntity anchor = anchorOf(entrance);
-        if (anchor != null && anchor.isSource()) {
-            return anchor.isOutwardFaceLive(face);
+        if (entrance.isSource()) {
+            return entrance.isOutwardFaceLive(face);
         }
         if (level.getBlockEntity(neighbour) instanceof KineticBlockEntity machine
                 && !(machine instanceof EndpointBlockEntity)) {
             return record(entrance) != null && poweredFromOutside(machine);
         }
         return false;
-    }
-
-    /**
-     * The entrance block that carries the link for a factory. The row of entrance blocks laid down for one
-     * factory is one machine, and only the anchor cell of it works the link out, so whichever cell of the
-     * row a machine has been built against, the faces of the outside that answer are read off the anchor.
-     */
-    @Nullable
-    private static EndpointBlockEntity anchorOf(EndpointBlockEntity entrance) {
-        FactoryData.FactoryRecord record = record(entrance);
-        if (record == null) {
-            return null;
-        }
-        if (entrance.getBlockPos()
-                .equals(record.entrancePos())) {
-            return entrance;
-        }
-        Level level = entrance.getLevel();
-        return level != null && level.getBlockEntity(record.entrancePos()) instanceof EndpointBlockEntity anchor
-                ? anchor
-                : null;
     }
 
     /**
@@ -178,12 +156,12 @@ public final class KineticRelay {
     }
 
     /**
-     * True when both blocks are endpoints of the same factory and stand on the same side of its room, which
-     * is what makes them one machine. Two entrance blocks stand on no side at all, and so does any block on
-     * the client, where no kinetic network is built: those stay connected the way they always were.
+     * Only barriers on the same face of the same room cell form a shared kinetic network.
      */
     private static boolean sameSide(BlockGetter level, BlockPos pos, BlockPos neighbour) {
-        if (!sameFactory(level, pos, neighbour)) {
+        if (!(level.getBlockState(pos).getBlock() instanceof FactoryBarrierBlock)
+                || !(level.getBlockState(neighbour).getBlock() instanceof FactoryBarrierBlock)
+                || !sameFactory(level, pos, neighbour)) {
             return false;
         }
         if (!(level instanceof ServerLevel serverLevel)
@@ -195,7 +173,10 @@ public final class KineticRelay {
         if (record == null) {
             return true;
         }
-        return FactoryDimension.shellSide(record, pos) == FactoryDimension.shellSide(record, neighbour);
+        var cell = record.cellContaining(pos);
+        Direction side = FactoryDimension.shellSide(record, pos);
+        return cell != null && cell.equals(record.cellContaining(neighbour)) && side != null
+                && side == FactoryDimension.shellSide(record, neighbour);
     }
 
     /** True when both blocks are endpoints of the same factory, see {@link #takesShaft}. */
@@ -225,6 +206,31 @@ public final class KineticRelay {
                 : -1;
     }
 
+    /** Repair saved source edges and shared entrance networks using the current cell boundaries. */
+    static void separateSavedLinks(EndpointBlockEntity entrance) {
+        if (entrance.hasSource() && entrance.getLevel() instanceof ServerLevel level
+                && level.getBlockEntity(entrance.source) instanceof EndpointBlockEntity
+                && !sameSide(level, entrance.getBlockPos(), entrance.source)) {
+            entrance.detachKinetics();
+            entrance.forgetLink();
+            entrance.attachKinetics();
+        }
+        if (!(entrance instanceof RecursiveFactoryBlockEntity) || !entrance.hasNetwork()) return;
+        var network = entrance.getOrCreateNetwork();
+        if (network == null || network.members.keySet().stream().noneMatch(member ->
+                member instanceof RecursiveFactoryBlockEntity other && other != entrance
+                        && other.getFactoryId() == entrance.getFactoryId())) return;
+        var members = List.copyOf(network.members.keySet());
+        for (var member : members) {
+            if (member instanceof EndpointBlockEntity endpoint) endpoint.forgetLink();
+            else member.removeSource();
+        }
+        for (var member : members) {
+            if (member instanceof GeneratingKineticBlockEntity generator && generator.isSource())
+                generator.updateGeneratedRotation();
+        }
+    }
+
     /** Looks at both ends of {@code local}'s link. Called once per tick, on the server. */
     public static void tick(EndpointBlockEntity local) {
         if (!(local.getLevel() instanceof ServerLevel)) {
@@ -243,9 +249,7 @@ public final class KineticRelay {
      * side, a side whose wall is turned by machinery inside the room drives the outside, and a side with a
      * generator on both ends of it is left to itself.
      *
-     * <p>The anchor entrance block of a factory carries the link for the whole factory: the row of
-     * entrance blocks is one machine, so a machine outside can be built against any cell of the factory
-     * and the face it sits on still picks the wall of the room that answers.
+     * <p>Every entrance independently carries the link for its corresponding room cell.
      *
      * <p>Which way the power runs is worked out one side at a time, and which faces of the outside answer
      * follows from it: a side whose wall is turned by machinery in the room turns the outside, and only
@@ -262,24 +266,22 @@ public final class KineticRelay {
             handOver(entrance, 0, 0, 0, 0);
             return;
         }
-        if (!entrance.getBlockPos()
-                .equals(record.entrancePos())) {
+        var cell = record.cellAt(entrance.getBlockPos());
+        if (cell == null) {
             handOver(entrance, 0, 0, 0, 0);
-            note(entrance, record.id(), "this cell of the factory does not carry the link; "
-                    + record.entrancePos() + " does");
             return;
         }
 
         boolean outsideTurning = isDriven(entrance);
         Set<Direction> hookedUp = outsideTurning
-                ? hookedUpSides(record, entrance)
+                ? hookedUpSides(entrance)
                 : EnumSet.noneOf(Direction.class);
         Map<Direction, EndpointBlockEntity> walls = new EnumMap<>(Direction.class);
         List<Direction> drivingRoom = new ArrayList<>();
         List<Direction> drivingOutside = new ArrayList<>();
         Set<Direction> drivenInside = EnumSet.noneOf(Direction.class);
         for (Direction side : SIDES) {
-            EndpointBlockEntity wall = channelBarrier(room, record, side);
+            EndpointBlockEntity wall = channelBarrier(room, record, cell, side);
             if (wall == null) {
                 continue;
             }
@@ -295,7 +297,7 @@ public final class KineticRelay {
         // here, and the wall of that side has to keep the power it was given (see #returningSides).
         List<Direction> returning = outsideTurning
                 ? List.of()
-                : returningSides(record, entrance, drivenInside, walls);
+                : returningSides(entrance, drivenInside, walls);
         for (Direction side : SIDES) {
             EndpointBlockEntity wall = walls.get(side);
             if (wall == null) {
@@ -403,24 +405,20 @@ public final class KineticRelay {
     }
 
     /**
-     * The sides of the room the machinery outside is hooked up to: the faces of the factory's entrance
-     * blocks that power is being fed in through. The entrance blocks of one factory are one machine, so it
-     * does not matter which cell of the factory the machine was built against.
+     * The faces of this entrance that outside machinery is feeding.
      */
-    private static Set<Direction> hookedUpSides(FactoryData.FactoryRecord record, EndpointBlockEntity entrance) {
+    private static Set<Direction> hookedUpSides(EndpointBlockEntity entrance) {
         Set<Direction> sides = EnumSet.noneOf(Direction.class);
         Level level = entrance.getLevel();
         if (level == null) {
             return sides;
         }
-        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
-            for (Direction face : SIDES) {
-                if (level.getBlockEntity(cell.entrance()
-                        .relative(face)) instanceof KineticBlockEntity neighbour
-                        && !(neighbour instanceof EndpointBlockEntity)
-                        && poweredFromOutside(neighbour)) {
-                    sides.add(face);
-                }
+        for (Direction face : SIDES) {
+            if (level.getBlockEntity(entrance.getBlockPos()
+                    .relative(face)) instanceof KineticBlockEntity neighbour
+                    && !(neighbour instanceof EndpointBlockEntity)
+                    && poweredFromOutside(neighbour)) {
+                sides.add(face);
             }
         }
         return sides;
@@ -438,7 +436,7 @@ public final class KineticRelay {
      * through another work instead of ending at a dead end. Sides the room is driving on are left out:
      * those faces are already answering (see {@link #pilot}).
      */
-    private static List<Direction> returningSides(FactoryData.FactoryRecord record, EndpointBlockEntity entrance,
+    private static List<Direction> returningSides(EndpointBlockEntity entrance,
                                                   Collection<Direction> driving,
                                                   Map<Direction, EndpointBlockEntity> walls) {
         List<Direction> sides = new ArrayList<>();
@@ -447,17 +445,15 @@ public final class KineticRelay {
         if (level == null || network == null) {
             return sides;
         }
-        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
-            for (Direction face : SIDES) {
-                if (driving.contains(face) || sides.contains(face) || !walls.containsKey(face)) {
-                    continue;
-                }
-                if (level.getBlockEntity(cell.entrance()
-                        .relative(face)) instanceof KineticBlockEntity machine
-                        && !(machine instanceof EndpointBlockEntity)
-                        && machine.getOrCreateNetwork() == network) {
-                    sides.add(face);
-                }
+        for (Direction face : SIDES) {
+            if (driving.contains(face) || !walls.containsKey(face)) {
+                continue;
+            }
+            if (level.getBlockEntity(entrance.getBlockPos()
+                    .relative(face)) instanceof KineticBlockEntity machine
+                    && !(machine instanceof EndpointBlockEntity)
+                    && machine.getOrCreateNetwork() == network) {
+                sides.add(face);
             }
         }
         return sides;
@@ -488,17 +484,13 @@ public final class KineticRelay {
 
     /**
      * The room's end of one side of a link: a block of the room's shell that stands on {@code side} of it,
-     * by the factory's anchor cell. Any block of that side would do - the side is a kinetic network of its
+     * within the entrance's own cell. Any block of that section would do - it is a kinetic network of its
      * own - and a block that is not there any more moves along to the next one.
      */
     @Nullable
     private static EndpointBlockEntity channelBarrier(ServerLevel room, FactoryData.FactoryRecord record,
-                                                     Direction side) {
-        FactoryData.FactoryRecord.Cell anchor = record.anchorCell();
-        if (anchor == null) {
-            return null;
-        }
-        for (BlockPos wall : FactoryDimension.wallLine(record, anchor, side)) {
+                                                     FactoryData.FactoryRecord.Cell cell, Direction side) {
+        for (BlockPos wall : FactoryDimension.wallLine(record, cell, side)) {
             if (room.getBlockState(wall)
                     .getBlock() instanceof FactoryBarrierBlock
                     && room.getBlockEntity(wall) instanceof EndpointBlockEntity barrier
@@ -583,9 +575,9 @@ public final class KineticRelay {
         return stress;
     }
 
-    /** The speed a link passes on, which is zero while the end that would drive it is stalling. */
+    /** Keep the network connected while overstressed, just as a shaft retains its theoretical speed. */
     private static float turningSpeed(KineticBlockEntity endpoint) {
-        return endpoint.getSpeed();
+        return endpoint.getTheoreticalSpeed();
     }
 
     /** True for an end that is only turning because the link drives it, rather than a generator of its own. */

@@ -336,7 +336,7 @@ public final class FactoryDimension {
     }
 
     /**
-     * Pulls a room's shell apart into one network per side, and keeps looking at it from the server tick
+     * Pulls a room's shell apart into one network per cell side, and keeps looking from the server tick
      * for as long as it does not come apart.
      */
     private static void splitShellSides(ServerLevel level, FactoryData.FactoryRecord record) {
@@ -351,9 +351,8 @@ public final class FactoryDimension {
      * The room's barriers that a link coming in through one face of an entrance block ends at: the shell
      * columns of {@code cell} on the side the thing came in through, at the height a player stands at.
      *
-     * <p>Every column of the cell's edge is walked outwards until it leaves the room, so what comes back
-     * is the wall of the union rather than of the cell alone: a room that has grown past its anchor cell
-     * answers on its outer wall, and an L shaped room on the walls of its step as well.
+     * <p>Only this cell's own exposed edge answers. An edge opened by expansion has no endpoint;
+     * it must never fall through to another cell's outer wall.
      *
      * <p>Up and down answer on the ceiling and on the base layer instead, one row across the middle of the
      * cell, which are barriers there as well.
@@ -393,17 +392,8 @@ public final class FactoryDimension {
             BlockPos cursor = alongX
                     ? new BlockPos(cell.roomX() + start, FactoryData.FLOOR_Y + 1, cell.roomZ() + offset)
                     : new BlockPos(cell.roomX() + offset, FactoryData.FLOOR_Y + 1, cell.roomZ() + start);
-            BlockPos last = null;
-            while (record.roomContains(cursor)) {
-                last = cursor;
-                cursor = cursor.relative(direction);
-            }
-            if (last == null) {
-                continue;
-            }
-            BlockPos landed = new BlockPos(last.getX(), FactoryData.FLOOR_Y + 1, last.getZ());
-            if (inward(record, landed, direction) != null && !wall.contains(landed)) {
-                wall.add(landed);
+            if (shellSide(record, cursor) == direction && inward(record, cursor, direction) != null) {
+                wall.add(cursor);
             }
         }
         return wall;
@@ -742,9 +732,8 @@ public final class FactoryDimension {
     }
 
     /**
-     * The blocks of a room's shell, added to {@code shell}, and the networks that hold more than one side
-     * of it. Every side of the shell is a face of the room, so a network answering on two faces is one
-     * that still has those sides joined.
+     * The shell blocks and networks holding more than one cell face, including same-facing sections
+     * belonging to different cells in an expanded room.
      */
     private static Set<Long> shellJoins(ServerLevel level, FactoryData.FactoryRecord record,
                                         List<EndpointBlockEntity> shell) {
@@ -762,7 +751,7 @@ public final class FactoryDimension {
             return Set.of();
         }
 
-        Map<Long, Direction> firstSide = new HashMap<>();
+        Map<Long, ShellChannel> firstSide = new HashMap<>();
         Set<Long> joinedIds = new HashSet<>();
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int x = minX; x <= maxX; x++) {
@@ -784,8 +773,10 @@ public final class FactoryDimension {
                     }
                     shell.add(endpoint);
                     if (endpoint.hasNetwork()) {
-                        Direction first = firstSide.putIfAbsent(endpoint.network, side);
-                        if (first != null && first != side) {
+                        var cell = record.cellContaining(pos);
+                        ShellChannel channel = new ShellChannel(cell.roomX(), cell.roomZ(), side);
+                        ShellChannel first = firstSide.putIfAbsent(endpoint.network, channel);
+                        if (first != null && !first.equals(channel)) {
                             joinedIds.add(endpoint.network);
                         }
                     }
@@ -794,6 +785,8 @@ public final class FactoryDimension {
         }
         return joinedIds;
     }
+
+    private record ShellChannel(int roomX, int roomZ, Direction side) {}
 
     private static boolean isShellColumn(FactoryData.FactoryRecord record, int x, int z) {
         if (!record.roomContains(x, z)) {

@@ -35,7 +35,7 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.common.util.TriState;
 
 /**
- * Player-installed CEE nodes on factory faces. Each face joins one outside node to one inside node.
+ * Player-installed CEE nodes on factory faces. Each cell face joins its own outside and inside node.
  * CEE saves the nodes and wires; we recover their factory links from their positions after a restart.
  * This class must only be loaded while CEE is installed.
  */
@@ -70,7 +70,7 @@ public final class FactoryPowerNodes {
     private record Held(ServerLevel level, Vec3 pos, InWorldNode node, BlockPos room) {
     }
 
-    /** A possible terminal and its distance from the anchor, used to select legacy duplicates consistently. */
+    /** A possible terminal and its distance from its cell center, used to select legacy duplicates. */
     private record Terminal(FactoryPowerLinks.End end, ServerLevel level, Vec3 pos, BlockPos room, double rank) {
     }
 
@@ -345,8 +345,9 @@ public final class FactoryPowerNodes {
         int side = FactoryPowerLinks.OUTSIDE;
         Direction face = facing;
         BlockPos wall;
+        FactoryData.FactoryRecord.Cell cell;
         if (record != null && record.cellAt(support.relative(facing)) == null) {
-            FactoryData.FactoryRecord.Cell cell = record.cellAt(support);
+            cell = record.cellAt(support);
             // This position is used only for checking whether the matching room is loaded.
             wall = cell.center();
         } else {
@@ -361,15 +362,15 @@ public final class FactoryPowerNodes {
             }
             side = FactoryPowerLinks.INSIDE;
             wall = support;
+            cell = record.cellContaining(support);
         }
-        FactoryData.FactoryRecord.Cell anchor = record.anchorCell();
-        if (record.entranceDimension() == null || anchor == null) {
+        if (record.entranceDimension() == null || cell == null) {
             return null;
         }
         Vec3 pos = off(support, facing);
-        double rank = side == FactoryPowerLinks.OUTSIDE
-                ? support.distSqr(anchor.entrance()) : pos.distanceToSqr(Vec3.atCenterOf(anchor.center()));
-        return new Terminal(new FactoryPowerLinks.End(new FactoryPowerLinks.LinkKey(record.id(), face), side),
+        double rank = side == FactoryPowerLinks.OUTSIDE ? 0 : pos.distanceToSqr(Vec3.atCenterOf(cell.center()));
+        return new Terminal(new FactoryPowerLinks.End(
+                new FactoryPowerLinks.LinkKey(record.id(), cell.roomX(), cell.roomZ(), face), side),
                 level, pos, wall, rank);
     }
 

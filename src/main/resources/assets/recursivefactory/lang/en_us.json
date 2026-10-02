@@ -30,5 +30,5 @@
   "message.recursivefactory.printer.waiting": "Waiting for %s.",
   "message.recursivefactory.printer.unreadable": "This printer cannot read the blueprint %s.",
   "message.recursivefactory.power.terminal": "Factory power node installed.",
-  "message.recursivefactory.power.terminal_taken": "This face already has a node. Remove it with a wrench first."
+  "message.recursivefactory.power.terminal_taken": "This face of the entrance's room cell already has a node. Remove it with a wrench first."
 }

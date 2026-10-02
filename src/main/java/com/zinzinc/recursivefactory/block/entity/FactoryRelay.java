@@ -305,24 +305,24 @@ public final class FactoryRelay {
             int was = previous[input.ordinal()];
             int now = inputPower[input.ordinal()];
             if (was != now) {
-                driveRemotes(localLevel, local, input, now);
+                driveRemotes(localLevel, local, input);
             }
         }
     }
 
     /**
-     * Drives the far end of one side of a link with {@code power}, or lets go of it when that is zero.
+     * Refreshes the far end from all inputs on this cell's face, including removal of an input.
      * {@code inputFace} is the face of this end the redstone is coming in through, and it is what picks
      * the side of the room the link answers on: the far end is driven on the opposite face, and every
      * barrier of that side's wall is set to the same strength.
      */
-    private static void driveRemotes(ServerLevel localLevel, EndpointBlockEntity local, Direction inputFace,
-                                     int power) {
+    private static void driveRemotes(ServerLevel localLevel, EndpointBlockEntity local, Direction inputFace) {
         Direction driven = inputFace.getOpposite();
-        for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace)) {
+        for (RemoteEndpoint remote : redstoneRemotes(localLevel, local, inputFace)) {
             if (remote.level().getBlockEntity(remote.pos()) instanceof EndpointBlockEntity endpoint) {
-                endpoint.setOutputPower(driven, power);
+                endpoint.setOutputPower(driven, incomingPower(remote.level(), endpoint, driven));
                 updateOutputState(endpoint);
+                remote.level().updateNeighborsAt(remote.pos(), endpoint.getBlockState().getBlock());
             }
         }
     }
@@ -343,6 +343,56 @@ public final class FactoryRelay {
             return;
         }
         syncPower(local, inputs);
+    }
+
+    /** Reconcile persisted outputs and unloaded/rebound entrances with this cell's current partners. */
+    public static void refreshPower(EndpointBlockEntity local) {
+        if (!(local.getLevel() instanceof ServerLevel level)) return;
+        boolean changed = false;
+        for (Direction face : Direction.values()) {
+            int power = incomingPower(level, local, face);
+            if (local.getOutputPower(face) != power) {
+                local.setOutputPower(face, power);
+                changed = true;
+            }
+        }
+        if (changed) {
+            updateOutputState(local);
+            level.updateNeighborsAt(local.getBlockPos(), local.getBlockState().getBlock());
+        }
+        updateFromNeighbours(local);
+    }
+
+    private static int incomingPower(ServerLevel level, EndpointBlockEntity local, Direction face) {
+        int power = 0;
+        for (RemoteEndpoint remote : redstoneRemotes(level, local, face)) {
+            if (remote.level().getBlockEntity(remote.pos()) instanceof EndpointBlockEntity endpoint)
+                power = Math.max(power, endpoint.getInputPower(face.getOpposite()));
+        }
+        return power;
+    }
+
+    /** Redstone covers the whole cell face and combines multiple inputs only within that cell. */
+    private static List<RemoteEndpoint> redstoneRemotes(ServerLevel level, EndpointBlockEntity local, Direction face) {
+        if (!(local instanceof RecursiveFactoryBlockEntity)) return resolveRemotes(level, local, face);
+        var record = FactoryData.get(level.getServer()).factory(local.getFactoryId());
+        var cell = record == null ? null : record.cellAt(local.getBlockPos());
+        var room = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
+        if (cell == null || room == null) return List.of();
+        List<RemoteEndpoint> remotes = new ArrayList<>();
+        int minY = face == Direction.UP ? FactoryData.CEILING_Y : FactoryData.BASE_Y;
+        int maxY = face == Direction.DOWN ? FactoryData.BASE_Y : FactoryData.CEILING_Y;
+        int minX = cell.roomX() + (face == Direction.EAST ? FactoryData.CELL_SIZE - 1 : 0);
+        int maxX = cell.roomX() + (face == Direction.WEST ? 0 : FactoryData.CELL_SIZE - 1);
+        int minZ = cell.roomZ() + (face == Direction.SOUTH ? FactoryData.CELL_SIZE - 1 : 0);
+        int maxZ = cell.roomZ() + (face == Direction.NORTH ? 0 : FactoryData.CELL_SIZE - 1);
+        for (BlockPos pos : BlockPos.betweenClosed(minX, minY, minZ, maxX, maxY, maxZ)) {
+            if (FactoryDimension.shellSide(record, pos) == face
+                    && room.getBlockEntity(pos) instanceof FactoryBarrierBlockEntity barrier
+                    && barrier.getFactoryId() == record.id())
+                remotes.add(new RemoteEndpoint(room, pos.immutable(), null));
+        }
+        return remotes;
     }
 
     /**
@@ -449,26 +499,6 @@ public final class FactoryRelay {
         return state.getBlock() instanceof RecursiveFactoryBlock || state.getBlock() instanceof FactoryBarrierBlock;
     }
 
-    /** The entrance block a room's barrier relays to, or null while it cannot be reached. */
-    private static @Nullable EndpointBlockEntity entranceOf(EndpointBlockEntity barrier) {
-        if (!(barrier.getLevel() instanceof ServerLevel level) || !barrier.hasFactoryId()) {
-            return null;
-        }
-        MinecraftServer server = level.getServer();
-        FactoryData.FactoryRecord record = server == null
-                ? null
-                : FactoryData.get(server)
-                        .factory(barrier.getFactoryId());
-        if (record == null || record.entranceDimension() == null) {
-            return null;
-        }
-        ServerLevel entranceLevel = server.getLevel(dimensionKey(record.entranceDimension()));
-        return entranceLevel != null
-                && entranceLevel.getBlockEntity(record.entrancePos()) instanceof EndpointBlockEntity entrance
-                ? entrance
-                : null;
-    }
-
     /**
      * The far end of a factory's link. A barrier in the room reaches the entrance block outside. The
      * entrance block reaches the room's wall on the side the thing came in through: {@code inputFace} is
@@ -488,7 +518,10 @@ public final class FactoryRelay {
         }
 
         if (local.getBlockState().getBlock() instanceof FactoryBarrierBlock) {
-            if (record.entranceDimension() == null) {
+            var cell = record.cellContaining(local.getBlockPos());
+            Direction side = FactoryDimension.shellSide(record, local.getBlockPos());
+            if (record.entranceDimension() == null || cell == null || side == null
+                    || inputFace != side.getOpposite()) {
                 return List.of();
             }
             ServerLevel entranceLevel = server.getLevel(dimensionKey(record.entranceDimension()));
@@ -496,7 +529,7 @@ public final class FactoryRelay {
                 return List.of();
             }
             RemoteEndpoint entrance =
-                    validEndpoint(entranceLevel, record.entrancePos(), RecursiveFactoryBlock.class);
+                    validEndpoint(entranceLevel, cell.entrance(), record.id(), RecursiveFactoryBlock.class);
             return entrance == null ? List.of() : List.of(entrance);
         }
 
@@ -504,9 +537,6 @@ public final class FactoryRelay {
             return List.of();
         }
         FactoryData.FactoryRecord.Cell cell = record.cellAt(local.getBlockPos());
-        if (cell == null) {
-            cell = record.anchorCell();
-        }
         ServerLevel roomLevel = server.getLevel(FactoryDimension.LEVEL_KEY);
         if (cell == null || roomLevel == null) {
             return List.of();
@@ -521,8 +551,10 @@ public final class FactoryRelay {
         return remotes;
     }
 
-    private static @Nullable RemoteEndpoint validEndpoint(ServerLevel level, BlockPos pos, Class<?> blockClass) {
-        return blockClass.isInstance(level.getBlockState(pos).getBlock())
+    private static @Nullable RemoteEndpoint validEndpoint(ServerLevel level, BlockPos pos, int factoryId, Class<?> blockClass) {
+        return level.isLoaded(pos) && blockClass.isInstance(level.getBlockState(pos).getBlock())
+                && level.getBlockEntity(pos) instanceof EndpointBlockEntity endpoint
+                && endpoint.getFactoryId() == factoryId
                 ? new RemoteEndpoint(level, pos, null)
                 : null;
     }
@@ -534,7 +566,8 @@ public final class FactoryRelay {
      */
     private static @Nullable RemoteEndpoint validWall(ServerLevel level, FactoryData.FactoryRecord record,
                                                       BlockPos wall, Direction direction) {
-        if (!(level.getBlockState(wall).getBlock() instanceof FactoryBarrierBlock)) {
+        if (!(level.getBlockEntity(wall) instanceof FactoryBarrierBlockEntity barrier)
+                || barrier.getFactoryId() != record.id()) {
             return null;
         }
         BlockPos entry = FactoryDimension.inward(record, wall, direction);

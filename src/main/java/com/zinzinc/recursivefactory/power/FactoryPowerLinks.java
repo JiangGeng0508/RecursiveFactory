@@ -7,7 +7,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.util.Mth;
 
 /**
- * The bookkeeping behind the factory's electrical links: one entry per factory face that carries a node
+ * The bookkeeping behind the factory's electrical links: one entry per room cell face that carries a node
  * on both sides of it, holding the state the two ends need to agree on.
  *
  * <p>The two ends sit in two different dimensions, and the electricity mod runs one simulation per
@@ -32,8 +32,8 @@ public final class FactoryPowerLinks {
     private FactoryPowerLinks() {
     }
 
-    /** The face of a factory a link belongs to. */
-    record LinkKey(int factoryId, Direction face) {
+    /** Room coordinates remain stable when a different entrance becomes the factory's anchor. */
+    record LinkKey(int factoryId, int roomX, int roomZ, Direction face) {
     }
 
     /** One end of a link: which link, and which of its two ends this is. */

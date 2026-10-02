@@ -1,6 +1,7 @@
 package com.zinzinc.recursivefactory.block.entity;
 
 import com.zinzinc.recursivefactory.power.FactoryWires;
+import com.zinzinc.recursivefactory.power.FactoryWireSchematics;
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.simibubi.create.api.contraption.transformable.TransformableBlockEntity;
 import com.simibubi.create.content.contraptions.StructureTransform;
@@ -51,7 +52,11 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
      */
     public static final String CELL_TAG = "FactoryCell";
     public static final String ENTRANCE_NODES_TAG = "FactoryEntranceNodes";
+    public static final String ENTRANCE_WIRES_TAG = "FactoryEntranceWires";
+    public static final String PENDING_WIRES_TAG = "FactoryPendingEntranceWires";
     private CompoundTag entranceNodes = new CompoundTag();
+    private CompoundTag entranceWires = new CompoundTag();
+    private CompoundTag pendingEntranceWires = new CompoundTag();
     /**
      * One whole cell, edge to edge. The sixteen columns of the cell are the sixteen sixteenths of the
      * block's face, so the preview of one entrance block meets the preview of the entrance block next to
@@ -113,6 +118,14 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
         super.tick();
         if (!(level instanceof ServerLevel serverLevel)) {
             return;
+        }
+
+        if (RecursiveFactory.powerAvailable() && !pendingEntranceWires.isEmpty()
+                && level.getGameTime() % 10 == 0
+                && FactoryWireSchematics.restore(serverLevel, worldPosition, pendingEntranceWires)) {
+            if (pendingEntranceWires.getList("Connections", Tag.TAG_COMPOUND).isEmpty())
+                pendingEntranceWires = new CompoundTag();
+            setChanged();
         }
 
         if (!connectionsChecked) {
@@ -184,6 +197,10 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
         return entranceNodes.copy();
     }
 
+    public CompoundTag blueprintEntranceWires() {
+        return entranceWires.copy();
+    }
+
     /** Only placement restores a snapshot. Loading a world must never resurrect a removed terminal. */
     public void restoreBlueprintEntranceNodes() {
         if (RecursiveFactory.powerAvailable() && level instanceof ServerLevel serverLevel && !entranceNodes.isEmpty()) {
@@ -191,6 +208,9 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
             LOGGER.info("Restored blueprint terminals on factory entrance at {}", worldPosition);
         }
         entranceNodes = new CompoundTag();
+        pendingEntranceWires = entranceWires;
+        entranceWires = new CompoundTag();
+        setChanged();
     }
 
     @Override
@@ -201,6 +221,7 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
             node.put("Position", FactoryWires.vector(transform.applyWithoutOffset(
                     FactoryWires.vector(node.getCompound("Position")))));
         }
+        FactoryWireSchematics.transform(entranceWires, transform);
     }
 
     /** Drops what this block was a door of, once the factory it stands for is built behind it. */
@@ -263,6 +284,8 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
     protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.read(tag, registries, clientPacket);
         entranceNodes = tag.getCompound(ENTRANCE_NODES_TAG).copy();
+        entranceWires = tag.getCompound(ENTRANCE_WIRES_TAG).copy();
+        pendingEntranceWires = tag.getCompound(PENDING_WIRES_TAG).copy();
         blueprintFile = tag.contains(BLUEPRINT_TAG) ? tag.getString(BLUEPRINT_TAG) : null;
         blueprintOrigin = tag.contains(ORIGIN_TAG) ? tag.getString(ORIGIN_TAG) : null;
         int[] cell = tag.getIntArray(CELL_TAG);
@@ -281,6 +304,8 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
         super.write(tag, registries, clientPacket);
         CompoundTag nodes = blueprintEntranceNodes();
         if (!nodes.isEmpty()) tag.put(ENTRANCE_NODES_TAG, nodes);
+        if (!entranceWires.isEmpty()) tag.put(ENTRANCE_WIRES_TAG, entranceWires.copy());
+        if (!pendingEntranceWires.isEmpty()) tag.put(PENDING_WIRES_TAG, pendingEntranceWires.copy());
         if (blueprintFile != null) {
             tag.putString(BLUEPRINT_TAG, blueprintFile);
         }
@@ -318,6 +343,7 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
         super.writeSafe(tag, registries);
         CompoundTag nodes = blueprintEntranceNodes();
         if (!nodes.isEmpty()) tag.put(ENTRANCE_NODES_TAG, nodes);
+        if (!entranceWires.isEmpty()) tag.put(ENTRANCE_WIRES_TAG, entranceWires.copy());
         if (blueprintFile != null) {
             tag.putString(BLUEPRINT_TAG, blueprintFile);
         }

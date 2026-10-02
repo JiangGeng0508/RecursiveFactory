@@ -769,10 +769,18 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         return List.copyOf(sampled);
     }
 
+    private boolean cellLinksChecked;
+
     @Override
     public void tick() {
         super.tick();
         if (level != null && !level.isClientSide) {
+            if (!cellLinksChecked) {
+                cellLinksChecked = true;
+                KineticRelay.separateSavedLinks(this);
+            }
+            if (Math.floorMod(level.getGameTime() + worldPosition.asLong(), 20) == 0)
+                FactoryRelay.refreshPower(this);
             KineticRelay.tick(this);
             FactoryRelay.transport(this);
             FactoryRelay.transportFluid(this);
@@ -808,6 +816,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     @Override
     protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.read(tag, registries, clientPacket);
+        if (!clientPacket) cellLinksChecked = false;
         // The link is worked out again on the next tick rather than carried over from the save, so a
         // saved speed is not mistaken for a generator of this end's own until the entrance block has
         // looked at it again.

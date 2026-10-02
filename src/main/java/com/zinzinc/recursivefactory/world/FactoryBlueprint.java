@@ -735,6 +735,8 @@ public final class FactoryBlueprint {
             EndpointBlockEntity.stripPlaceBoundTags(tag);
             // Room infrastructure already captures these nodes and pays for them once.
             tag.remove(RecursiveFactoryBlockEntity.ENTRANCE_NODES_TAG);
+            tag.remove(RecursiveFactoryBlockEntity.ENTRANCE_WIRES_TAG);
+            tag.remove(RecursiveFactoryBlockEntity.PENDING_WIRES_TAG);
             LOGGER.debug("Copied the endpoint at {} without the factory it stands for: {}", pos, endpoint);
         }
         tag.putInt("x", pos.getX());

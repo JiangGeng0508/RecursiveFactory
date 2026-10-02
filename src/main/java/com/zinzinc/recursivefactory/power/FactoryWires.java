@@ -209,12 +209,7 @@ public final class FactoryWires {
             InWorldNode to = nodes.get(tag.getInt("To"));
             WireData data = readWire(tag);
             if (data == null || grid.isConnected(from, to)) continue;
-            if (!new InWorldNodeConnection(from, to).node1().equals(from)) {
-                List<Pair<Float, WireAttachment>> reversed = data.attachments().stream()
-                        .map(attachment -> Pair.of(1F - attachment.getFirst(), attachment.getSecond())).toList();
-                data = new WireData(data.wireType(), data.temperature(), reversed, data.length);
-            }
-            grid.connect(from, to, data);
+            connect(grid, from, to, data);
         }
         for (Tag value : snapshot.getList("Catenary", Tag.TAG_COMPOUND)) {
             CompoundTag tag = (CompoundTag) value;
@@ -225,7 +220,17 @@ public final class FactoryWires {
         grid.setDirty();
     }
 
-    private static InWorldNode findNode(InfrastructureSavedData grid, CompoundTag tag, BlockPos origin) {
+    public static void connect(InfrastructureSavedData grid, InWorldNode from, InWorldNode to, WireData data) {
+        if (!new InWorldNodeConnection(from, to).node1().equals(from)) {
+            List<Pair<Float, WireAttachment>> reversed = data.attachments().stream()
+                    .map(attachment -> Pair.of(1F - attachment.getFirst(), attachment.getSecond())).toList();
+            data = new WireData(data.wireType(), data.temperature(), reversed, data.length);
+        }
+        grid.connect(from, to, data);
+        grid.setDirty();
+    }
+
+    public static InWorldNode findNode(InfrastructureSavedData grid, CompoundTag tag, BlockPos origin) {
         if (!tag.contains("Detached")) {
             InWorldNode node = new InWorldNode(tag.getInt("Id"), BlockPos.of(tag.getLong("Block")).offset(origin));
             return grid.hasNode(node) ? node : null;
