@@ -20,6 +20,7 @@ import com.simibubi.create.content.schematics.requirement.ItemRequirement;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import net.createmod.catnip.data.Pair;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -38,6 +39,35 @@ import java.util.TreeSet;
 /** Room-local CEE infrastructure. Only call this class when CEE is installed. */
 public final class FactoryWires {
     private FactoryWires() {}
+
+    /** Detached terminals live at virtual node coordinates, so CEE's structure capture misses them. */
+    public static CompoundTag captureEntrance(ServerLevel level, BlockPos pos) {
+        ListTag nodes = new ListTag();
+        InfrastructureSavedData.load(level).getDynamicNodes().stream()
+                .filter(node -> node.isValid() && node.detachedNodeType == DetachedNodeType.FIXED)
+                .sorted(Comparator.comparingInt(node -> node.node.id()))
+                .forEach(node -> addEntranceNode(nodes, pos, node.getGlobalPos(), node.label));
+        CompoundTag snapshot = new CompoundTag();
+        if (!nodes.isEmpty()) snapshot.put("Nodes", nodes);
+        return snapshot;
+    }
+
+    /** Shared by server and client capture; only the six installed surface positions belong to this block. */
+    public static void addEntranceNode(ListTag nodes, BlockPos support, Vec3 position, String label) {
+        if (position == null) return;
+        Vec3 relative = position.subtract(Vec3.atLowerCornerOf(support));
+        for (Direction face : Direction.values()) {
+            Vec3 expected = new Vec3(.5 + face.getStepX() * .52, .5 + face.getStepY() * .52,
+                    .5 + face.getStepZ() * .52);
+            if (relative.distanceToSqr(expected) > 1e-6) continue;
+            CompoundTag node = new CompoundTag();
+            node.put("Position", vector(expected));
+            node.putString("Detached", DetachedNodeType.FIXED.getSerializedName());
+            if (label != null) node.putString("Label", label);
+            nodes.add(node);
+            return;
+        }
+    }
 
     public static CompoundTag capture(ServerLevel level, FactoryData.FactoryRecord room, BlockPos origin) {
         InfrastructureSavedData grid = InfrastructureSavedData.load(level);

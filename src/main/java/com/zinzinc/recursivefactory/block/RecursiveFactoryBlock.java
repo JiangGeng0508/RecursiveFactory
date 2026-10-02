@@ -290,6 +290,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
         BlockPos sourceCell = blockEntity.roomCell();
         int sourceFactory = blockEntity.hasFactoryId() ? blockEntity.getFactoryId() : -1;
         blockEntity.clearDoor();
+        blockEntity.restoreBlueprintEntranceNodes();
 
         if (blueprintFile != null) {
             if (FactoryBlueprint.build(serverLevel, pos, blueprintFile, owner) > 0) {
@@ -443,6 +444,13 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
         boolean copiesRoom = false;
         add(items, new ItemStack(asItem()), ItemRequirement.ItemUseType.CONSUME, false);
         if (blockEntity instanceof RecursiveFactoryBlockEntity door) {
+            if (RecursiveFactory.powerAvailable()) {
+                var nodes = door.blueprintEntranceNodes();
+                if (!nodes.isEmpty()) {
+                    copiesRoom = true;
+                    add(items, FactoryWires.requirements(nodes));
+                }
+            }
             MinecraftServer server = serverOf(door);
             FactoryBlueprint blueprint = server == null ? null : blueprintBehind(server, door);
             if (blueprint != null) {

@@ -2,6 +2,8 @@ package com.zinzinc.recursivefactory.block.entity;
 
 import com.zinzinc.recursivefactory.power.FactoryWires;
 import com.zinzinc.recursivefactory.RecursiveFactory;
+import com.simibubi.create.api.contraption.transformable.TransformableBlockEntity;
+import com.simibubi.create.content.contraptions.StructureTransform;
 import com.mojang.logging.LogUtils;
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
@@ -12,13 +14,15 @@ import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import org.slf4j.Logger;
 
-public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
+public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity implements TransformableBlockEntity {
     private static final Logger LOGGER = LogUtils.getLogger();
     /**
      * The blueprint file this block is the door of, written onto the block by the file it came out of and
@@ -46,6 +50,8 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
      * FactoryBlueprint#copy).
      */
     public static final String CELL_TAG = "FactoryCell";
+    public static final String ENTRANCE_NODES_TAG = "FactoryEntranceNodes";
+    private CompoundTag entranceNodes = new CompoundTag();
     /**
      * One whole cell, edge to edge. The sixteen columns of the cell are the sixteen sixteenths of the
      * block's face, so the preview of one entrance block meets the preview of the entrance block next to
@@ -168,6 +174,35 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
         return roomCell;
     }
 
+    /** Real worlds are sampled now; schematic worlds carry the captured/transformed snapshot. */
+    public CompoundTag blueprintEntranceNodes() {
+        if (RecursiveFactory.powerAvailable() && level != null && level.getBlockEntity(worldPosition) == this) {
+            if (level instanceof ServerLevel serverLevel) return FactoryWires.captureEntrance(serverLevel, worldPosition);
+            if (level.isClientSide) return com.zinzinc.recursivefactory.client.FactoryEntranceNodeCapture
+                    .capture(level, worldPosition, entranceNodes);
+        }
+        return entranceNodes.copy();
+    }
+
+    /** Only placement restores a snapshot. Loading a world must never resurrect a removed terminal. */
+    public void restoreBlueprintEntranceNodes() {
+        if (RecursiveFactory.powerAvailable() && level instanceof ServerLevel serverLevel && !entranceNodes.isEmpty()) {
+            FactoryWires.place(serverLevel, worldPosition, entranceNodes);
+            LOGGER.info("Restored blueprint terminals on factory entrance at {}", worldPosition);
+        }
+        entranceNodes = new CompoundTag();
+    }
+
+    @Override
+    public void transform(BlockEntity blockEntity, StructureTransform transform) {
+        if (!RecursiveFactory.powerAvailable()) return;
+        for (Tag value : entranceNodes.getList("Nodes", Tag.TAG_COMPOUND)) {
+            CompoundTag node = (CompoundTag) value;
+            node.put("Position", FactoryWires.vector(transform.applyWithoutOffset(
+                    FactoryWires.vector(node.getCompound("Position")))));
+        }
+    }
+
     /** Drops what this block was a door of, once the factory it stands for is built behind it. */
     public void clearDoor() {
         if (blueprintFile != null || blueprintOrigin != null || roomCell != null) {
@@ -227,6 +262,7 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
     @Override
     protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.read(tag, registries, clientPacket);
+        entranceNodes = tag.getCompound(ENTRANCE_NODES_TAG).copy();
         blueprintFile = tag.contains(BLUEPRINT_TAG) ? tag.getString(BLUEPRINT_TAG) : null;
         blueprintOrigin = tag.contains(ORIGIN_TAG) ? tag.getString(ORIGIN_TAG) : null;
         int[] cell = tag.getIntArray(CELL_TAG);
@@ -243,6 +279,8 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
     @Override
     protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.write(tag, registries, clientPacket);
+        CompoundTag nodes = blueprintEntranceNodes();
+        if (!nodes.isEmpty()) tag.put(ENTRANCE_NODES_TAG, nodes);
         if (blueprintFile != null) {
             tag.putString(BLUEPRINT_TAG, blueprintFile);
         }
@@ -278,6 +316,8 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
     @Override
     public void writeSafe(CompoundTag tag, HolderLookup.Provider registries) {
         super.writeSafe(tag, registries);
+        CompoundTag nodes = blueprintEntranceNodes();
+        if (!nodes.isEmpty()) tag.put(ENTRANCE_NODES_TAG, nodes);
         if (blueprintFile != null) {
             tag.putString(BLUEPRINT_TAG, blueprintFile);
         }

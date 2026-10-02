@@ -733,6 +733,8 @@ public final class FactoryBlueprint {
         CompoundTag tag = blockEntity.saveWithId(level.registryAccess());
         if (blockEntity instanceof EndpointBlockEntity endpoint) {
             EndpointBlockEntity.stripPlaceBoundTags(tag);
+            // Room infrastructure already captures these nodes and pays for them once.
+            tag.remove(RecursiveFactoryBlockEntity.ENTRANCE_NODES_TAG);
             LOGGER.debug("Copied the endpoint at {} without the factory it stands for: {}", pos, endpoint);
         }
         tag.putInt("x", pos.getX());
