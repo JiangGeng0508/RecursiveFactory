@@ -80,7 +80,8 @@ public final class EndpointPreviewRenderer {
         if (blockEntity.getLevel() == null
                 || blockEntity.getPreviewBlocks().isEmpty()
                         && blockEntity.getPreviewEntities().isEmpty()
-                        && blockEntity.getPreviewBlockEntities().isEmpty()) {
+                        && blockEntity.getPreviewBlockEntities().isEmpty()
+                        && blockEntity.getPreviewWires().isEmpty()) {
             PROJECTION_CACHE.remove(blockEntity);
             return null;
         }
@@ -89,6 +90,7 @@ public final class EndpointPreviewRenderer {
         // FactoryProjectionCache#updateEntities - building them again every tick is what made them twitch.
         int blockHash = 31 * blockEntity.getPreviewBlocks().hashCode()
                 + blockEntity.getPreviewBlockEntities().hashCode();
+        blockHash = 31 * blockHash + blockEntity.getPreviewWires().hashCode();
         int entityHash = blockEntity.getPreviewEntities().hashCode();
         CachedProjection cached = PROJECTION_CACHE.get(blockEntity);
         if (cached != null && cached.blockHash() == blockHash) {
@@ -109,6 +111,7 @@ public final class EndpointPreviewRenderer {
                 blockEntity.getPreviewBlocks(),
                 blockEntity.getPreviewEntities(),
                 blockEntity.getPreviewBlockEntities(),
+                blockEntity.getPreviewWires(),
                 entities
         );
         PROJECTION_CACHE.put(blockEntity, new CachedProjection(blockHash, entityHash, entities, rebuilt));

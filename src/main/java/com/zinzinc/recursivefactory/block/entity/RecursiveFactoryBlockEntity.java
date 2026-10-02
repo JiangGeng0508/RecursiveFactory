@@ -1,5 +1,7 @@
 package com.zinzinc.recursivefactory.block.entity;
 
+import com.zinzinc.recursivefactory.power.FactoryWires;
+import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.mojang.logging.LogUtils;
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
@@ -197,7 +199,7 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
             cell = record.anchorCell();
         }
         if (factoryLevel == null || cell == null) {
-            updatePreview(List.of(), List.of(), List.of());
+            updatePreview(List.of(), List.of(), List.of(), new CompoundTag());
             return;
         }
 
@@ -211,7 +213,10 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity {
         updatePreview(
                 blocks,
                 samplePreviewEntities(factoryLevel, previewCenter, PREVIEW_SIZE, PREVIEW_HEIGHT),
-                samplePreviewBlockEntities(factoryLevel, previewCenter, blocks)
+                samplePreviewBlockEntities(factoryLevel, previewCenter, blocks),
+                RecursiveFactory.powerAvailable()
+                        ? FactoryWires.capture(factoryLevel, record, previewCenter.below())
+                        : new CompoundTag()
         );
     }
 

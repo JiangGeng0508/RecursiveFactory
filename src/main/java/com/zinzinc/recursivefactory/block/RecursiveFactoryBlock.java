@@ -1,5 +1,7 @@
 package com.zinzinc.recursivefactory.block;
 
+import com.zinzinc.recursivefactory.power.FactoryWires;
+import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.mojang.serialization.MapCodec;
 import com.simibubi.create.api.schematic.requirement.SpecialBlockItemRequirement;
 import com.simibubi.create.content.kinetics.base.IRotate;
@@ -447,6 +449,9 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
                 copiesRoom = true;
                 HolderLookup.Provider registries = server.registryAccess();
                 for (FactoryBlueprint.Room room : blueprint.rooms()) {
+                    if (RecursiveFactory.powerAvailable()) {
+                        add(items, FactoryWires.requirements(room.wires()));
+                    }
                     for (FactoryBlueprint.Entry entry : room.blocks()) {
                         add(items, ItemRequirement.of(entry.state(),
                                 FactoryBlueprint.newBlockEntity(registries, entry)));

@@ -94,7 +94,7 @@ public final class RecursiveFactory {
     }
 
     /** True when the electricity mod is installed, which is what the power package needs. */
-    private static boolean powerAvailable() {
+    public static boolean powerAvailable() {
         return ModList.get().isLoaded(CEE_MODID);
     }
 

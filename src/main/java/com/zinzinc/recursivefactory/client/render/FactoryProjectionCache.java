@@ -1,5 +1,6 @@
 package com.zinzinc.recursivefactory.client.render;
 
+import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.mojang.logging.LogUtils;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.ByteBufferBuilder;
@@ -69,9 +70,11 @@ public final class FactoryProjectionCache {
     private final EntityStore store;
     private final List<BlockEntity> blockEntities = new ArrayList<>();
     private final AABB bounds;
+    private final FactoryWirePreviewRenderer wires;
 
     public FactoryProjectionCache(Level level, List<EndpointBlockEntity.PreviewBlock> previewBlocks,
                                   List<CompoundTag> previewEntities, List<CompoundTag> previewBlockEntities,
+                                  CompoundTag previewWires,
                                   EntityStore store) {
         this.store = store;
         int minX = Integer.MAX_VALUE;
@@ -115,6 +118,8 @@ public final class FactoryProjectionCache {
         }
 
         renderWorld.runLightEngine();
+        wires = RecursiveFactory.powerAvailable()
+                ? new FactoryWirePreviewRenderer(previewWires, renderWorld) : null;
         updateEntities(previewEntities);
         for (CompoundTag tag : previewBlockEntities) {
             try {
@@ -175,6 +180,7 @@ public final class FactoryProjectionCache {
                 poseStack,
                 bufferSource.getBuffer(layer)
         ));
+        if (wires != null) wires.render(poseStack, bufferSource, renderWorld);
     }
 
     /**

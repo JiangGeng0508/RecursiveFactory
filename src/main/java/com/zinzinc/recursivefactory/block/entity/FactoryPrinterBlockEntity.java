@@ -1,5 +1,8 @@
 package com.zinzinc.recursivefactory.block.entity;
 
+import com.zinzinc.recursivefactory.compat.FactorySchematicMaterials;
+import com.zinzinc.recursivefactory.power.FactoryWires;
+import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.mojang.logging.LogUtils;
 import com.simibubi.create.AllBlocks;
 import com.simibubi.create.AllItems;
@@ -221,6 +224,21 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
                 continue;
             }
             if (progress >= room.size()) {
+                // Connections belong to the room rather than a block entity. Finish them only after
+                // their support blocks exist, and pay for the whole remaining wiring before placing it.
+                if (RecursiveFactory.powerAvailable() && !room.wires().isEmpty()) {
+                    var wires = room.wires();
+                    var origin = FactoryBlueprint.origin(cell);
+                    var required = FactoryWires.requirements(wires, roomLevel, origin);
+                    ItemStack missingWire = creativeCrate ? ItemStack.EMPTY
+                            : FactorySchematicMaterials.pay(required, inventories, level, worldPosition);
+                    if (!missingWire.isEmpty()) {
+                        pause(missingWire);
+                        return;
+                    }
+                    FactoryWires.place(roomLevel, origin, wires);
+                    missing = ItemStack.EMPTY;
+                }
                 nextRoom();
                 continue;
             }
@@ -403,7 +421,7 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
 
     private boolean loadBlueprint(MinecraftServer server) {
         FactoryBlueprint read = FactoryBlueprint.read(server, blueprintName);
-        if (read == null || read.size() == 0) {
+        if (read == null || read.isEmpty()) {
             // The name is kept rather than dropped: the print never starts, but a player looking at the
             // machine is told which blueprint it is holding and cannot read, rather than finding it idle.
             LOGGER.warn("Factory printer at {}: the blueprint {} could not be read", worldPosition,
@@ -700,7 +718,7 @@ public class FactoryPrinterBlockEntity extends BlockEntity {
             return false;
         }
         FactoryBlueprint read = FactoryBlueprint.read(level.getServer(), name);
-        if (read == null || read.size() == 0) {
+        if (read == null || read.isEmpty()) {
             LOGGER.warn("Factory printer at {}: the blueprint {} holds no factory to print", worldPosition, name);
             return false;
         }

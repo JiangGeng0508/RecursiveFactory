@@ -1,5 +1,7 @@
 package com.zinzinc.recursivefactory.world;
 
+import com.zinzinc.recursivefactory.power.FactoryWires;
+import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.mojang.logging.LogUtils;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import com.simibubi.create.foundation.utility.CreatePaths;
@@ -129,6 +131,7 @@ public final class FactoryBlueprint {
      */
     public static final class Room {
         private final List<Entry> blocks;
+        private final CompoundTag wires;
         /** The rooms the entrance blocks standing in this room lead to, by the offset of the block. */
         private final Map<BlockPos, Room> nested = new LinkedHashMap<>();
         /** The colour kind a copy of this room is painted, see {@link FactoryColors#kindOfFactory}. */
@@ -146,8 +149,10 @@ public final class FactoryBlueprint {
         /** The room this one stands inside, or -1 for the room that was read, see {@link #index}. */
         private int parentIndex = -1;
 
-        private Room(List<Entry> blocks, int colorIndex, @Nullable BlockPos anchor, List<BlockPos> cells) {
+        private Room(List<Entry> blocks, int colorIndex, @Nullable BlockPos anchor, List<BlockPos> cells,
+                     CompoundTag wires) {
             this.blocks = List.copyOf(blocks);
+            this.wires = wires.copy();
             this.colorIndex = colorIndex;
             this.anchor = anchor == null ? null : anchor.immutable();
             this.cells = List.copyOf(cells);
@@ -156,6 +161,11 @@ public final class FactoryBlueprint {
         /** Everything standing in the room, in the order it is printed back: floor first, then upwards. */
         public List<Entry> blocks() {
             return blocks;
+        }
+
+        /** Nodes and wires use the same origin as the room's blocks, including its generated shell. */
+        public CompoundTag wires() {
+            return wires.copy();
         }
 
         /**
@@ -312,6 +322,10 @@ public final class FactoryBlueprint {
             total += room.size();
         }
         return total;
+    }
+
+    public boolean isEmpty() {
+        return size() == 0 && rooms.stream().allMatch(room -> room.wires.isEmpty());
     }
 
     /**
@@ -567,7 +581,9 @@ public final class FactoryBlueprint {
             }
         }
         Room room = new Room(captured, FactoryColors.kindOfFactory(record.colorIndex(), record.id()),
-                anchor, cells);
+                anchor, cells, RecursiveFactory.powerAvailable()
+                        ? FactoryWires.capture(level, record, origin)
+                        : new CompoundTag());
         for (Map.Entry<BlockPos, Room> child : nested.entrySet()) {
             room.nested.put(child.getKey(), child.getValue());
         }
@@ -648,6 +664,9 @@ public final class FactoryBlueprint {
                 placed += placeRoom(level, data, nestedRoomId, nested, owner);
             }
             placed++;
+        }
+        if (RecursiveFactory.powerAvailable()) {
+            FactoryWires.place(level, origin(cell), room.wires);
         }
         return placed;
     }
@@ -881,6 +900,7 @@ public final class FactoryBlueprint {
         tag.put(PALETTE_TAG, palette);
         tag.put(BLOCKS_TAG, blocks);
         tag.put(CELLS_TAG, writeCells(room.cells));
+        if (!room.wires.isEmpty()) tag.put("FactoryWires", room.wires.copy());
         tag.put(ENTITIES_TAG, new ListTag());
         return tag;
     }
@@ -1011,7 +1031,8 @@ public final class FactoryBlueprint {
                     blockTag.contains("nbt", Tag.TAG_COMPOUND) ? blockTag.getCompound("nbt") : null
             ));
         }
-        return new Room(blocks, roomColor == null ? FactoryColors.NO_COLOR : roomColor, anchor, cells);
+        return new Room(blocks, roomColor == null ? FactoryColors.NO_COLOR : roomColor, anchor, cells,
+                tag.getCompound("FactoryWires"));
     }
 
     /**
