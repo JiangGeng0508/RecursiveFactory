@@ -9,6 +9,7 @@ import com.zinzinc.recursivefactory.block.entity.FactoryRelay;
 import com.zinzinc.recursivefactory.block.entity.KineticRelay;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
+import com.zinzinc.recursivefactory.compat.FactorySchematicMaterials;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import com.zinzinc.recursivefactory.data.ModDataComponents;
 import com.zinzinc.recursivefactory.world.FactoryBlueprint;
@@ -437,11 +438,13 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
     @Override
     public ItemRequirement getRequiredItems(BlockState state, @Nullable BlockEntity blockEntity) {
         List<ItemRequirement.StackRequirement> items = new ArrayList<>();
+        boolean copiesRoom = false;
         add(items, new ItemStack(asItem()), ItemRequirement.ItemUseType.CONSUME, false);
         if (blockEntity instanceof RecursiveFactoryBlockEntity door) {
             MinecraftServer server = serverOf(door);
             FactoryBlueprint blueprint = server == null ? null : blueprintBehind(server, door);
             if (blueprint != null) {
+                copiesRoom = true;
                 HolderLookup.Provider registries = server.registryAccess();
                 for (FactoryBlueprint.Room room : blueprint.rooms()) {
                     for (FactoryBlueprint.Entry entry : room.blocks()) {
@@ -451,7 +454,8 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
                 }
             }
         }
-        return new ItemRequirement(items);
+        return copiesRoom ? new FactorySchematicMaterials.Requirement(items)
+                : new ItemRequirement(items);
     }
 
     /**
@@ -498,9 +502,9 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
      * Folds one more thing a placement asks for into the list, counting it with the rest of its kind and cut
      * into whole stacks. Sixty-four of the same cobblestone are one thing to fetch, not sixty-four: a cannon
      * holds the requirement up against the containers beside it a stack at a time, so what a room costs is
-     * asked for as the stacks it would take to pay for it. Counting it out in stacks also keeps a cannon
-     * that is short of a material from spending the little it has and building the room anyway: it will not
-     * put a block down until it can answer for a whole stack of what the factory is built out of.
+     * asked for as the stacks it would take to pay for it. These stacks must be checked and paid together:
+     * Create's normal per-stack simulation would count the same inventory again for each stack. The
+     * factory requirement marker lets our cannon integration reserve the complete list before launch.
      */
     private static void add(List<ItemRequirement.StackRequirement> items, ItemRequirement requirement) {
         if (requirement == null || requirement.isEmpty() || requirement.isInvalid()) {

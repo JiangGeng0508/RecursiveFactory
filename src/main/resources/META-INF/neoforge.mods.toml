@@ -11,6 +11,9 @@ description='''
 A recursively reusable pocket factory dimension with mirrored item and redstone endpoints.
 '''
 
+[[mixins]]
+config="recursivefactory.mixins.json"
+
 [[dependencies.${mod_id}]]
 modId="neoforge"
 type="required"
