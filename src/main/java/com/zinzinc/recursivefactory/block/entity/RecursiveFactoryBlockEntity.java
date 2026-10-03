@@ -108,6 +108,13 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
      */
     @Nullable
     private BlockPos roomCell;
+    private CompoundTag cannonRoom = new CompoundTag();
+
+    public CompoundTag takeCannonRoom() {
+        CompoundTag result = cannonRoom;
+        cannonRoom = new CompoundTag();
+        return result;
+    }
 
     public RecursiveFactoryBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.RECURSIVE_FACTORY.get(), pos, state);
@@ -189,8 +196,12 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
 
     /** Real worlds are sampled now; schematic worlds carry the captured/transformed snapshot. */
     public CompoundTag blueprintEntranceNodes() {
-        if (RecursiveFactory.powerAvailable() && level != null && level.getBlockEntity(worldPosition) == this) {
-            if (level instanceof ServerLevel serverLevel) return FactoryWires.captureEntrance(serverLevel, worldPosition);
+        if (RecursiveFactory.powerAvailable() && level instanceof ServerLevel serverLevel) {
+            // Saving an unloading chunk must not ask Level to load that same chunk again.
+            var chunk = serverLevel.getChunkSource().getChunkNow(worldPosition.getX() >> 4, worldPosition.getZ() >> 4);
+            if (chunk != null && chunk.getBlockEntity(worldPosition) == this)
+                return FactoryWires.captureEntrance(serverLevel, worldPosition);
+        } else if (RecursiveFactory.powerAvailable() && level != null && level.getBlockEntity(worldPosition) == this) {
             if (level.isClientSide) return com.zinzinc.recursivefactory.client.FactoryEntranceNodeCapture
                     .capture(level, worldPosition, entranceNodes);
         }
@@ -286,6 +297,7 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
         entranceNodes = tag.getCompound(ENTRANCE_NODES_TAG).copy();
         entranceWires = tag.getCompound(ENTRANCE_WIRES_TAG).copy();
         pendingEntranceWires = tag.getCompound(PENDING_WIRES_TAG).copy();
+        cannonRoom = tag.getCompound("FactoryCannonRoom").copy();
         blueprintFile = tag.contains(BLUEPRINT_TAG) ? tag.getString(BLUEPRINT_TAG) : null;
         blueprintOrigin = tag.contains(ORIGIN_TAG) ? tag.getString(ORIGIN_TAG) : null;
         int[] cell = tag.getIntArray(CELL_TAG);

@@ -294,6 +294,23 @@ public final class FactoryData extends SavedData {
         update(record.withEntrance(dimension, pos).withCells(cells));
     }
 
+    /** Binds exactly the requested preallocated cell, independently of placement order. */
+    public boolean bindRoomEntranceCell(int factoryId, ResourceLocation dimension, BlockPos pos, int roomX, int roomZ) {
+        FactoryRecord record = factories.get(factoryId);
+        if (record == null || record.entranceDimension() != null && !dimension.equals(record.entranceDimension())) return false;
+        List<FactoryRecord.Cell> cells = new ArrayList<>(record.cells());
+        for (int i = 0; i < cells.size(); i++) {
+            FactoryRecord.Cell cell = cells.get(i);
+            if (cell.roomX() != roomX || cell.roomZ() != roomZ) continue;
+            if (!cell.entrance().equals(UNBOUND_ENTRANCE) && !cell.entrance().equals(pos)) return false;
+            cells.set(i, new FactoryRecord.Cell(pos, roomX, roomZ, cell.floorLaid()));
+            if (record.entranceDimension() == null) record = record.withEntrance(dimension, pos);
+            update(record.withCells(cells));
+            return true;
+        }
+        return false;
+    }
+
     /**
      * Notes that one of a factory's cells has had its checkerboard floor laid, so a room that is looked
      * at again does not lay it a second time. Nothing happens when the cell already says so, which keeps

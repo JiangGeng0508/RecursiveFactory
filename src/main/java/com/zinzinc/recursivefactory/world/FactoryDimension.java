@@ -207,7 +207,8 @@ public final class FactoryDimension {
      * Asks for a factory's room to stay loaded for the rest of this tick even though its entrance block is
      * not loaded - or does not exist yet. A room is normally kept running by the block leading into it (see
      * {@link #holdRoomsOpen}), which is what a player standing at that block has loaded; a machine that is
-     * building a room of its own, like the printer, has no entrance block to lean on and asks here instead.
+     * building a room of its own, like the blueprint cannon, has no entrance block to lean on and asks
+     * here instead.
      *
      * <p>Nothing is asked for a room that is not a factory at all, and the request has to be repeated every
      * tick: it is let go of as soon as whoever asked stops asking.
@@ -546,6 +547,21 @@ public final class FactoryDimension {
         entrance.setColorIndex(colorIndex);
         RecursiveFactoryBlock.refreshConnections(level, pos);
         FactoryRelay.updateFromNeighbours(entrance);
+    }
+
+    /** Links a printed entrance to its own cell; the allocation origin remains stable across reloads. */
+    public static boolean linkEntranceCell(Level level, BlockPos pos, int roomId, BlockPos offset) {
+        if (level.getServer() == null || !(level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity entrance)) return false;
+        FactoryData data = FactoryData.get(level.getServer());
+        FactoryData.FactoryRecord room = data.factory(roomId);
+        if (room == null || !data.bindRoomEntranceCell(roomId, level.dimension().location(), pos,
+                room.baseChunk().getMinBlockX() + offset.getX(), room.baseChunk().getMinBlockZ() + offset.getZ())) return false;
+        entrance.clearDoor();
+        entrance.setFactoryId(roomId);
+        entrance.setColorIndex(room.colorIndex());
+        RecursiveFactoryBlock.refreshConnections(level, pos);
+        FactoryRelay.updateFromNeighbours(entrance);
+        return true;
     }
 
     /**

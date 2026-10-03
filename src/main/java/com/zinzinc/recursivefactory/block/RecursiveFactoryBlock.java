@@ -25,7 +25,6 @@ import java.util.UUID;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.HolderLookup;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -55,7 +54,6 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
-import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
 /**
  * The factory's entrance block. Placing one next to another entrance block grows that factory's room
@@ -277,15 +275,17 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
         UUID owner = placer instanceof Player player ? player.getUUID() : null;
         FactoryData data = FactoryData.get(level.getServer());
         ServerLevel factoryLevel = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
+        var printedRoom = blockEntity.takeCannonRoom();
+        if (!printedRoom.isEmpty()) {
+            blockEntity.clearDoor();
+            blockEntity.restoreBlueprintEntranceNodes();
+            FactoryDimension.linkEntranceCell(level, pos, printedRoom.getInt("Id"),
+                    BlockPos.of(printedRoom.getLong("Cell")));
+            return;
+        }
 
-        // A block that was put down out of a blueprint file is that factory's door: the file names the
-        // factory, and the room, its contents and the factories standing inside it are built behind the
-        // block here and now. What a block was a door of is let go of first, so a file that cannot be read
-        // leaves an ordinary entrance block behind rather than a block that is a door for ever, and a
-        // cannon that fires the same file at a hundred places makes a hundred factories rather than
-        // rebuilding one a hundred times. This is the path a cannon's block, a blueprint deployed in
-        // creative and a printed block all arrive by: whoever put the block down, its block entity already
-        // carries the file, or the factory it was copied out of.
+        // Creative deployment and legacy mirror items still build immediately. Cannon projectiles take
+        // the preallocated-room path above and leave their contents to the cannon's persisted task.
         String blueprintFile = blockEntity.blueprintFile();
         String blueprintOrigin = blockEntity.blueprintOrigin();
         BlockPos sourceCell = blockEntity.roomCell();
@@ -424,21 +424,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
         return null;
     }
 
-    /**
-     * What Create's tools ask for before this block is put down: the entrance block itself, and - when the
-     * block is a door - everything the factory behind it is made of. A cannon fires a blueprint of a
-     * factory by putting down this one block and letting the block build the factory, and the block is that
-     * factory's door for as long as it is being carried (see
-     * {@link RecursiveFactoryBlockEntity#blueprintFile}), so the whole factory is worked out here, before
-     * the block lands, out of the same two things {@link #setPlacedBy} reads: the file the block came out
-     * of, or the factory of this save it stood for. A cannon therefore has to have the factory's own
-     * materials on hand, and spends them, rather than building a factory out of the one block it was
-     * charged for.
-     *
-     * <p>A block that is no door - a plain entrance block, put down by hand - asks for itself and no more,
-     * and a caller that cannot be told which factory the block stands for, or names a factory that cannot
-     * be read, is left with the entrance block the way it was before.
-     */
+    /** The entrance and its installed terminals/wires. Room contents are paid per cannon shot. */
     @Override
     public ItemRequirement getRequiredItems(BlockState state, @Nullable BlockEntity blockEntity) {
         List<ItemRequirement.StackRequirement> items = new ArrayList<>();
@@ -457,21 +443,6 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
                     add(items, FactoryWireSchematics.requirements(wires));
                 }
             }
-            MinecraftServer server = serverOf(door);
-            FactoryBlueprint blueprint = server == null ? null : blueprintBehind(server, door);
-            if (blueprint != null) {
-                copiesRoom = true;
-                HolderLookup.Provider registries = server.registryAccess();
-                for (FactoryBlueprint.Room room : blueprint.rooms()) {
-                    if (RecursiveFactory.powerAvailable()) {
-                        add(items, FactoryWires.requirements(room.wires()));
-                    }
-                    for (FactoryBlueprint.Entry entry : room.blocks()) {
-                        add(items, ItemRequirement.of(entry.state(),
-                                FactoryBlueprint.newBlockEntity(registries, entry)));
-                    }
-                }
-            }
         }
         return copiesRoom ? new FactorySchematicMaterials.Requirement(items)
                 : new ItemRequirement(items);
@@ -484,7 +455,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
      * now, the same reading {@link #setPlacedBy} builds the copy out of. Null when the block is no door, or
      * names something that cannot be read.
      */
-    private static @Nullable FactoryBlueprint blueprintBehind(MinecraftServer server,
+    public static @Nullable FactoryBlueprint blueprintBehind(MinecraftServer server,
                                                               RecursiveFactoryBlockEntity door) {
         String file = door.blueprintFile();
         if (file != null) {
@@ -504,20 +475,6 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
     }
 
     /**
-     * The server a block entity belongs to, or the one that is running. A block entity a blueprint carries
-     * has no level yet - it was made to answer the one question "what does this block cost?", and put
-     * nowhere - so the server has to be found another way. Null on a caller with no server at all, which is
-     * left with the entrance block as the whole requirement.
-     */
-    private static @Nullable MinecraftServer serverOf(RecursiveFactoryBlockEntity door) {
-        Level level = door.getLevel();
-        if (level != null && level.getServer() != null) {
-            return level.getServer();
-        }
-        return ServerLifecycleHooks.getCurrentServer();
-    }
-
-    /**
      * Folds one more thing a placement asks for into the list, counting it with the rest of its kind and cut
      * into whole stacks. Sixty-four of the same cobblestone are one thing to fetch, not sixty-four: a cannon
      * holds the requirement up against the containers beside it a stack at a time, so what a room costs is
@@ -528,7 +485,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
     private static void add(List<ItemRequirement.StackRequirement> items, ItemRequirement requirement) {
         if (requirement == null || requirement.isEmpty() || requirement.isInvalid()) {
             // A block with no item form at all - water, or something another mod plants rather than places
-            // - is not asked for, the way a printer passes such a block by (see FactoryPrinterBlockEntity).
+            // - is not asked for, following Create's requirement handling.
             return;
         }
         for (ItemRequirement.StackRequirement required : requirement.getRequiredItems()) {

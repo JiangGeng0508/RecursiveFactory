@@ -13,7 +13,7 @@ import java.util.function.Supplier;
  * {@link FactoryTeleporter#enter}).
  *
  * <p>Only the read itself holds a lock, and only for the instant it takes, so a factory is never shut for
- * longer than the copy being taken of it. Printing from a blueprint is <em>not</em> a lock: a printer builds
+ * longer than the copy being taken of it. Printing from a blueprint is <em>not</em> a lock: a cannon builds
  * in a room of its own and never touches the room the blueprint was taken from.
  *
  * <p>The lock is a count rather than a flag: two readers working over the same factory hold it twice, and

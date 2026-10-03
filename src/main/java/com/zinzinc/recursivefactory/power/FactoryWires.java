@@ -40,6 +40,82 @@ import java.util.TreeSet;
 public final class FactoryWires {
     private FactoryWires() {}
 
+    /** One installed terminal or complete wire per cannon shot, with only its own endpoint table. */
+    public static List<CompoundTag> printSteps(CompoundTag snapshot) {
+        List<CompoundTag> steps = new ArrayList<>();
+        ListTag nodes = snapshot.getList("Nodes", Tag.TAG_COMPOUND);
+        for (Tag value : nodes) {
+            CompoundTag node = (CompoundTag) value;
+            if (!node.contains("Detached")) continue;
+            CompoundTag step = new CompoundTag();
+            ListTag endpoints = new ListTag();
+            endpoints.add(node.copy());
+            step.put("Nodes", endpoints);
+            steps.add(step);
+        }
+        for (Tag value : snapshot.getList("Connections", Tag.TAG_COMPOUND)) {
+            CompoundTag wire = (CompoundTag) value;
+            if (!validEndpoints(wire, nodes.size())) continue;
+            CompoundTag step = new CompoundTag();
+            ListTag endpoints = new ListTag();
+            endpoints.add(nodes.getCompound(wire.getInt("From")).copy());
+            endpoints.add(nodes.getCompound(wire.getInt("To")).copy());
+            step.put("Nodes", endpoints);
+            ListTag connections = new ListTag();
+            CompoundTag connection = wire.copy();
+            connection.putInt("From", 0);
+            connection.putInt("To", 1);
+            connections.add(connection);
+            step.put("Connections", connections);
+            steps.add(step);
+        }
+        for (Tag value : snapshot.getList("Catenary", Tag.TAG_COMPOUND)) {
+            CompoundTag step = new CompoundTag();
+            ListTag connections = new ListTag();
+            connections.add(value.copy());
+            step.put("Catenary", connections);
+            steps.add(step);
+        }
+        return List.copyOf(steps);
+    }
+
+    public static ItemRequirement printRequirement(CompoundTag step) {
+        if (!step.contains("Connections")) return requirements(step);
+        CompoundTag copy = step.copy();
+        for (Tag value : copy.getList("Nodes", Tag.TAG_COMPOUND)) ((CompoundTag) value).remove("Detached");
+        return requirements(copy);
+    }
+
+    /** A skipped support must not create a free-floating terminal or a phantom machine node. */
+    public static boolean supportsPresent(ServerLevel level, BlockPos origin, CompoundTag step) {
+        InfrastructureSavedData grid = InfrastructureSavedData.load(level);
+        boolean wire = step.contains("Connections");
+        for (Tag value : step.getList("Nodes", Tag.TAG_COMPOUND)) {
+            CompoundTag node = (CompoundTag) value;
+            if (!node.contains("Detached")) {
+                if (level.getBlockState(BlockPos.of(node.getLong("Block")).offset(origin)).isAir()) return false;
+            } else if (wire) {
+                if (findNode(grid, node, origin) == null) return false;
+            } else if (DetachedNodeType.FIXED.getSerializedName().equals(node.getString("Detached"))) {
+                Vec3 point = vector(node.getCompound("Position")).add(Vec3.atLowerCornerOf(origin));
+                boolean support = false;
+                for (Direction direction : Direction.values()) {
+                    Vec3 center = point.subtract(direction.getStepX() * .52, direction.getStepY() * .52,
+                            direction.getStepZ() * .52);
+                    BlockPos pos = BlockPos.containing(center);
+                    if (center.distanceToSqr(pos.getCenter()) < 1e-6 && !level.getBlockState(pos).isAir()) support = true;
+                }
+                if (!support) return false;
+            }
+        }
+        for (Tag value : step.getList("Catenary", Tag.TAG_COMPOUND)) {
+            CompoundTag wireTag = (CompoundTag) value;
+            if (!CEEBlocks.CATENARY_HOLDER.has(level.getBlockState(BlockPos.of(wireTag.getLong("From")).offset(origin)))
+                    || !CEEBlocks.CATENARY_HOLDER.has(level.getBlockState(BlockPos.of(wireTag.getLong("To")).offset(origin)))) return false;
+        }
+        return true;
+    }
+
     /** Detached terminals live at virtual node coordinates, so CEE's structure capture misses them. */
     public static CompoundTag captureEntrance(ServerLevel level, BlockPos pos) {
         ListTag nodes = new ListTag();
@@ -141,7 +217,7 @@ public final class FactoryWires {
         return requirements(snapshot, null, BlockPos.ZERO);
     }
 
-    /** Existing wires/nodes are omitted when resuming a partially completed printer. */
+    /** Existing wires/nodes are omitted when resuming a partially completed cannon job. */
     public static ItemRequirement requirements(CompoundTag snapshot, ServerLevel level, BlockPos origin) {
         InfrastructureSavedData grid = level == null ? null : InfrastructureSavedData.load(level);
         ListTag nodes = snapshot.getList("Nodes", Tag.TAG_COMPOUND);

@@ -23,24 +23,6 @@ public final class FactoryConfig {
             )
             .define("room.repairBrokenFloor", false);
 
-    public static final ModConfigSpec.IntValue PRINTER_DELAY = BUILDER
-            .comment(
-                    "How many ticks the factory printer waits between the blocks it places.",
-                    "Ten ticks per block is what a Create schematicannon does, and it is what lets a",
-                    "print be fed as it goes: the printer asks the containers around it for one block's",
-                    "worth of items at a time rather than for the whole blueprint up front.",
-                    "A room is 16 by 16 by 13 blocks, so a full one takes about half an hour."
-            )
-            .defineInRange("printer.delay", 10, 0, 200);
-
-    public static final ModConfigSpec.IntValue PRINTER_SHOTS_PER_SUGAR = BUILDER
-            .comment(
-                    "How many blocks one sugar is worth to the factory printer.",
-                    "Four hundred is what a Create schematicannon gets out of one gunpowder, and it is",
-                    "what one sugar gets out of a printer."
-            )
-            .defineInRange("printer.shotsPerSugar", 400, 1, 100000);
-
     public static final ModConfigSpec.BooleanValue POWER_LINK_ENABLED = BUILDER
             .comment(
                     "Whether the two ends of a factory face's electrical link are tied together.",
@@ -116,13 +98,4 @@ public final class FactoryConfig {
         return SPEC.isLoaded() && REPAIR_BROKEN_FLOOR.getAsBoolean();
     }
 
-    /** Ticks the factory printer waits between two blocks of a print. */
-    public static int printerDelay() {
-        return SPEC.isLoaded() ? PRINTER_DELAY.getAsInt() : PRINTER_DELAY.getDefault();
-    }
-
-    /** How many blocks one sugar feeds the factory printer. */
-    public static int printerShotsPerSugar() {
-        return SPEC.isLoaded() ? PRINTER_SHOTS_PER_SUGAR.getAsInt() : PRINTER_SHOTS_PER_SUGAR.getDefault();
-    }
 }

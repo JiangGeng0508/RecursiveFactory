@@ -59,7 +59,6 @@ public final class RecursiveFactory {
                             output.accept(RecursiveFactoryItem.colored(colorIndex));
                         }
                         output.accept(ModBlocks.FACTORY_BARRIER_ITEM.get());
-                        output.accept(ModBlocks.FACTORY_PRINTER_ITEM.get());
                     })
                     .build());
 

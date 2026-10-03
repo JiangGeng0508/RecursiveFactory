@@ -54,20 +54,6 @@ public final class ModBlocks {
             .sound(SoundType.METAL)
             .pushReaction(PushReaction.BLOCK);
 
-    /**
-     * The printer's model is a plate, a body and a cap, not a full cube, so it must not be asked to hide
-     * the faces of the blocks around it: a block that occludes has its neighbours cull the face they turn
-     * towards it, and a neighbour culled against a model with gaps in it shows the world behind itself
-     * through the printer. Like the entrance block, the machine is given no occlusion of its own; its
-     * collision stays a full block, which keeps machines and players standing on it as they were.
-     */
-    private static final BlockBehaviour.Properties PRINTER_PROPERTIES = BlockBehaviour.Properties.of()
-            .mapColor(MapColor.METAL)
-            .strength(5.0F, 1200.0F)
-            .sound(SoundType.METAL)
-            .noOcclusion()
-            .pushReaction(PushReaction.BLOCK);
-
     public static final DeferredBlock<RecursiveFactoryBlock> RECURSIVE_FACTORY = BLOCKS.register(
             "recursive_factory",
             () -> new RecursiveFactoryBlock(FACTORY_PROPERTIES)
@@ -76,11 +62,6 @@ public final class ModBlocks {
     public static final DeferredBlock<FactoryBarrierBlock> FACTORY_BARRIER = BLOCKS.register(
             "factory_barrier",
             () -> new FactoryBarrierBlock(BARRIER_PROPERTIES)
-    );
-
-    public static final DeferredBlock<FactoryPrinterBlock> FACTORY_PRINTER = BLOCKS.register(
-            "factory_printer",
-            () -> new FactoryPrinterBlock(PRINTER_PROPERTIES)
     );
 
     public static final DeferredItem<RecursiveFactoryItem> RECURSIVE_FACTORY_ITEM = ITEMS.register(
@@ -93,14 +74,7 @@ public final class ModBlocks {
             FACTORY_BARRIER
     );
 
-    /** The printer: one per stack, so the print it is carrying is never mixed up with another one's. */
-    public static final DeferredItem<BlockItem> FACTORY_PRINTER_ITEM = ITEMS.registerSimpleBlockItem(
-            "factory_printer",
-            FACTORY_PRINTER,
-            new Item.Properties().stacksTo(1)
-    );
-
-    /** What a printer hands out: the copy of a factory, waiting for its entrance block to be put down. */
+    /** Legacy printed factories remain usable in existing inventories. */
     public static final DeferredItem<MirrorFactoryItem> MIRROR_FACTORY_ITEM = ITEMS.register(
             "mirror_factory",
             () -> new MirrorFactoryItem(new Item.Properties().stacksTo(1))

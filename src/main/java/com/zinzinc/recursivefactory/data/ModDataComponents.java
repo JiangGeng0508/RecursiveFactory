@@ -3,7 +3,6 @@ package com.zinzinc.recursivefactory.data;
 import com.mojang.serialization.Codec;
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import net.minecraft.core.component.DataComponentType;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.neoforged.bus.api.IEventBus;
@@ -18,14 +17,8 @@ import net.neoforged.neoforge.registries.DeferredRegister;
  * colours - the same sixteen the concrete the recipe takes comes in - and a stack without one falls back
  * to the colour of the factory it is placed into, or to the hash of a new factory's id.
  *
- * <p>{@link #BLUEPRINT} is the file a blueprint item - and a printer that is working through one - stands
- * for, and {@link #ROOM} plus {@link #BLUEPRINT} are what a mirror factory item carries: the room it was
- * printed into, and the blueprint that room was printed from, which is what a second copy of the item is
- * made of.
- *
- * <p>A printer carries the work it has done so far on its item ({@link #ROOM}, {@link #PROGRESS},
- * {@link #FUEL}, {@link #NESTED_ROOMS}), so picking the machine up in the middle of a print and putting it
- * down again carries on where it left off rather than starting the rooms over.
+ * <p>{@link #ROOM} and {@link #BLUEPRINT} remain for legacy mirror factory items. New print jobs are
+ * saved on Create's Schematicannon block entity.
  */
 public final class ModDataComponents {
     public static final DeferredRegister<DataComponentType<?>> COMPONENTS =
@@ -44,38 +37,11 @@ public final class ModDataComponents {
                     .networkSynchronized(ByteBufCodecs.STRING_UTF8)
                     .build());
 
-    /** The factory id of the room a stack points at: the one a mirror factory was printed into, or the
-     * one a printer is filling. */
+    /** The room referenced by a legacy mirror factory item. */
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<Integer>> ROOM =
             COMPONENTS.register("room", () -> DataComponentType.<Integer>builder()
                     .persistent(Codec.INT)
                     .networkSynchronized(ByteBufCodecs.VAR_INT)
-                    .build());
-
-    /** How far a printer has got through a blueprint: the index of the block it prints next. */
-    public static final DeferredHolder<DataComponentType<?>, DataComponentType<Integer>> PROGRESS =
-            COMPONENTS.register("progress", () -> DataComponentType.<Integer>builder()
-                    .persistent(Codec.INT)
-                    .networkSynchronized(ByteBufCodecs.VAR_INT)
-                    .build());
-
-    /** How many more blocks a printer can place before it wants another sugar. */
-    public static final DeferredHolder<DataComponentType<?>, DataComponentType<Integer>> FUEL =
-            COMPONENTS.register("fuel", () -> DataComponentType.<Integer>builder()
-                    .persistent(Codec.INT)
-                    .networkSynchronized(ByteBufCodecs.VAR_INT)
-                    .build());
-
-    /**
-     * What a printer working through a blueprint with factories nested in it has built so far: which of
-     * the blueprint's rooms it is on, and the room it built for each of the factories nested in it. The
-     * rooms of a blueprint are printed one after another, so this alongside {@link #PROGRESS} - the block
-     * of the room it is on - is the whole of where a print has got to.
-     */
-    public static final DeferredHolder<DataComponentType<?>, DataComponentType<CompoundTag>> NESTED_ROOMS =
-            COMPONENTS.register("nested_rooms", () -> DataComponentType.<CompoundTag>builder()
-                    .persistent(CompoundTag.CODEC)
-                    .networkSynchronized(ByteBufCodecs.COMPOUND_TAG)
                     .build());
 
     private ModDataComponents() {

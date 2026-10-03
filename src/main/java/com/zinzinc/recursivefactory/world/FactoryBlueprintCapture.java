@@ -27,7 +27,7 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
  * blueprint and quill reads the world the player is standing in, and the room is not in it. So the capture
  * is ours and the blueprint is Create's: what the player ends up holding is an ordinary Create blueprint,
  * written where Create keeps the blueprints it has been given ({@code schematics/uploaded/<player>}), and
- * the printer that builds from it reads it the same way Create's own machines do. What the file carries is
+ * the cannon that builds from it reads it the same way Create's own machines do. What the file carries is
  * the factory's door - one entrance block, with the rooms the factory is made of written beside it (see
  * {@link FactoryBlueprint}) - so putting the file down with Create's cannon, or deploying it in creative,
  * puts that one block down and lets the block build the factory behind it, the factories nested inside it

@@ -25,11 +25,11 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.shapes.CollisionContext;
 
 /**
- * The mirror factory: what a printer hands out once it has finished a room. Putting it down places an
- * ordinary entrance block and binds it to the room the printer built, so the copy is a factory like any
- * other - the same colour, the same walls, the same free walk in through any barrier.
+ * Legacy mirror factory items from the removed standalone printer. Putting one down places an ordinary
+ * entrance block and binds it to its room, so the copy is a factory like any other - the same colour, the
+ * same walls, the same free walk in through any barrier.
  *
- * <p>The room a printer builds is already standing by the time this item exists, so nothing has to be
+ * <p>The room a legacy item points at is already standing by the time it is placed, so nothing has to be
  * built again here: the entrance is bound to it, keeping the floor that was laid for it, and the room
  * takes the block as its own cell. The one case where something is made is a second copy of the same
  * factory - the room already has an entrance, so the item was printed from something that was already
@@ -146,7 +146,7 @@ public final class MirrorFactoryItem extends Item {
     }
 
     /**
-     * The room this copy stands for: the room the printer built, if nothing has been bound to it yet, or a
+     * The room this copy stands for: the room the item points at, if nothing has been bound to it yet, or a
      * copy of that room if it already has an entrance - the same factory put down twice is two factories.
      * A room whose entrance block was broken and whose cell went with it is stood back up where it was,
      * so the way back to a copy of a factory is never lost for good.

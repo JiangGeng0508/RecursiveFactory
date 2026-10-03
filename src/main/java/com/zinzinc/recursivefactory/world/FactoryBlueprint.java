@@ -51,10 +51,8 @@ import org.slf4j.Logger;
  * {@code blocks} carrying a palette index and a block entity tag - which is the same thing a Create
  * schematic is, so the file can be read by anything that reads blueprints. What stands at the top of it is
  * the factory's <em>door</em>: one entrance block, carrying the name of the file it was taken from. Putting
- * that file down - with Create's cannon, or with a creative deploy - therefore puts down that one block,
- * and the block builds the factory the file names: the room, its contents, and the factories standing
- * inside it, each in a room of its own. A copy the printer makes is built the same way, a block at a time
- * and out of the materials in the containers touching it.
+ * that file down places an entrance. Creative deployment builds its contents immediately; a
+ * Schematicannon snapshots these rooms and prints their contents progressively through FactoryCannonPlan.
  *
  * <p>What the rooms are made of is written beside the door, under {@link #ROOMS_TAG}: every room the
  * factory is made of as a structure of its own - the one the entrance block leads into first, then the ones
@@ -62,15 +60,14 @@ import org.slf4j.Logger;
  * What those structures hold is a room's <em>contents</em>: the free space from the floor up to the
  * ceiling, without the checkerboard floor itself and without the barrier shell, which
  * {@link FactoryDimension#prepare} builds for every room. The blocks are written in the order they are
- * printed back: floor first, then upwards, one row at a time, which is what lets a printer hand a player
- * the materials for the part it is about to build rather than for the whole room. A file written before
+ * printed back: floor first, then upwards, with brittle blocks deferred by the cannon. A file written before
  * the door was carried reads back as the one room it holds.
  *
  * <p>The name of the file is what a blueprint item carries. The file itself is a Create blueprint: it
  * lives in Create's own folder for blueprints - {@code schematics/uploaded/<player>/} - so a room full of
  * machinery never has to fit inside an item's data, and what a factory is copied into is the very thing
  * Create's own tools read and write. A blueprint of a factory is a Create blueprint of the factory's door,
- * which is why a Create blueprint item is what a capture hands out and what a printer takes, and why
+ * which is why a Create blueprint item is what a capture hands out and what the cannon takes, and why
  * Create's own tools build a factory with it rather than a heap of its machines.
  */
 public final class FactoryBlueprint {
@@ -134,6 +131,7 @@ public final class FactoryBlueprint {
         private final CompoundTag wires;
         /** The rooms the entrance blocks standing in this room lead to, by the offset of the block. */
         private final Map<BlockPos, Room> nested = new LinkedHashMap<>();
+        private final Map<BlockPos, BlockPos> entranceCells = new LinkedHashMap<>();
         /** The colour kind a copy of this room is painted, see {@link FactoryColors#kindOfFactory}. */
         private final int colorIndex;
         /** The entrance block inside the parent room that leads here, or null for the room that was read. */
@@ -214,6 +212,10 @@ public final class FactoryBlueprint {
             return anchor;
         }
 
+        public BlockPos entranceCell(BlockPos entrance) {
+            return entranceCells.getOrDefault(entrance, entrance.subtract(anchor).multiply(FactoryData.CELL_SIZE));
+        }
+
         public int size() {
             return blocks.size();
         }
@@ -275,6 +277,7 @@ public final class FactoryBlueprint {
     }
 
     private static void flatten(Room room, List<Room> out) {
+        if (out.contains(room)) return;
         room.index = out.size();
         out.add(room);
         for (Room child : room.nested.values()) {
@@ -530,6 +533,8 @@ public final class FactoryBlueprint {
         List<BlockPos> cells = new ArrayList<>(record.cells().size());
         List<Entry> captured = new ArrayList<>();
         Map<BlockPos, Room> nested = new LinkedHashMap<>();
+        Map<Integer, Room> capturedFactories = new HashMap<>();
+        Map<Integer, FactoryData.FactoryRecord.Cell> capturedCells = new HashMap<>();
         // The cell the entrance block leading here stands on comes first: it is where the room's own
         // origin sits, and where a copy of it is walked into (see FactoryDimension#sizeRoom). A factory
         // that has grown past one cell is read out cell by cell, and every block is written at its offset
@@ -567,12 +572,23 @@ public final class FactoryBlueprint {
                             throw new Refusal(Component.translatable("message.recursivefactory.blueprint.deep",
                                     MAX_NESTING_DEPTH));
                         }
+                        Room shared = capturedFactories.get(inner.id());
+                        if (shared != null) {
+                            nested.put(offset, shared);
+                            var first = capturedCells.get(inner.id());
+                            shared.entranceCells.put(offset, new BlockPos(innerCell.roomX() - first.roomX(), 0,
+                                    innerCell.roomZ() - first.roomZ()));
+                            continue;
+                        }
                         if (!reading.add(inner.id())) {
                             throw new Refusal(Component.translatable("message.recursivefactory.blueprint.loop"));
                         }
                         try {
-                            nested.put(offset,
-                                    readRoom(level, data, inner, innerCell, reading, depth + 1, offset));
+                            Room child = readRoom(level, data, inner, innerCell, reading, depth + 1, offset);
+                            nested.put(offset, child);
+                            capturedFactories.put(inner.id(), child);
+                            capturedCells.put(inner.id(), innerCell);
+                            child.entranceCells.put(offset, BlockPos.ZERO);
                         } finally {
                             reading.remove(inner.id());
                         }
@@ -654,14 +670,20 @@ public final class FactoryBlueprint {
             return 0;
         }
         int placed = 0;
+        Map<Room, Integer> built = new HashMap<>();
         for (Entry entry : room.blocks()) {
             Room nested = room.nestedAt(entry.pos());
             if (nested == null) {
                 placeEntry(level, cell, entry);
             } else {
-                int nestedRoomId = FactoryDimension.newRoom(level, data, owner, nested.colorIndex());
-                placeEntry(level, cell, entry, nestedRoomId, nested.colorIndex());
-                placed += placeRoom(level, data, nestedRoomId, nested, owner);
+                boolean first = !built.containsKey(nested);
+                int nestedRoomId = built.computeIfAbsent(nested,
+                        child -> FactoryDimension.newRoom(level, data, owner, child.colorIndex()));
+                if (first) placed += placeRoom(level, data, nestedRoomId, nested, owner);
+                BlockPos target = roomPos(cell, entry.pos());
+                placeBlock(level, target, entry.state(), entry.nbt(), false);
+                FactoryDimension.linkEntranceCell(level, target, nestedRoomId,
+                        nested.entranceCell(entry.pos()));
             }
             placed++;
         }
@@ -785,8 +807,7 @@ public final class FactoryBlueprint {
 
     /**
      * A block entity of the kind an entry carries, loaded with the tag the entry was taken with. This is
-     * what tells a printer what one block of a blueprint costs - and a cannon too: both ask Create what the
-     * block itself says it is made of (see {@code ItemRequirement#of}).
+     * used to inspect the block's material requirements (see {@code ItemRequirement#of}).
      */
     public static @Nullable BlockEntity newBlockEntity(HolderLookup.Provider registries, Entry entry) {
         if (entry.nbt() == null || !entry.state().hasBlockEntity()
@@ -828,7 +849,7 @@ public final class FactoryBlueprint {
      * {@link #PARENT_TAG} left at -1, which is what tells a reader that the file carries a door rather
      * than a room.
      */
-    private CompoundTag serialize(HolderLookup.Provider registries) {
+    public CompoundTag serialize(HolderLookup.Provider registries) {
         CompoundTag root = writeDoor();
         CompoundTag meta = writeMeta(colorIndex);
 
@@ -838,6 +859,15 @@ public final class FactoryBlueprint {
             roomTag.putInt(PARENT_TAG, room.parentIndex);
             if (room.anchor != null) {
                 roomTag.put(POS_TAG, newIntList(room.anchor.getX(), room.anchor.getY(), room.anchor.getZ()));
+                ListTag entrances = new ListTag();
+                this.rooms.get(room.parentIndex).nested.forEach((pos, child) -> {
+                    if (child != room) return;
+                    CompoundTag link = new CompoundTag();
+                    link.putLong("Pos", pos.asLong());
+                    link.putLong("Cell", room.entranceCell(pos).asLong());
+                    entrances.add(link);
+                });
+                roomTag.put("Entrances", entrances);
             }
             roomTag.put(META_TAG, writeMeta(room.colorIndex));
             rooms.add(roomTag);
@@ -946,7 +976,7 @@ public final class FactoryBlueprint {
         return read(server, name, root);
     }
 
-    private static @Nullable FactoryBlueprint read(MinecraftServer server, String name, CompoundTag root) {
+    public static @Nullable FactoryBlueprint read(MinecraftServer server, String name, CompoundTag root) {
         HolderLookup<net.minecraft.world.level.block.Block> lookup = server.registryAccess()
                 .lookupOrThrow(Registries.BLOCK);
         CompoundTag meta = root.getCompound(META_TAG);
@@ -989,6 +1019,15 @@ public final class FactoryBlueprint {
                 continue;
             }
             parent.nested.put(anchor, room);
+            for (Tag value : roomTag.getList("Entrances", Tag.TAG_COMPOUND)) {
+                CompoundTag link = (CompoundTag) value;
+                BlockPos entrance = BlockPos.of(link.getLong("Pos"));
+                parent.nested.put(entrance, room);
+                room.entranceCells.put(entrance, BlockPos.of(link.getLong("Cell")));
+            }
+            for (Tag value : roomTag.getList("Entrances", Tag.TAG_LONG)) {
+                parent.nested.put(BlockPos.of(((net.minecraft.nbt.LongTag) value).getAsLong()), room);
+            }
             added.add(room);
         }
         blueprint.relist();
