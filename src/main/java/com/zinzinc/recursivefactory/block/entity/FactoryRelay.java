@@ -374,9 +374,17 @@ public final class FactoryRelay {
 
     /** Redstone covers the whole cell face and combines multiple inputs only within that cell. */
     private static List<RemoteEndpoint> redstoneRemotes(ServerLevel level, EndpointBlockEntity local, Direction face) {
-        if (!(local instanceof RecursiveFactoryBlockEntity)) return resolveRemotes(level, local, face);
         var record = FactoryData.get(level.getServer()).factory(local.getFactoryId());
-        var cell = record == null ? null : record.cellAt(local.getBlockPos());
+        if (record == null) return List.of();
+        if (!(local instanceof RecursiveFactoryBlockEntity)) {
+            Direction side = FactoryDimension.shellSide(record, local.getBlockPos());
+            // Use the same room-facing ports in both directions. The wall row beside the checkerboard
+            // floor must neither drive it nor read it back as input from another side of an empty room.
+            if (side == null || FactoryDimension.inward(record, local.getBlockPos(), side) == null)
+                return List.of();
+            return resolveRemotes(level, local, face);
+        }
+        var cell = record.cellAt(local.getBlockPos());
         var room = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
         if (cell == null || room == null) return List.of();
         List<RemoteEndpoint> remotes = new ArrayList<>();
@@ -387,10 +395,11 @@ public final class FactoryRelay {
         int minZ = cell.roomZ() + (face == Direction.SOUTH ? FactoryData.CELL_SIZE - 1 : 0);
         int maxZ = cell.roomZ() + (face == Direction.NORTH ? 0 : FactoryData.CELL_SIZE - 1);
         for (BlockPos pos : BlockPos.betweenClosed(minX, minY, minZ, maxX, maxY, maxZ)) {
-            if (FactoryDimension.shellSide(record, pos) == face
-                    && room.getBlockEntity(pos) instanceof FactoryBarrierBlockEntity barrier
-                    && barrier.getFactoryId() == record.id())
-                remotes.add(new RemoteEndpoint(room, pos.immutable(), null));
+            if (FactoryDimension.shellSide(record, pos) != face) continue;
+            // As with item/fluid ports, a wall must lead into the room. This excludes buried wall rows
+            // and corners, while the bottom ports can still power the floor directly above them.
+            RemoteEndpoint remote = validWall(room, record, pos.immutable(), face);
+            if (remote != null) remotes.add(remote);
         }
         return remotes;
     }
