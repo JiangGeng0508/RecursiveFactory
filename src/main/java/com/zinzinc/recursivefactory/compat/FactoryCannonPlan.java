@@ -47,6 +47,14 @@ public final class FactoryCannonPlan {
             this.blueprint = blueprint;
             for (FactoryBlueprint.Room room : blueprint.rooms()) rooms.add(new RoomPrint(room));
         }
+
+        /**
+         * The entrance block this print was deployed from, in the cannon's own level: the one thing about
+         * the room the player standing at the cannon can see, and so where the flight is aimed.
+         */
+        BlockPos entranceTarget() {
+            return entrances.isEmpty() ? null : entrances.keySet().iterator().next();
+        }
     }
 
     private static final class RoomPrint {
@@ -236,6 +244,10 @@ public final class FactoryCannonPlan {
 
     /** Returns true while room work owns the cannon's next shot. */
     public boolean tick(SchematicannonBlockEntity cannon) {
+        // A shot is in the air for a few ticks after it is fired, so its room has to stay loaded until it
+        // arrives - even once the printer itself has run out of work.
+        for (LaunchedItem shot : cannon.flyingBlocks)
+            if (shot instanceof RoomLaunchedItem room) FactoryDimension.keepLoaded(room.recursivefactory$roomId());
         if (!cannon.printer.isLoaded() || cannon.state == SchematicannonBlockEntity.State.STOPPED
                 || !ItemStack.matches(schematic, cannon.inventory.getStackInSlot(0))) return false;
         FactoryPrint factory = factories.stream().filter(f -> f.rooms.getFirst().id > 0 && f.cursor < f.rooms.size())
@@ -293,15 +305,16 @@ public final class FactoryCannonPlan {
                 placingRoom = room;
                 placingFactory = factory;
                 try {
-                    // Use Create's exact belt/multipart/safe-NBT placement, landing in the room this tick.
+                    // Use Create's exact belt/multipart/safe-NBT placement. The shot is aimed at the
+                    // entrance the player can see and lands in the room it is really for.
                     int firstShot = cannon.flyingBlocks.size();
                     ItemStack icon = requirement.isEmpty() ? ItemStack.EMPTY : requirement.getRequiredItems().getFirst().stack;
-                    printer.handleCurrentTarget((p, s, be) -> access.recursivefactory$launch(p, icon, s, be), (p, e) -> {});
-                    while (cannon.flyingBlocks.size() > firstShot) {
-                        LaunchedItem shot = cannon.flyingBlocks.remove(firstShot);
-                        shot.ticksRemaining = 0;
-                        shot.update(level);
-                    }
+                    BlockPos[] roomTarget = new BlockPos[1];
+                    printer.handleCurrentTarget((p, s, be) -> {
+                        roomTarget[0] = p;
+                        access.recursivefactory$launch(p, icon, s, be);
+                    }, (p, e) -> {});
+                    aimShots(factory, cannon, room, roomTarget[0], firstShot);
                 } finally {
                     placingRoom = null;
                     placingFactory = null;
@@ -336,6 +349,31 @@ public final class FactoryCannonPlan {
         cannon.setChanged();
         cannon.sendUpdate = true;
         return true;
+    }
+
+    /**
+     * Points the shots a step made at the entrance the player can see instead of at the room's own, far
+     * away position, and tells each of them where it is really going. The shot flies to the entrance and
+     * lands in the room (see {@code LaunchedItemRoomMixin}).
+     */
+    private static void aimShots(FactoryPrint factory, SchematicannonBlockEntity cannon, RoomPrint room,
+                                 BlockPos roomTarget, int firstShot) {
+        BlockPos entrance = factory.entranceTarget();
+        for (int i = firstShot; i < cannon.flyingBlocks.size(); i++) {
+            LaunchedItem shot = cannon.flyingBlocks.get(i);
+            if (entrance != null) {
+                shot.target = entrance;
+                int ticks = flightTicks(cannon.getBlockPos(), entrance);
+                shot.totalTicks = ticks;
+                shot.ticksRemaining = ticks;
+            }
+            if (roomTarget != null) ((RoomLaunchedItem) shot).recursivefactory$landInRoom(roomTarget, room.id);
+        }
+    }
+
+    /** The flight time Create's cannon gives a shot, measured to the block it is aimed at. */
+    private static int flightTicks(BlockPos from, BlockPos to) {
+        return (int) (Math.max(10, Math.sqrt(Math.sqrt(to.distSqr(from))) * 4f));
     }
 
     private static boolean shouldPlace(SchematicannonBlockEntity cannon, ServerLevel level, BlockPos pos,

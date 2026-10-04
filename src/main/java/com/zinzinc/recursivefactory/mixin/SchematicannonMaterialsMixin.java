@@ -11,6 +11,7 @@ import com.zinzinc.recursivefactory.compat.FactoryCannonPlan;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.item.ItemStack;
@@ -71,6 +72,23 @@ public abstract class SchematicannonMaterialsMixin implements FactoryCannonAcces
                                                         BlockState state, CompoundTag original) {
         if (!(state.getBlock() instanceof com.zinzinc.recursivefactory.block.RecursiveFactoryBlock)) return data;
         return recursivefactory$plan.entranceData((SchematicannonBlockEntity) (Object) this, target, data);
+    }
+
+    /**
+     * Room shots all fly at the same entrance, and Create tells client-side entries apart by their target:
+     * it would keep the first entry and never show the next shot. Rebuild the list instead whenever a room
+     * shot is in the tag, so the client shows exactly the shots the server has.
+     */
+    @Inject(method = "readFlyingBlocks", at = @At("HEAD"))
+    private void recursivefactory$rebuildFlyingBlocks(CompoundTag compound, HolderLookup.Provider registries,
+                                                      CallbackInfo ci) {
+        SchematicannonBlockEntity cannon = (SchematicannonBlockEntity) (Object) this;
+        if (cannon.getLevel() == null || !cannon.getLevel().isClientSide) return;
+        for (Tag value : compound.getList("FlyingBlocks", Tag.TAG_COMPOUND))
+            if (value instanceof CompoundTag tag && tag.contains("RecursiveFactoryRoom")) {
+                cannon.flyingBlocks.clear();
+                return;
+            }
     }
 
     @Inject(method = "read", at = @At("RETURN"))
