@@ -11,6 +11,7 @@ import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.simibubi.create.foundation.virtualWorld.VirtualRenderWorld;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
+import com.zinzinc.recursivefactory.world.PreviewPlayerData;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -204,6 +205,8 @@ public final class FactoryProjectionCache {
         float step = store.step.fraction(clock);
         EntityRenderDispatcher dispatcher = Minecraft.getInstance().getEntityRenderDispatcher();
         for (Entity entity : store.entities.values()) {
+            var viewer = Minecraft.getInstance().player;
+            if (entity instanceof PreviewPlayer && viewer != null && entity.getUUID().equals(viewer.getUUID())) continue;
             try {
                 dispatcher.render(
                         entity,
@@ -274,13 +277,21 @@ public final class FactoryProjectionCache {
      */
     @Nullable
     private Entity createEntity(CompoundTag tag) {
-        Entity entity = EntityType.create(tag, renderWorld).orElse(null);
+        Entity entity;
+        if (tag.getString("id").equals("minecraft:player") && tag.contains(PreviewPlayerData.PROFILE)) {
+            var level = Minecraft.getInstance().level;
+            if (level == null) return null;
+            // RemotePlayer looks up skin/model through tab-list PlayerInfo, even across dimensions.
+            entity = new PreviewPlayer(level, tag);
+        } else {
+            entity = EntityType.create(tag, renderWorld).orElse(null);
+        }
         if (entity == null) {
             LOGGER.warn("Skipping entity {} in the endpoint preview: unknown or disabled type", tag.getString("id"));
             return null;
         }
         entity.setOldPosAndRot();
-        if (entity instanceof LivingEntity living) {
+        if (entity instanceof LivingEntity living && !(entity instanceof PreviewPlayer)) {
             float yaw = living.getYRot();
             living.yBodyRot = yaw;
             living.yBodyRotO = yaw;

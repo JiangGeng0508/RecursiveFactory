@@ -42,6 +42,8 @@ Recursive Factory is a NeoForge mod for Minecraft 1.21.1. It provides a reusable
 
 With Sable installed, entrance previews also show physics structures in the room, including their movement and rotation. Assembling or disassembling entrance blocks preserves their factory and room cells. Rooms containing loaded physics structures stay active while those structures remain there.
 
+In multiplayer, entrance previews show other players in the room, with their skins, equipment, position and pose. Spectators and your own player are hidden from the preview.
+
 Mobs in an unoccupied factory room are protected from distance despawning caused by players in other rooms. This also applies to mobs summoned by command blocks; Peaceful difficulty still removes hostile mobs.
 
 1. Craft and place a Recursive Factory block. Place more of them next to it to grow the room; the room follows the shape of the entrance blocks.

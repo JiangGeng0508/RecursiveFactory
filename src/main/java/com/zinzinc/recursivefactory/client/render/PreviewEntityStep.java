@@ -77,7 +77,7 @@ public final class PreviewEntityStep {
             // An armor stand turns its body inside its own tick instead of in load - its setYBodyRot
             // writes the old value and the head, not the body - so a figure that never ticks would keep
             // the yaw it was built with. Nothing turns these figures but the sample.
-            living.yBodyRot = entity.getYRot();
+            if (!(entity instanceof net.minecraft.world.entity.player.Player)) living.yBodyRot = entity.getYRot();
         }
         entity.tickCount++;
     }

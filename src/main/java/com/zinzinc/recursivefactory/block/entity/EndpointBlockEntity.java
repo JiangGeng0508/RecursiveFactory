@@ -5,6 +5,7 @@ import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
+import com.zinzinc.recursivefactory.world.PreviewPlayerData;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -769,8 +770,8 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     /**
      * Collects the entities inside the same box {@link #samplePreview} covers, as full NBT so that items,
      * named mobs and the like come back on the client the way they are. Positions are rebased on the centre
-     * of the sample, the local frame the blocks use. Players are left out: their entity type refuses to be
-     * rebuilt from NBT on the client, and the person looking at the preview is not its subject anyway.
+     * of the sample, the local frame the blocks use. Players use a public appearance snapshot and a
+     * dedicated client proxy because their entity type cannot be rebuilt through EntityType.create.
      */
     public static List<CompoundTag> samplePreviewEntities(ServerLevel level, BlockPos center, int size, int height) {
         int half = size / 2;
@@ -783,12 +784,20 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
                 center.getZ() - half + size
         );
         List<CompoundTag> sampled = new ArrayList<>();
-        for (Entity entity : level.getEntitiesOfClass(Entity.class, box, EndpointBlockEntity::isPreviewable)) {
+        // Players have their own level list, including arrivals before chunk entity tracking catches up.
+        // Give them priority so a busy mob farm cannot use every slot before its visitors are sampled.
+        List<Entity> entities = new ArrayList<>();
+        for (Player player : level.players()) {
+            if (isPreviewable(player) && player.getBoundingBox().intersects(box)) entities.add(player);
+        }
+        entities.addAll(level.getEntitiesOfClass(Entity.class, box,
+                entity -> !(entity instanceof Player) && isPreviewable(entity)));
+        for (Entity entity : entities) {
             if (sampled.size() >= MAX_PREVIEW_ENTITIES) {
                 break;
             }
-            CompoundTag tag = new CompoundTag();
-            entity.saveWithoutId(tag);
+            CompoundTag tag = entity instanceof Player player ? PreviewPlayerData.sample(player) : new CompoundTag();
+            if (!(entity instanceof Player)) entity.saveWithoutId(tag);
             // saveWithoutId deliberately leaves the type id out (its NBT is not meant to be recreated from),
             // and EntityType.create looks the type up by exactly this key, so it has to be put back in.
             tag.putString("id", EntityType.getKey(entity.getType()).toString());
@@ -807,7 +816,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     }
 
     private static boolean isPreviewable(Entity entity) {
-        return !(entity instanceof Player) && !entity.isSpectator() && !entity.isRemoved();
+        return !entity.isSpectator() && !entity.isRemoved();
     }
 
     private static ListTag newDoubleList(double... values) {
