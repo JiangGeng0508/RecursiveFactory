@@ -60,7 +60,8 @@ public final class EndpointPreviewRenderer {
 
     public static void renderPreview(EndpointBlockEntity blockEntity, PoseStack poseStack,
                                      MultiBufferSource bufferSource, float partialTick) {
-        FactoryProjectionCache cache = getProjectionCache(blockEntity);
+        double clock = FactoryProjectionCache.renderClock(blockEntity.getLevel(), partialTick);
+        FactoryProjectionCache cache = getProjectionCache(blockEntity, clock);
         if (cache == null) {
             return;
         }
@@ -72,11 +73,11 @@ public final class EndpointPreviewRenderer {
         // the base layer and the preview comes out centred on the block however lopsided the room is.
         cache.render(poseStack, bufferSource);
         cache.renderBlockEntities(poseStack, bufferSource, partialTick);
-        cache.renderEntities(poseStack, bufferSource, partialTick);
+        cache.renderEntities(poseStack, bufferSource, clock);
         poseStack.popPose();
     }
 
-    private static FactoryProjectionCache getProjectionCache(EndpointBlockEntity blockEntity) {
+    private static FactoryProjectionCache getProjectionCache(EndpointBlockEntity blockEntity, double clock) {
         if (blockEntity.getLevel() == null
                 || blockEntity.getPreviewBlocks().isEmpty()
                         && blockEntity.getPreviewEntities().isEmpty()
@@ -95,7 +96,7 @@ public final class EndpointPreviewRenderer {
         CachedProjection cached = PROJECTION_CACHE.get(blockEntity);
         if (cached != null && cached.blockHash() == blockHash) {
             if (cached.entityHash() != entityHash) {
-                cached.cache().updateEntities(blockEntity.getPreviewEntities());
+                cached.cache().updateEntities(blockEntity.getPreviewEntities(), clock);
                 PROJECTION_CACHE.put(blockEntity, new CachedProjection(
                         blockHash, entityHash, cached.entities(), cached.cache()
                 ));
@@ -112,7 +113,8 @@ public final class EndpointPreviewRenderer {
                 blockEntity.getPreviewEntities(),
                 blockEntity.getPreviewBlockEntities(),
                 blockEntity.getPreviewWires(),
-                entities
+                entities,
+                clock
         );
         PROJECTION_CACHE.put(blockEntity, new CachedProjection(blockHash, entityHash, entities, rebuilt));
         return rebuilt;

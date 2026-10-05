@@ -75,7 +75,7 @@ public final class FactoryProjectionCache {
     public FactoryProjectionCache(Level level, List<EndpointBlockEntity.PreviewBlock> previewBlocks,
                                   List<CompoundTag> previewEntities, List<CompoundTag> previewBlockEntities,
                                   CompoundTag previewWires,
-                                  EntityStore store) {
+                                  EntityStore store, double clock) {
         this.store = store;
         int minX = Integer.MAX_VALUE;
         int minY = Integer.MAX_VALUE;
@@ -120,7 +120,7 @@ public final class FactoryProjectionCache {
         renderWorld.runLightEngine();
         wires = RecursiveFactory.powerAvailable()
                 ? new FactoryWirePreviewRenderer(previewWires, renderWorld) : null;
-        updateEntities(previewEntities);
+        updateEntities(previewEntities, clock);
         for (CompoundTag tag : previewBlockEntities) {
             try {
                 createBlockEntity(tag);
@@ -183,28 +183,35 @@ public final class FactoryProjectionCache {
         if (wires != null) wires.render(poseStack, bufferSource, renderWorld);
     }
 
+    /** The client clock a preview is timed against: the level's tick counter plus this frame's fraction of a tick. */
+    public static double renderClock(@Nullable Level level, float partialTick) {
+        return (level == null ? 0L : level.getGameTime()) + (double) partialTick;
+    }
+
     /**
      * Draws the room's entities on top of the blocks, in the same local frame and at the same scale, so a
      * mob or a dropped item stands exactly where it stands in the room. Called from a block entity renderer,
      * so a renderer that throws is logged and skipped instead of taking the frame down with it.
      *
-     * <p>Position and yaw are interpolated between the last two samples, the way a real level draws its
-     * entities: samples arrive once a tick, so without this everything would move in steps.
+     * <p>Position and yaw run along the step the newest sample described, timed from the clock reading that
+     * sample arrived at - see {@link PreviewEntityStep} - so a figure moves smoothly however late in a
+     * frame its sample turned up.
      */
-    public void renderEntities(PoseStack poseStack, MultiBufferSource bufferSource, float partialTick) {
+    public void renderEntities(PoseStack poseStack, MultiBufferSource bufferSource, double clock) {
         if (store.entities.isEmpty()) {
             return;
         }
+        float step = store.step.fraction(clock);
         EntityRenderDispatcher dispatcher = Minecraft.getInstance().getEntityRenderDispatcher();
         for (Entity entity : store.entities.values()) {
             try {
                 dispatcher.render(
                         entity,
-                        Mth.lerp(partialTick, entity.xOld, entity.getX()),
-                        Mth.lerp(partialTick, entity.yOld, entity.getY()),
-                        Mth.lerp(partialTick, entity.zOld, entity.getZ()),
-                        Mth.lerp(partialTick, entity.yRotO, entity.getYRot()),
-                        partialTick,
+                        Mth.lerp(step, entity.xOld, entity.getX()),
+                        Mth.lerp(step, entity.yOld, entity.getY()),
+                        Mth.lerp(step, entity.zOld, entity.getZ()),
+                        Mth.lerp(step, entity.yRotO, entity.getYRot()),
+                        step,
                         poseStack,
                         bufferSource,
                         LightTexture.FULL_BRIGHT
@@ -221,8 +228,14 @@ public final class FactoryProjectionCache {
      * ticked, so it has no previous position, no previous rotation and no age, and between two samples its
      * renderer snaps to the sample and restarts its own animation - which is what made moving and turning
      * entities twitch.
+     *
+     * <p>A sample list handed over unchanged - a room whose blocks moved but whose entities did not - is
+     * left alone, so a step that is still running is not restarted under the figures being drawn.
      */
-    public void updateEntities(List<CompoundTag> samples) {
+    public void updateEntities(List<CompoundTag> samples, double clock) {
+        if (!store.step.note(samples, clock)) {
+            return;
+        }
         Set<String> seen = new HashSet<>();
         for (int index = 0; index < samples.size(); index++) {
             CompoundTag tag = samples.get(index);
@@ -243,7 +256,7 @@ public final class FactoryProjectionCache {
                     }
                     store.entities.put(id, entity);
                 } else {
-                    loadSampleInto(entity, tag);
+                    PreviewEntityStep.applySample(entity, tag);
                 }
                 seen.add(id);
             } catch (RuntimeException exception) {
@@ -279,43 +292,6 @@ public final class FactoryProjectionCache {
 
     private static boolean isOfType(Entity entity, CompoundTag tag) {
         return EntityType.getKey(entity.getType()).toString().equals(tag.getString("id"));
-    }
-
-    /**
-     * Moves an entity that is already there onto a newer sample. {@code Entity.load} also puts the fields the
-     * renderer interpolates with back in line with the sample - it ends by calling {@code setOldPosAndRot} -
-     * so the previous position, rotation and age are carried over by hand, which leaves the entity in the
-     * state a real one is in between two ticks. The tick counter is moved on by hand too, because nothing
-     * ticks these entities, and a counter stuck at zero would restart whatever is animated with it.
-     */
-    private void loadSampleInto(Entity entity, CompoundTag tag) {
-        double xo = entity.xo;
-        double yo = entity.yo;
-        double zo = entity.zo;
-        double xOld = entity.xOld;
-        double yOld = entity.yOld;
-        double zOld = entity.zOld;
-        float yRotO = entity.yRotO;
-        float xRotO = entity.xRotO;
-        LivingEntity living = entity instanceof LivingEntity candidate ? candidate : null;
-        float yBodyRotO = living == null ? 0.0F : living.yBodyRotO;
-        float yHeadRotO = living == null ? 0.0F : living.yHeadRotO;
-
-        entity.load(tag);
-
-        entity.xo = xo;
-        entity.yo = yo;
-        entity.zo = zo;
-        entity.xOld = xOld;
-        entity.yOld = yOld;
-        entity.zOld = zOld;
-        entity.yRotO = yRotO;
-        entity.xRotO = xRotO;
-        if (living != null) {
-            living.yBodyRotO = yBodyRotO;
-            living.yHeadRotO = yHeadRotO;
-        }
-        entity.tickCount++;
     }
 
     /**
@@ -536,6 +512,8 @@ public final class FactoryProjectionCache {
     public static final class EntityStore {
         private final Map<String, Entity> entities = new LinkedHashMap<>();
         private final List<BlockPos> renderedPositions = new ArrayList<>();
+        /** Which sample the entities stand on and when it arrived, see {@link PreviewEntityStep}. */
+        final PreviewEntityStep step = new PreviewEntityStep();
         private @Nullable VirtualRenderWorld renderWorld;
         private int worldHeight;
     }
