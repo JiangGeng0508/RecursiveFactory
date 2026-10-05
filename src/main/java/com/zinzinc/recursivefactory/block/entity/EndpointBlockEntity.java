@@ -12,6 +12,7 @@ import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.core.NonNullList;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.DoubleTag;
@@ -41,6 +42,16 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     private static final String COLOR_TAG = "Color";
     private static final String PENDING_STACK_TAG = "PendingStack";
     private static final String PENDING_INPUT_TAG = "PendingInput";
+    private static final String PENDING_ITEMS_TAG = "PendingItems";
+    private static final String PENDING_ITEM_TAG = "Item";
+    private static final String PENDING_ITEM_FACE_TAG = "Face";
+    private static final String PENDING_ITEM_SLOT_TAG = "Slot";
+    /**
+     * How many stacks the link holds on their way across. One slot per stack, each remembering the face
+     * it came in through, so a mixed stream crosses instead of the second item having to wait for the
+     * first (see {@link #pendingStacks}).
+     */
+    public static final int PENDING_SLOTS = 9;
     private static final String PENDING_FLUID_TAG = "PendingFluid";
     private static final String PENDING_FLUID_INPUT_TAG = "PendingFluidInput";
     private static final int FACE_COUNT = Direction.values().length;
@@ -94,8 +105,14 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
      * lead into it always come out the same colour.
      */
     private int colorIndex = FactoryColors.NO_COLOR;
-    private ItemStack pendingStack = ItemStack.EMPTY;
-    private @Nullable Direction pendingInput;
+    /**
+     * Stacks on their way across the link, one slot each, together with the face each came in through.
+     * Holding a single stack of a single item made a second kind of item - or the same item pushed in
+     * through another face - wait for the first to leave, so a hopper feeding a mixed stream jammed; a
+     * row of slots lets a mixed stream cross, and every slot still leaves by the side its own face picks.
+     */
+    private final NonNullList<ItemStack> pendingStacks = NonNullList.withSize(PENDING_SLOTS, ItemStack.EMPTY);
+    private final Direction[] pendingInputs = new Direction[PENDING_SLOTS];
     private FluidStack pendingFluid = FluidStack.EMPTY;
     private @Nullable Direction pendingFluidInput;
     /**
@@ -286,6 +303,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         tag.remove(COLOR_TAG);
         tag.remove(PENDING_STACK_TAG);
         tag.remove(PENDING_INPUT_TAG);
+        tag.remove(PENDING_ITEMS_TAG);
         tag.remove(PENDING_FLUID_TAG);
         tag.remove(PENDING_FLUID_INPUT_TAG);
         tag.remove(INPUT_POWER_TAG);
@@ -361,7 +379,25 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         level.setBlock(worldPosition, state.setValue(FactoryColors.COLOR_PROPERTY, wanted), Block.UPDATE_ALL);
     }
 
-    /** Takes a stack through a named face; the face determines where the buffer sends it. */
+    /** Takes a stack through a named face into the one slot it names; only that slot is looked at. */
+    public ItemStack offer(int slot, ItemStack stack, @Nullable Direction inputSide, boolean simulate) {
+        if (stack.isEmpty() || !hasFactoryId() || inputSide == null
+                || slot < 0 || slot >= PENDING_SLOTS) {
+            return stack;
+        }
+        ItemStack pending = pendingStacks.get(slot);
+        if (!pending.isEmpty()
+                && (pendingInputs[slot] != inputSide || !ItemStack.isSameItemSameComponents(pending, stack))) {
+            return stack;
+        }
+        return accept(slot, stack, inputSide, simulate);
+    }
+
+    /**
+     * Takes a stack through a named face without naming a slot: a slot already carrying the same item
+     * from the same face first, then a free one. A caller that does have a slot of its own - a hopper is
+     * handed one per slot of this buffer - uses {@link #offer(int, ItemStack, Direction, boolean)}.
+     */
     public ItemStack offer(ItemStack stack, @Nullable Direction inputSide) {
         return offer(stack, inputSide, false);
     }
@@ -371,41 +407,78 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         if (stack.isEmpty() || !hasFactoryId() || inputSide == null) {
             return stack;
         }
-        if (!pendingStack.isEmpty()
-                && (pendingInput != inputSide || !ItemStack.isSameItemSameComponents(pendingStack, stack))) {
-            return stack;
+        ItemStack remainder = stack;
+        for (int pass = 0; pass < 2; pass++) {
+            for (int slot = 0; slot < PENDING_SLOTS && !remainder.isEmpty(); slot++) {
+                // Merge first, then use empty slots. A full matching stack must not hide free slots.
+                if (pendingStacks.get(slot).isEmpty() == (pass == 1)) {
+                    remainder = offer(slot, remainder, inputSide, simulate);
+                }
+            }
         }
-        int space = Math.min(64, stack.getMaxStackSize()) - pendingStack.getCount();
+        return remainder;
+    }
+
+    /** Puts as much of an already-vetted stack into its slot as fits, and answers the rest. */
+    private ItemStack accept(int slot, ItemStack stack, Direction inputSide, boolean simulate) {
+        ItemStack pending = pendingStacks.get(slot);
+        int space = Math.min(64, stack.getMaxStackSize()) - pending.getCount();
         int accepted = Math.min(space, stack.getCount());
         if (accepted <= 0) {
             return stack;
         }
         if (!simulate) {
-            if (pendingStack.isEmpty()) {
-                pendingInput = inputSide;
-                pendingStack = stack.copyWithCount(accepted);
+            if (pending.isEmpty()) {
+                pendingStacks.set(slot, stack.copyWithCount(accepted));
             } else {
-                pendingStack.grow(accepted);
+                pending.grow(accepted);
             }
+            pendingInputs[slot] = inputSide;
             setChanged();
         }
         return stack.copyWithCount(stack.getCount() - accepted);
     }
 
     public ItemStack getPendingStack() {
-        return pendingStack;
+        return getPendingStack(0);
     }
 
     public @Nullable Direction getPendingInput() {
-        return pendingInput;
+        return getPendingInput(0);
     }
 
-    public void setTransportResult(ItemStack remainder) {
-        pendingStack = remainder.copy();
-        if (pendingStack.isEmpty()) {
-            pendingInput = null;
+    public ItemStack getPendingStack(int slot) {
+        return slot < 0 || slot >= PENDING_SLOTS ? ItemStack.EMPTY : pendingStacks.get(slot);
+    }
+
+    public @Nullable Direction getPendingInput(int slot) {
+        return slot < 0 || slot >= PENDING_SLOTS ? null : pendingInputs[slot];
+    }
+
+    /** True while anything at all is waiting to cross, which is when transport has work to do. */
+    public boolean hasPendingItems() {
+        for (ItemStack pending : pendingStacks) {
+            if (!pending.isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void setTransportResult(int slot, ItemStack remainder) {
+        if (slot < 0 || slot >= PENDING_SLOTS) {
+            return;
+        }
+        pendingStacks.set(slot, remainder.copy());
+        if (remainder.isEmpty()) {
+            pendingInputs[slot] = null;
         }
         setChanged();
+    }
+
+    /** The first slot, for callers whose items all come in through one face. */
+    public void setTransportResult(ItemStack remainder) {
+        setTransportResult(0, remainder);
     }
 
     /**
@@ -787,6 +860,19 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         }
     }
 
+    /** The slot an entry asked for, moved along if it is taken, so a hand-edited save still loads. */
+    private int readPendingSlot(CompoundTag entry, int fallback) {
+        int wanted = entry.contains(PENDING_ITEM_SLOT_TAG)
+                ? Mth.clamp(entry.getInt(PENDING_ITEM_SLOT_TAG), 0, PENDING_SLOTS - 1)
+                : Math.min(fallback, PENDING_SLOTS - 1);
+        for (int step = 0; step < PENDING_SLOTS; step++) {
+            int slot = (wanted + step) % PENDING_SLOTS;
+            if (pendingStacks.get(slot).isEmpty()) {
+                return slot;
+            }
+        }
+        return wanted;
+    }
     @Override
     protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.write(tag, registries, clientPacket);
@@ -796,11 +882,23 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         if (hasColorIndex()) {
             tag.putInt(COLOR_TAG, colorIndex);
         }
-        if (!pendingStack.isEmpty()) {
-            tag.put(PENDING_STACK_TAG, pendingStack.save(registries));
-            if (pendingInput != null) {
-                tag.putString(PENDING_INPUT_TAG, pendingInput.getSerializedName());
+        ListTag pending = new ListTag();
+        for (int slot = 0; slot < PENDING_SLOTS; slot++) {
+            ItemStack stack = pendingStacks.get(slot);
+            if (stack.isEmpty()) {
+                continue;
             }
+            CompoundTag entry = new CompoundTag();
+            entry.putInt(PENDING_ITEM_SLOT_TAG, slot);
+            entry.put(PENDING_ITEM_TAG, stack.save(registries));
+            Direction face = pendingInputs[slot];
+            if (face != null) {
+                entry.putString(PENDING_ITEM_FACE_TAG, face.getSerializedName());
+            }
+            pending.add(entry);
+        }
+        if (!pending.isEmpty()) {
+            tag.put(PENDING_ITEMS_TAG, pending);
         }
         if (!pendingFluid.isEmpty()) {
             tag.put(PENDING_FLUID_TAG, pendingFluid.saveOptional(registries));
@@ -827,12 +925,31 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         outwardFaces = 0;
         factoryId = tag.contains(FACTORY_ID_TAG) ? tag.getInt(FACTORY_ID_TAG) : -1;
         colorIndex = tag.contains(COLOR_TAG) ? tag.getInt(COLOR_TAG) : FactoryColors.NO_COLOR;
-        pendingStack = tag.contains(PENDING_STACK_TAG)
-                ? ItemStack.parse(registries, tag.getCompound(PENDING_STACK_TAG)).orElse(ItemStack.EMPTY)
-                : ItemStack.EMPTY;
-        pendingInput = tag.contains(PENDING_INPUT_TAG)
-                ? Direction.byName(tag.getString(PENDING_INPUT_TAG))
-                : null;
+        Arrays.fill(pendingInputs, null);
+        pendingStacks.replaceAll(ignored -> ItemStack.EMPTY);
+        if (tag.contains(PENDING_ITEMS_TAG)) {
+            ListTag pending = tag.getList(PENDING_ITEMS_TAG, Tag.TAG_COMPOUND);
+            for (int entry = 0; entry < pending.size(); entry++) {
+                CompoundTag item = pending.getCompound(entry);
+                ItemStack stack = ItemStack.parse(registries, item.getCompound(PENDING_ITEM_TAG))
+                        .orElse(ItemStack.EMPTY);
+                if (stack.isEmpty()) {
+                    continue;
+                }
+                int slot = readPendingSlot(item, entry);
+                pendingStacks.set(slot, stack);
+                pendingInputs[slot] = item.contains(PENDING_ITEM_FACE_TAG)
+                        ? Direction.byName(item.getString(PENDING_ITEM_FACE_TAG))
+                        : null;
+            }
+        } else if (tag.contains(PENDING_STACK_TAG)) {
+            // Saves from when the link held one stack: it becomes the first slot.
+            pendingStacks.set(0, ItemStack.parse(registries, tag.getCompound(PENDING_STACK_TAG))
+                    .orElse(ItemStack.EMPTY));
+            pendingInputs[0] = tag.contains(PENDING_INPUT_TAG)
+                    ? Direction.byName(tag.getString(PENDING_INPUT_TAG))
+                    : null;
+        }
         pendingFluid = FluidStack.parseOptional(registries, tag.getCompound(PENDING_FLUID_TAG));
         pendingFluidInput = tag.contains(PENDING_FLUID_INPUT_TAG)
                 ? Direction.byName(tag.getString(PENDING_FLUID_INPUT_TAG))

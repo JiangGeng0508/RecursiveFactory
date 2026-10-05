@@ -1,6 +1,7 @@
 package com.zinzinc.recursivefactory.block.entity;
 
 import com.mojang.logging.LogUtils;
+import com.simibubi.create.api.packager.InventoryIdentifier;
 import com.simibubi.create.content.fluids.FluidPropagator;
 import com.zinzinc.recursivefactory.block.FactoryBarrierBlock;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
@@ -8,9 +9,12 @@ import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import javax.annotation.Nullable;
+import net.createmod.catnip.math.BlockFace;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
@@ -61,19 +65,31 @@ public final class FactoryRelay {
     }
 
     public static void transport(EndpointBlockEntity local) {
-        if (local.getPendingStack().isEmpty() || local.getPendingInput() == null
-                || !(local.getLevel() instanceof ServerLevel localLevel)) {
+        if (!local.hasPendingItems() || !(local.getLevel() instanceof ServerLevel localLevel)) {
             return;
         }
+        // Every slot is one stack with its own input face, and it is that face - not whichever face the
+        // previous stack came through - that picks the side of the far end it leaves by. A mixed stream
+        // therefore crosses without the second kind of item having to wait for the first, which is what
+        // jammed a link that held a single stack (see EndpointBlockEntity#pendingStacks).
+        for (int slot = 0; slot < EndpointBlockEntity.PENDING_SLOTS; slot++) {
+            ItemStack waiting = local.getPendingStack(slot);
+            Direction inputFace = local.getPendingInput(slot);
+            if (!waiting.isEmpty() && inputFace != null) {
+                transport(localLevel, local, slot, waiting, inputFace);
+            }
+        }
+    }
 
-        List<RemoteEndpoint> remotes =
-                resolveRemotes(localLevel, local, local.getPendingInput());
+    /** Pushes one buffered stack towards the far end, out of the side its own input face picks. */
+    private static void transport(ServerLevel localLevel, EndpointBlockEntity local, int slot,
+                                  ItemStack waiting, Direction inputFace) {
+        List<RemoteEndpoint> remotes = resolveRemotes(localLevel, local, inputFace);
         if (remotes.isEmpty()) {
             return;
         }
 
-        Direction outputSide = local.getPendingInput().getOpposite();
-        ItemStack waiting = local.getPendingStack();
+        Direction outputSide = inputFace.getOpposite();
         for (RemoteEndpoint remote : remotes) {
             BlockPos outputPos = remote.outputPos(outputSide);
             IItemHandler target = remote.level().getCapability(
@@ -93,14 +109,14 @@ public final class FactoryRelay {
                 // each thought the other had it, without a word in the log.
                 continue;
             }
-            local.setTransportResult(remainder);
+            local.setTransportResult(slot, remainder);
             local.noteBlockedTransport(null);
             return;
         }
 
-        // Nowhere to put it, anywhere along the far end. The stack stays in the buffer, so the inserter
-        // backs up instead of the item being lost, and the wait is reported once per face rather than once
-        // per tick.
+        // Nowhere to put it, anywhere along the far end. The stack stays in its slot, so the inserter backs
+        // up instead of the item being lost, and the wait is reported once per face rather than once per
+        // tick.
         if (local.noteBlockedTransport(outputSide)) {
             LOGGER.info("Item {} is waiting in {}: nothing at {} would take it ({} positions tried)",
                     waiting, local.getBlockPos(), remotes.get(0).outputPos(outputSide), remotes.size());
@@ -177,29 +193,71 @@ public final class FactoryRelay {
      * side asks the room about all of them ({@code null} for the sides this end has nothing to say on).
      */
     public static ItemStack extract(EndpointBlockEntity local, @Nullable Direction face, int amount, boolean simulate) {
-        if (amount <= 0 || !(local.getLevel() instanceof ServerLevel localLevel)) {
+        if (amount <= 0) {
             return ItemStack.EMPTY;
         }
+        for (IItemHandler target : itemSources(local, face)) {
+            for (int slot = 0; slot < target.getSlots(); slot++) {
+                ItemStack taken = target.extractItem(slot, amount, simulate);
+                if (!taken.isEmpty()) {
+                    return taken;
+                }
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
+    /** Inventories exposed for extraction, in the same order for slot counts, reads and extraction. */
+    static List<IItemHandler> itemSources(EndpointBlockEntity local, @Nullable Direction face) {
+        List<ItemSource> sources = new ArrayList<>();
+        collectItemSources(local, face, new HashSet<>(), sources);
+        return sources.stream().map(ItemSource::handler).toList();
+    }
+
+    private record ItemRoute(EndpointBlockEntity endpoint, Direction face) { }
+    private record ItemSource(ServerLevel level, InventoryIdentifier inventory, IItemHandler handler) { }
+
+    private static void collectItemSources(EndpointBlockEntity local, @Nullable Direction face,
+                                           Set<ItemRoute> path, List<ItemSource> sources) {
+        if (!(local.getLevel() instanceof ServerLevel localLevel)) {
+            return;
+        }
         for (Direction inputFace : face == null ? Direction.values() : new Direction[]{face}) {
+            ItemRoute route = new ItemRoute(local, inputFace);
+            if (!path.add(route)) {
+                continue;
+            }
             Direction outputSide = inputFace.getOpposite();
             for (RemoteEndpoint remote : resolveRemotes(localLevel, local, inputFace)) {
+                BlockPos outputPos = remote.outputPos(outputSide);
                 IItemHandler target = remote.level().getCapability(
                         Capabilities.ItemHandler.BLOCK,
-                        remote.outputPos(outputSide),
+                        outputPos,
                         outputSide.getOpposite()
                 );
                 if (target == null) {
                     continue;
                 }
-                for (int slot = 0; slot < target.getSlots(); slot++) {
-                    ItemStack taken = target.extractItem(slot, amount, simulate);
-                    if (!taken.isEmpty()) {
-                        return taken;
+                if (remote.level().getBlockEntity(outputPos) instanceof EndpointBlockEntity next) {
+                    // Follow nested links without exposing their incoming buffers or recursing in a loop.
+                    collectItemSources(next, outputSide.getOpposite(), path, sources);
+                } else {
+                    BlockFace access = new BlockFace(outputPos, outputSide.getOpposite());
+                    boolean duplicate = sources.stream().anyMatch(source -> source.level() == remote.level()
+                            && (source.handler().equals(target) || source.inventory().contains(access)));
+                    if (!duplicate) {
+                        // A double chest or vault can touch several wall positions. Exposing it twice
+                        // would let exact-count extraction simulations spend the same items twice.
+                        InventoryIdentifier inventory = InventoryIdentifier.get(remote.level(), access);
+                        if (inventory == null) {
+                            inventory = new InventoryIdentifier.MultiFace(outputPos, Set.of(access.getFace()));
+                        }
+                        sources.add(new ItemSource(remote.level(), inventory, target));
                     }
                 }
             }
+            path.remove(route);
         }
-        return ItemStack.EMPTY;
     }
 
     /**
