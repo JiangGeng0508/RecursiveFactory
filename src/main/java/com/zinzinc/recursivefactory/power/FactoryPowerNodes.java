@@ -370,7 +370,7 @@ public final class FactoryPowerNodes {
         Vec3 pos = off(support, facing);
         double rank = side == FactoryPowerLinks.OUTSIDE ? 0 : pos.distanceToSqr(Vec3.atCenterOf(cell.center()));
         return new Terminal(new FactoryPowerLinks.End(
-                new FactoryPowerLinks.LinkKey(record.id(), cell.roomX(), cell.roomZ(), face), side),
+                new FactoryPowerLinks.LinkKey(record.id(), cell.roomX(), cell.roomY(), cell.roomZ(), face), side),
                 level, pos, wall, rank);
     }
 

@@ -207,8 +207,9 @@ public final class FactoryWires {
     }
 
     private static boolean inside(FactoryData.FactoryRecord room, Vec3 pos) {
-        if (pos.y < FactoryData.BASE_Y - .03 || pos.y > FactoryData.CEILING_Y + 1.03) return false;
-        return room.cells().stream().anyMatch(cell -> pos.x >= cell.roomX() - .03
+        return room.cells().stream().anyMatch(cell -> pos.y >= cell.baseY() - .03
+                && pos.y <= cell.ceilingY() + 1.03
+                && pos.x >= cell.roomX() - .03
                 && pos.x <= cell.roomX() + FactoryData.CELL_SIZE + .03
                 && pos.z >= cell.roomZ() - .03 && pos.z <= cell.roomZ() + FactoryData.CELL_SIZE + .03);
     }

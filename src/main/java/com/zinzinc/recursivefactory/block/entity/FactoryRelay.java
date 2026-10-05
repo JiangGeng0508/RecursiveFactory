@@ -446,8 +446,8 @@ public final class FactoryRelay {
         var room = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
         if (cell == null || room == null) return List.of();
         List<RemoteEndpoint> remotes = new ArrayList<>();
-        int minY = face == Direction.UP ? FactoryData.CEILING_Y : FactoryData.BASE_Y;
-        int maxY = face == Direction.DOWN ? FactoryData.BASE_Y : FactoryData.CEILING_Y;
+        int minY = face == Direction.UP ? cell.ceilingY() : cell.baseY();
+        int maxY = face == Direction.DOWN ? cell.baseY() : cell.ceilingY();
         int minX = cell.roomX() + (face == Direction.EAST ? FactoryData.CELL_SIZE - 1 : 0);
         int maxX = cell.roomX() + (face == Direction.WEST ? 0 : FactoryData.CELL_SIZE - 1);
         int minZ = cell.roomZ() + (face == Direction.SOUTH ? FactoryData.CELL_SIZE - 1 : 0);

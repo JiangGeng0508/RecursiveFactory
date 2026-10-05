@@ -139,11 +139,15 @@ public final class FactoryDimension {
         }
 
         Block barrier = ModBlocks.FACTORY_BARRIER.get();
-        int firstY = FactoryData.CEILING_Y + 1;
-        int lastY = FactoryData.BASE_Y + TALLEST_SHELL_EVER - 1;
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int x = minX; x <= maxX; x++) {
             for (int z = minZ; z <= maxZ; z++) {
+                int ceiling = record.columnCeilingY(x, z);
+                if (ceiling == Integer.MIN_VALUE) {
+                    continue;
+                }
+                int firstY = ceiling + 1;
+                int lastY = firstY + (TALLEST_SHELL_EVER - FactoryData.ROOM_HEIGHT);
                 for (int y = firstY; y <= lastY; y++) {
                     BlockPos pos = cursor.set(x, y, z);
                     if (!level.getBlockState(pos).is(barrier)) {
@@ -394,13 +398,23 @@ public final class FactoryDimension {
         FactoryData data = server == null ? null : FactoryData.get(server);
         boolean grewFloor = false;
         for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            if (record.hasCellBelow(cell)) {
+                // A cell that was stacked on keeps neither a floor nor a seal of its own: the layer under
+                // it is now inside the room, and the only floor is the one at the bottom of the column.
+                clearFloorLayer(level, cell);
+                clearSealLayer(level, cell);
+                if (data != null) {
+                    data.markFloorLaid(record.id(), cell.roomX(), cell.roomY(), cell.roomZ(), false);
+                }
+                continue;
+            }
             if (generateFloor(level, cell)) {
                 // The floor went down for the first time: remember it, so it is not laid again.
                 grewFloor = true;
                 LOGGER.debug("Factory #{}: laid the floor of the room cell at {} for the first time",
                         record.id(), cell.entrance().toShortString());
                 if (data != null) {
-                    data.markFloorLaid(record.id(), cell.roomX(), cell.roomZ());
+                    data.markFloorLaid(record.id(), cell.roomX(), cell.roomY(), cell.roomZ(), true);
                 }
             }
             sealFloor(level, cell);
@@ -443,10 +457,10 @@ public final class FactoryDimension {
                                           Direction direction) {
         BlockPos center = cell.center();
         if (direction.getAxis().isVertical()) {
-            int y = direction == Direction.UP ? FactoryData.CEILING_Y : FactoryData.BASE_Y;
+            int y = direction == Direction.UP ? cell.ceilingY() : cell.baseY();
             List<BlockPos> row = new ArrayList<>();
             for (int x = cell.roomX(); x < cell.roomX() + FactoryData.CELL_SIZE; x++) {
-                if (!record.roomContains(x, center.getZ())) {
+                if (!record.roomContains(x, y, center.getZ())) {
                     continue;
                 }
                 BlockPos column = new BlockPos(x, y, center.getZ());
@@ -464,8 +478,8 @@ public final class FactoryDimension {
         List<BlockPos> wall = new ArrayList<>();
         for (int offset = 0; offset < FactoryData.CELL_SIZE; offset++) {
             BlockPos cursor = alongX
-                    ? new BlockPos(cell.roomX() + start, FactoryData.FLOOR_Y + 1, cell.roomZ() + offset)
-                    : new BlockPos(cell.roomX() + offset, FactoryData.FLOOR_Y + 1, cell.roomZ() + start);
+                    ? new BlockPos(cell.roomX() + start, cell.floorY() + 1, cell.roomZ() + offset)
+                    : new BlockPos(cell.roomX() + offset, cell.floorY() + 1, cell.roomZ() + start);
             if (shellSide(record, cursor) == direction && inward(record, cursor, direction) != null) {
                 wall.add(cursor);
             }
@@ -487,8 +501,7 @@ public final class FactoryDimension {
             if (isFreeSpace(record, cursor)) {
                 return cursor.immutable();
             }
-            if (!record.roomContains(cursor.getX(), cursor.getZ())
-                    || cursor.getY() < FactoryData.FLOOR_Y || cursor.getY() > FactoryData.CEILING_Y) {
+            if (!record.roomContains(cursor)) {
                 return null;
             }
         }
@@ -501,10 +514,13 @@ public final class FactoryDimension {
      * reaches the shell from there (see {@code KineticRelay#takesShaft}).
      */
     public static boolean isFreeSpace(FactoryData.FactoryRecord record, BlockPos pos) {
-        return record.roomContains(pos)
-                && !isShellColumn(record, pos.getX(), pos.getZ())
-                && pos.getY() > FactoryData.FLOOR_Y
-                && pos.getY() < FactoryData.CEILING_Y;
+        int x = pos.getX();
+        int y = pos.getY();
+        int z = pos.getZ();
+        return record.roomContains(x, y, z)
+                && !isShellPosition(record, x, y, z)
+                && y > record.columnBaseY(x, z)
+                && y < record.columnCeilingY(x, z);
     }
 
     /**
@@ -519,20 +535,20 @@ public final class FactoryDimension {
      */
     @Nullable
     public static Direction shellSide(FactoryData.FactoryRecord record, BlockPos pos) {
-        if (!record.roomContains(pos.getX(), pos.getZ())) {
+        int x = pos.getX();
+        int y = pos.getY();
+        int z = pos.getZ();
+        if (!record.roomContains(x, y, z)) {
             return null;
         }
-        if (pos.getY() == FactoryData.BASE_Y) {
+        if (y == record.columnBaseY(x, z)) {
             return Direction.DOWN;
         }
-        if (pos.getY() == FactoryData.CEILING_Y) {
+        if (y == record.columnCeilingY(x, z)) {
             return Direction.UP;
         }
-        if (pos.getY() < FactoryData.BASE_Y || pos.getY() > FactoryData.CEILING_Y) {
-            return null;
-        }
         for (Direction side : Direction.Plane.HORIZONTAL) {
-            if (!record.roomContains(pos.getX() + side.getStepX(), pos.getZ() + side.getStepZ())) {
+            if (!record.roomContains(x + side.getStepX(), y, z + side.getStepZ())) {
                 return side;
             }
         }
@@ -577,14 +593,16 @@ public final class FactoryDimension {
         }
         Set<Long> laid = new HashSet<>();
         for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
-            laid.add(ChunkPos.asLong(cell.roomX() - anchor.roomX(), cell.roomZ() - anchor.roomZ()));
+            laid.add(cellKey(cell.roomX() - anchor.roomX(), cell.roomY() - anchor.roomY(),
+                    cell.roomZ() - anchor.roomZ()));
         }
         boolean grew = false;
         for (BlockPos offset : offsets) {
-            if (!laid.add(ChunkPos.asLong(offset.getX(), offset.getZ()))) {
+            if (!laid.add(cellKey(offset.getX(), offset.getY(), offset.getZ()))) {
                 continue;
             }
-            data.addRoomCell(roomId, anchor.roomX() + offset.getX(), anchor.roomZ() + offset.getZ());
+            data.addRoomCell(roomId, anchor.roomX() + offset.getX(), anchor.roomY() + offset.getY(),
+                    anchor.roomZ() + offset.getZ());
             grew = true;
         }
         FactoryData.FactoryRecord sized = data.factory(roomId);
@@ -627,8 +645,10 @@ public final class FactoryDimension {
         if (level.getServer() == null || !(level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity entrance)) return false;
         FactoryData data = FactoryData.get(level.getServer());
         FactoryData.FactoryRecord room = data.factory(roomId);
-        if (room == null || !data.bindRoomEntranceCell(roomId, level.dimension().location(), pos,
-                room.baseChunk().getMinBlockX() + offset.getX(), room.baseChunk().getMinBlockZ() + offset.getZ())) return false;
+        FactoryData.FactoryRecord.Cell anchor = room == null ? null : room.anchorCell();
+        if (room == null || anchor == null || !data.bindRoomEntranceCell(roomId, level.dimension().location(), pos,
+                anchor.roomX() + offset.getX(), anchor.roomY() + offset.getY(),
+                anchor.roomZ() + offset.getZ())) return false;
         entrance.clearDoor();
         entrance.setFactoryId(roomId);
         entrance.setColorIndex(room.colorIndex());
@@ -672,11 +692,7 @@ public final class FactoryDimension {
      * used to be its edge. The checkerboard floor and the bedrock seal below it are left alone.
      */
     public static void clearShellAround(ServerLevel level, FactoryData.FactoryRecord.Cell cell) {
-        sweepBarriers(
-                level,
-                cell.roomX(), cell.roomZ(),
-                cell.roomX() + FactoryData.CELL_SIZE - 1, cell.roomZ() + FactoryData.CELL_SIZE - 1
-        );
+        sweepBarriers(level, cell);
     }
 
     /**
@@ -699,11 +715,15 @@ public final class FactoryDimension {
         int maxX = Integer.MIN_VALUE;
         int minZ = Integer.MAX_VALUE;
         int maxZ = Integer.MIN_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxY = Integer.MIN_VALUE;
         for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
             minX = Math.min(minX, cell.roomX());
             maxX = Math.max(maxX, cell.roomX() + FactoryData.CELL_SIZE - 1);
             minZ = Math.min(minZ, cell.roomZ());
             maxZ = Math.max(maxZ, cell.roomZ() + FactoryData.CELL_SIZE - 1);
+            minY = Math.min(minY, cell.baseY());
+            maxY = Math.max(maxY, cell.ceilingY());
         }
 
         Block barrier = ModBlocks.FACTORY_BARRIER.get();
@@ -716,23 +736,40 @@ public final class FactoryDimension {
                 FactoryColors.COLOR_PROPERTY,
                 FactoryColors.stateValue(FactoryColors.kindOfFactory(record.colorIndex(), record.id()))
         );
-        int bottom = FactoryData.BASE_Y;
-        int top = FactoryData.CEILING_Y;
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int x = minX; x <= maxX; x++) {
             for (int z = minZ; z <= maxZ; z++) {
-                boolean perimeter = isShellColumn(record, x, z);
-                boolean insideRoom = record.roomContains(cursor.set(x, FactoryData.FLOOR_Y, z));
-                for (int y = bottom; y <= top; y++) {
+                if (!record.roomContains(x, z)) {
+                    // Nothing of this factory stands on this column: only the leftover wall of a cell that
+                    // has since gone can be here, and that is taken down.
+                    for (int y = minY; y <= maxY; y++) {
+                        BlockPos pos = cursor.set(x, y, z);
+                        if (level.getBlockState(pos).is(barrier) && nearCellEdge(record, x, y, z)) {
+                            level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
+                        }
+                    }
+                    continue;
+                }
+                int columnBase = record.columnBaseY(x, z);
+                int columnCeiling = record.columnCeilingY(x, z);
+                int floorY = columnBase + (FactoryData.FLOOR_Y - FactoryData.BASE_Y);
+                for (int y = columnBase; y <= columnCeiling; y++) {
+                    if (!record.roomContains(x, y, z)) {
+                        // A gap between two cells of the same column, left by a cell that was broken in
+                        // between: nothing of the room stands here.
+                        continue;
+                    }
                     BlockPos pos = cursor.set(x, y, z);
-                    boolean wanted = perimeter || y == bottom || y == top;
+                    boolean wanted = isShellPosition(record, x, y, z)
+                            || !record.roomContains(x, y - 1, z)
+                            || !record.roomContains(x, y + 1, z);
                     BlockState state = level.getBlockState(pos);
                     if (wanted) {
                         if (state != shellState) {
                             level.setBlock(pos, shellState, 3);
                             linkBarrier(level, pos, record);
                         }
-                    } else if (y == FactoryData.FLOOR_Y && insideRoom) {
+                    } else if (y == floorY) {
                         // Growing a room takes the wall that used to stand between two cells away again,
                         // and that wall stood on the floor layer: lay the checkerboard back down along the
                         // join, or the seam between the two cells shows as a one block wide hole in the
@@ -745,12 +782,41 @@ public final class FactoryDimension {
                         if (wallHere || seamHole || brokenHole) {
                             level.setBlock(pos, floorState(x, z), 3);
                         }
-                    } else if (state.is(barrier) && nearCellEdge(record, x, z)) {
+                    } else if (state.is(barrier)
+                            && (ownedBy(level, pos, record.id()) || nearCellEdge(record, x, y, z))) {
+                        level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
+                    } else if (state.is(Blocks.BEDROCK)) {
+                        // The seal of a cell that has since been stacked on lies inside the room now.
+                        level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
+                    } else if (isStaleFloor(record, x, y, z, state)) {
                         level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
                     }
                 }
             }
         }
+    }
+
+    /** Whether a barrier block belongs to the factory it is being rebuilt for. */
+    private static boolean ownedBy(ServerLevel level, BlockPos pos, int factoryId) {
+        return level.getBlockEntity(pos) instanceof FactoryBarrierBlockEntity barrier
+                && barrier.hasFactoryId()
+                && barrier.getFactoryId() == factoryId;
+    }
+
+    /**
+     * True when a room position is the checkerboard floor of a cell that has since been stacked on: that
+     * floor lies inside the room now and is taken away, so only the floor at the bottom of a column stays.
+     */
+    private static boolean isStaleFloor(FactoryData.FactoryRecord record, int x, int y, int z, BlockState state) {
+        if (!state.equals(floorState(x, z))) {
+            return false;
+        }
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            if (cell.floorY() == y && record.hasCellBelow(cell) && cell.contains(x, y, z)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -830,11 +896,15 @@ public final class FactoryDimension {
         int maxX = Integer.MIN_VALUE;
         int minZ = Integer.MAX_VALUE;
         int maxZ = Integer.MIN_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxY = Integer.MIN_VALUE;
         for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
             minX = Math.min(minX, cell.roomX());
             maxX = Math.max(maxX, cell.roomX() + FactoryData.CELL_SIZE - 1);
             minZ = Math.min(minZ, cell.roomZ());
             maxZ = Math.max(maxZ, cell.roomZ() + FactoryData.CELL_SIZE - 1);
+            minY = Math.min(minY, cell.baseY());
+            maxY = Math.max(maxY, cell.ceilingY());
         }
         if (minX > maxX || minZ > maxZ) {
             return Set.of();
@@ -845,25 +915,21 @@ public final class FactoryDimension {
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
         for (int x = minX; x <= maxX; x++) {
             for (int z = minZ; z <= maxZ; z++) {
-                boolean wall = isShellColumn(record, x, z);
-                for (int y = FactoryData.BASE_Y; y <= FactoryData.CEILING_Y; y++) {
-                    if (!wall && y != FactoryData.BASE_Y && y != FactoryData.CEILING_Y) {
+                for (int y = minY; y <= maxY; y++) {
+                    BlockPos pos = cursor.set(x, y, z);
+                    Direction side = shellSide(record, pos);
+                    if (side == null) {
                         continue;
                     }
-                    BlockPos pos = cursor.set(x, y, z);
                     if (!(level.getBlockEntity(pos) instanceof EndpointBlockEntity endpoint)
                             || !endpoint.hasFactoryId()
                             || endpoint.getFactoryId() != record.id()) {
                         continue;
                     }
-                    Direction side = shellSide(record, pos);
-                    if (side == null) {
-                        continue;
-                    }
                     shell.add(endpoint);
-                    if (endpoint.hasNetwork()) {
-                        var cell = record.cellContaining(pos);
-                        ShellChannel channel = new ShellChannel(cell.roomX(), cell.roomZ(), side);
+                    FactoryData.FactoryRecord.Cell cell = record.cellContaining(pos);
+                    if (endpoint.hasNetwork() && cell != null) {
+                        ShellChannel channel = new ShellChannel(cell.roomX(), cell.roomY(), cell.roomZ(), side);
                         ShellChannel first = firstSide.putIfAbsent(endpoint.network, channel);
                         if (first != null && !first.equals(channel)) {
                             joinedIds.add(endpoint.network);
@@ -875,16 +941,21 @@ public final class FactoryDimension {
         return joinedIds;
     }
 
-    private record ShellChannel(int roomX, int roomZ, Direction side) {}
+    private record ShellChannel(int roomX, int roomY, int roomZ, Direction side) {}
 
-    private static boolean isShellColumn(FactoryData.FactoryRecord record, int x, int z) {
-        if (!record.roomContains(x, z)) {
+    /** Packs a cell's room offset into one number, for the set of cells a room already stands on. */
+    private static long cellKey(int x, int y, int z) {
+        return ((long) (x & 0x3FFFFF) << 42) | ((long) (y & 0x7FF) << 31) | (z & 0x3FFFFF);
+    }
+
+    private static boolean isShellPosition(FactoryData.FactoryRecord record, int x, int y, int z) {
+        if (!record.roomContains(x, y, z)) {
             return false;
         }
-        return !record.roomContains(x - 1, z)
-                || !record.roomContains(x + 1, z)
-                || !record.roomContains(x, z - 1)
-                || !record.roomContains(x, z + 1);
+        return !record.roomContains(x - 1, y, z)
+                || !record.roomContains(x + 1, y, z)
+                || !record.roomContains(x, y, z - 1)
+                || !record.roomContains(x, y, z + 1);
     }
 
     /**
@@ -892,10 +963,16 @@ public final class FactoryDimension {
      * Clearing is limited to those columns so a rebuild does not delete barrier blocks a player placed
      * deeper inside the room.
      */
-    private static boolean nearCellEdge(FactoryData.FactoryRecord record, int x, int z) {
+    private static boolean nearCellEdge(FactoryData.FactoryRecord record, int x, int y, int z) {
         for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            if (x < cell.roomX() - 1 || x > cell.roomX() + FactoryData.CELL_SIZE
+                    || z < cell.roomZ() - 1 || z > cell.roomZ() + FactoryData.CELL_SIZE
+                    || y < cell.baseY() - 1 || y > cell.ceilingY() + 1) {
+                continue;
+            }
             if (x <= cell.roomX() || x >= cell.roomX() + FactoryData.CELL_SIZE - 1
-                    || z <= cell.roomZ() || z >= cell.roomZ() + FactoryData.CELL_SIZE - 1) {
+                    || z <= cell.roomZ() || z >= cell.roomZ() + FactoryData.CELL_SIZE - 1
+                    || y <= cell.baseY() || y >= cell.ceilingY()) {
                 return true;
             }
         }
@@ -922,12 +999,12 @@ public final class FactoryDimension {
         return false;
     }
 
-    private static void sweepBarriers(ServerLevel level, int minX, int minZ, int maxX, int maxZ) {
+    private static void sweepBarriers(ServerLevel level, FactoryData.FactoryRecord.Cell cell) {
         Block barrier = ModBlocks.FACTORY_BARRIER.get();
         BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
-        for (int x = minX; x <= maxX; x++) {
-            for (int z = minZ; z <= maxZ; z++) {
-                for (int y = FactoryData.BASE_Y; y <= FactoryData.CEILING_Y; y++) {
+        for (int x = cell.roomX(); x < cell.roomX() + FactoryData.CELL_SIZE; x++) {
+            for (int z = cell.roomZ(); z < cell.roomZ() + FactoryData.CELL_SIZE; z++) {
+                for (int y = cell.baseY(); y <= cell.ceilingY(); y++) {
                     BlockPos pos = cursor.set(x, y, z);
                     if (level.getBlockState(pos).is(barrier)) {
                         level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
@@ -958,6 +1035,39 @@ public final class FactoryDimension {
      * on, in which case the floor blocks that are missing are put back. A repair only fills what is gone:
      * whatever else a player has put on the floor layer stays where it is.
      */
+    /**
+     * Takes the checkerboard floor of a cell away again. A cell that was stacked on keeps no floor of its
+     * own: the layer it stood on is inside the room now, and the room's floor is the one at the bottom of
+     * the column. Only blocks that are exactly the checkerboard this cell was laid with are taken, so
+     * anything the player has since put on that layer stays.
+     */
+    private static void clearFloorLayer(ServerLevel level, FactoryData.FactoryRecord.Cell cell) {
+        for (int x = cell.roomX(); x < cell.roomX() + FactoryData.CELL_SIZE; x++) {
+            for (int z = cell.roomZ(); z < cell.roomZ() + FactoryData.CELL_SIZE; z++) {
+                BlockPos pos = new BlockPos(x, cell.floorY(), z);
+                if (level.getBlockState(pos).equals(floorState(x, z))) {
+                    level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
+                }
+            }
+        }
+    }
+
+    /**
+     * Takes the bedrock seal under a cell away again, for the same reason: a cell that was stacked on has
+     * that layer inside the room now. Bedrock is never anything but this seal in the factory dimension.
+     */
+    private static void clearSealLayer(ServerLevel level, FactoryData.FactoryRecord.Cell cell) {
+        int y = cell.baseY() - 1;
+        for (int x = cell.roomX(); x < cell.roomX() + FactoryData.CELL_SIZE; x++) {
+            for (int z = cell.roomZ(); z < cell.roomZ() + FactoryData.CELL_SIZE; z++) {
+                BlockPos pos = new BlockPos(x, y, z);
+                if (level.getBlockState(pos).is(Blocks.BEDROCK)) {
+                    level.setBlock(pos, Blocks.AIR.defaultBlockState(), 3);
+                }
+            }
+        }
+    }
+
     private static boolean generateFloor(ServerLevel level, FactoryData.FactoryRecord.Cell cell) {
         boolean alreadyLaid = cell.floorLaid();
         if (alreadyLaid && !FactoryConfig.repairBrokenFloor()) {
@@ -965,7 +1075,7 @@ public final class FactoryDimension {
         }
         for (int x = cell.roomX(); x < cell.roomX() + FactoryData.CELL_SIZE; x++) {
             for (int z = cell.roomZ(); z < cell.roomZ() + FactoryData.CELL_SIZE; z++) {
-                BlockPos pos = new BlockPos(x, FactoryData.FLOOR_Y, z);
+                BlockPos pos = new BlockPos(x, cell.floorY(), z);
                 if (alreadyLaid && !level.getBlockState(pos).isAir()) {
                     continue;
                 }
@@ -991,7 +1101,7 @@ public final class FactoryDimension {
      * out.
      */
     private static void sealFloor(ServerLevel level, FactoryData.FactoryRecord.Cell cell) {
-        int y = FactoryData.BASE_Y - 1;
+        int y = cell.baseY() - 1;
         for (int x = cell.roomX(); x < cell.roomX() + FactoryData.CELL_SIZE; x++) {
             for (int z = cell.roomZ(); z < cell.roomZ() + FactoryData.CELL_SIZE; z++) {
                 BlockPos pos = new BlockPos(x, y, z);

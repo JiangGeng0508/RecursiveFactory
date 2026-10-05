@@ -15,6 +15,7 @@
   "message.recursivefactory.blueprint.blank": "拿一张空白蓝图右击工厂的入口方块，就能把房间里的东西抓成蓝图。",
   "message.recursivefactory.mirror.empty": "这份镜像工厂没有对应的房间。",
   "message.recursivefactory.mirror.blocked": "那里放不下入口方块。",
+  "message.recursivefactory.place.blocked": "那里放不下这座工厂的其它入口方块（位置被占用）。",
   "message.recursivefactory.mirror.placed": "已放置镜像工厂，房间 #%s。",
   "message.recursivefactory.power.terminal": "已安装工厂输电节点。",
   "message.recursivefactory.power.terminal_taken": "此入口对应区块的这一面已安装节点；请先用扳手拆除原节点。"

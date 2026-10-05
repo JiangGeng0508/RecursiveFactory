@@ -86,8 +86,9 @@ public final class FactoryCannonPlan {
         SchematicPrinter reader(ServerLevel level) {
             if (printer != null) return printer;
             var record = FactoryData.get(level.getServer()).factory(id);
-            origin = id == 0 || record == null ? BlockPos.ZERO
-                    : new BlockPos(record.baseChunk().getMinBlockX(), FactoryData.FLOOR_Y + 1, record.baseChunk().getMinBlockZ());
+            var anchor = record == null ? null : record.anchorCell();
+            origin = id == 0 || anchor == null ? BlockPos.ZERO
+                    : new BlockPos(anchor.roomX(), anchor.floorY() + 1, anchor.roomZ());
             SchematicLevel view = new SchematicLevel(origin, level);
             for (FactoryBlueprint.Entry entry : entries) {
                 BlockPos pos = origin.offset(entry.pos());

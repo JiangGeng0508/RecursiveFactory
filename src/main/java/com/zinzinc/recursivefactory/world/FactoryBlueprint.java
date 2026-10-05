@@ -107,6 +107,12 @@ public final class FactoryBlueprint {
      * it was read out gives as many offsets as it stood on, which is how wide a copy is built.
      */
     private static final String CELLS_TAG = "Cells";
+    /**
+     * The cells of a room that can be stacked, written as {@code x}, {@code y}, {@code z} per cell. The
+     * older {@link #CELLS_TAG} is a pair per cell and reads back as a room on the base layer, so a file
+     * from before a factory could grow upwards is read as it was written.
+     */
+    private static final String CELLS3_TAG = "Cells3";
     private static final String PARENT_TAG = "Parent";
     private static final String POS_TAG = "Pos";
     private static final String SUFFIX = ".nbt";
@@ -230,6 +236,17 @@ public final class FactoryBlueprint {
             return span(false);
         }
 
+        /** How tall the room is, one cell plus whatever its cells are stacked by. */
+        public int height() {
+            int low = 0;
+            int high = 0;
+            for (BlockPos cell : cells) {
+                low = Math.min(low, cell.getY());
+                high = Math.max(high, cell.getY());
+            }
+            return high - low + FactoryData.INNER_HEIGHT;
+        }
+
         private int span(boolean across) {
             int low = 0;
             int high = 0;
@@ -336,7 +353,7 @@ public final class FactoryBlueprint {
      * the corner of the cell. {@link #capture} writes its offsets against exactly this.
      */
     public static BlockPos origin(FactoryData.FactoryRecord.Cell cell) {
-        return new BlockPos(cell.roomX(), FactoryData.FLOOR_Y + 1, cell.roomZ());
+        return new BlockPos(cell.roomX(), cell.floorY() + 1, cell.roomZ());
     }
 
     /**
@@ -470,12 +487,13 @@ public final class FactoryBlueprint {
         FactoryData.FactoryRecord.Cell cell = anchor;
         if (cellOffset != null) {
             int roomX = anchor.roomX() + cellOffset.getX();
+            int roomY = anchor.roomY() + cellOffset.getY();
             int roomZ = anchor.roomZ() + cellOffset.getZ();
-            FactoryData.FactoryRecord.Cell here = source.cellAtRoom(roomX, roomZ);
+            FactoryData.FactoryRecord.Cell here = source.cellAtRoom(roomX, roomY, roomZ);
             // A factory that has changed since the snapshot was taken no longer stands on that cell: the
             // reading is still taken from there, so the rest of the factory lands where the doors say.
             cell = here != null ? here
-                    : new FactoryData.FactoryRecord.Cell(anchor.entrance(), roomX, roomZ, false);
+                    : new FactoryData.FactoryRecord.Cell(anchor.entrance(), roomX, roomY, roomZ, false);
         }
         FactoryData data = FactoryData.get(server);
         try {
@@ -529,7 +547,6 @@ public final class FactoryBlueprint {
                                  @Nullable BlockPos anchor) {
         BlockPos origin = origin(cell);
         int width = FactoryData.CELL_SIZE;
-        int height = FactoryData.INNER_HEIGHT;
         List<BlockPos> cells = new ArrayList<>(record.cells().size());
         List<Entry> captured = new ArrayList<>();
         Map<BlockPos, Room> nested = new LinkedHashMap<>();
@@ -541,11 +558,13 @@ public final class FactoryBlueprint {
         // from that origin, so a copy lays the blocks out where they stood.
         List<FactoryData.FactoryRecord.Cell> parts = new ArrayList<>(record.cells());
         parts.sort(Comparator.comparingInt(part ->
-                part.roomX() == cell.roomX() && part.roomZ() == cell.roomZ() ? 0 : 1));
+                part.roomX() == cell.roomX() && part.roomY() == cell.roomY() && part.roomZ() == cell.roomZ()
+                        ? 0 : 1));
         for (FactoryData.FactoryRecord.Cell part : parts) {
-            BlockPos base = new BlockPos(part.roomX() - cell.roomX(), 0, part.roomZ() - cell.roomZ());
+            BlockPos base = new BlockPos(part.roomX() - cell.roomX(), part.roomY() - cell.roomY(),
+                    part.roomZ() - cell.roomZ());
             cells.add(base);
-            for (int y = 0; y < height; y++) {
+            for (int y = base.getY(); y < base.getY() + FactoryData.INNER_HEIGHT; y++) {
                 for (int x = 0; x < width; x++) {
                     for (int z = 0; z < width; z++) {
                         BlockPos pos = origin.offset(base).offset(x, y, z);
@@ -776,6 +795,7 @@ public final class FactoryBlueprint {
         ListTag list = new ListTag();
         for (BlockPos cell : cells) {
             list.add(net.minecraft.nbt.IntTag.valueOf(cell.getX()));
+            list.add(net.minecraft.nbt.IntTag.valueOf(cell.getY()));
             list.add(net.minecraft.nbt.IntTag.valueOf(cell.getZ()));
         }
         return list;
@@ -783,10 +803,17 @@ public final class FactoryBlueprint {
 
     /** The cells a room of a file stands on, or the one cell a file written before this starts at. */
     private static List<BlockPos> readCells(CompoundTag tag) {
-        ListTag list = tag.getList(CELLS_TAG, Tag.TAG_INT);
         List<BlockPos> cells = new ArrayList<>();
-        for (int i = 0; i + 1 < list.size(); i += 2) {
-            cells.add(new BlockPos(list.getInt(i), 0, list.getInt(i + 1)));
+        if (tag.contains(CELLS3_TAG, Tag.TAG_LIST)) {
+            ListTag list = tag.getList(CELLS3_TAG, Tag.TAG_INT);
+            for (int i = 0; i + 2 < list.size(); i += 3) {
+                cells.add(new BlockPos(list.getInt(i), list.getInt(i + 1), list.getInt(i + 2)));
+            }
+        } else {
+            ListTag list = tag.getList(CELLS_TAG, Tag.TAG_INT);
+            for (int i = 0; i + 1 < list.size(); i += 2) {
+                cells.add(new BlockPos(list.getInt(i), 0, list.getInt(i + 1)));
+            }
         }
         if (cells.isEmpty()) {
             cells.add(BlockPos.ZERO);
@@ -913,7 +940,7 @@ public final class FactoryBlueprint {
     private static CompoundTag writeRoom(Room room) {
         CompoundTag tag = new CompoundTag();
         BlockPos min = minCorner(room.cells);
-        tag.put(SIZE_TAG, newIntList(room.width(), FactoryData.INNER_HEIGHT, room.depth()));
+        tag.put(SIZE_TAG, newIntList(room.width(), room.height(), room.depth()));
 
         ListTag palette = new ListTag();
         Map<BlockState, Integer> paletteIndex = new HashMap<>();
@@ -933,7 +960,7 @@ public final class FactoryBlueprint {
         }
         tag.put(PALETTE_TAG, palette);
         tag.put(BLOCKS_TAG, blocks);
-        tag.put(CELLS_TAG, writeCells(room.cells));
+        tag.put(CELLS3_TAG, writeCells(room.cells));
         if (!room.wires.isEmpty()) tag.put("FactoryWires", room.wires.copy());
         tag.put(ENTITIES_TAG, new ListTag());
         return tag;

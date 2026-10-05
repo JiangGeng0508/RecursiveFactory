@@ -11,6 +11,7 @@ import com.zinzinc.recursivefactory.world.FactoryLocks;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -84,6 +85,22 @@ public record FactoryPickBlockPacket(BlockPos pos) implements CustomPacketPayloa
         tag.putString(RecursiveFactoryBlockEntity.BLUEPRINT_TAG, blueprint.name());
         CompoundTag nodes = entrance.blueprintEntranceNodes();
         if (!nodes.isEmpty()) tag.put(RecursiveFactoryBlockEntity.ENTRANCE_NODES_TAG, nodes);
+        // The other entrance blocks the factory was expanded into travel with the copy: the room is copied
+        // with a cell for each of them, but the blocks themselves stand in the world and would be left
+        // behind. They are written as offsets from this block, and placed together with it.
+        ListTag doors = new ListTag();
+        for (FactoryData.FactoryRecord.Cell door : record.connectedBoundCells(cell)) {
+            BlockPos offset = door.entrance().subtract(pos);
+            if (offset.equals(BlockPos.ZERO)) {
+                continue;
+            }
+            CompoundTag entry = new CompoundTag();
+            entry.putInt("X", offset.getX());
+            entry.putInt("Y", offset.getY());
+            entry.putInt("Z", offset.getZ());
+            doors.add(entry);
+        }
+        if (!doors.isEmpty()) tag.put(RecursiveFactoryBlockEntity.DOORS_TAG, doors);
         // Carry only placement data, never the live factory ID, buffers, power network or preview.
         BlockItem.setBlockEntityData(stack, ModBlockEntities.RECURSIVE_FACTORY.get(), tag);
         return stack;

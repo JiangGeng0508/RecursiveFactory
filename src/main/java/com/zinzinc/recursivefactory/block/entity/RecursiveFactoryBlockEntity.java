@@ -51,6 +51,14 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
      * FactoryBlueprint#copy).
      */
     public static final String CELL_TAG = "FactoryCell";
+    /**
+     * The other entrance blocks this block was copied with, as offsets from it in blocks. An expanded
+     * factory is walked into through several entrance blocks, and those blocks are not part of the room -
+     * they stand in the world, one per cell - so a copy of the factory carries them along and lays them
+     * down beside the block it is placed as (see {@code RecursiveFactoryBlock#setPlacedBy}). Each offset
+     * is a whole number of cells, and a position already taken by something else makes the placement fail.
+     */
+    public static final String DOORS_TAG = "FactoryDoors";
     public static final String ENTRANCE_NODES_TAG = "FactoryEntranceNodes";
     public static final String ENTRANCE_WIRES_TAG = "FactoryEntranceWires";
     public static final String PENDING_WIRES_TAG = "FactoryPendingEntranceWires";
@@ -301,7 +309,10 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
         blueprintFile = tag.contains(BLUEPRINT_TAG) ? tag.getString(BLUEPRINT_TAG) : null;
         blueprintOrigin = tag.contains(ORIGIN_TAG) ? tag.getString(ORIGIN_TAG) : null;
         int[] cell = tag.getIntArray(CELL_TAG);
-        roomCell = cell.length == 2 ? new BlockPos(cell[0], 0, cell[1]) : null;
+        // A snapshot taken before a factory could grow upwards carries the offset as a pair, on the base
+        // layer; one taken since carries all three axes.
+        roomCell = cell.length == 2 ? new BlockPos(cell[0], 0, cell[1])
+                : cell.length == 3 ? new BlockPos(cell[0], cell[1], cell[2]) : null;
     }
 
     /**
@@ -335,6 +346,7 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
             if (anchor != null && cell != null) {
                 tag.putIntArray(CELL_TAG, new int[] {
                         cell.roomX() - anchor.roomX(),
+                        cell.roomY() - anchor.roomY(),
                         cell.roomZ() - anchor.roomZ()
                 });
             }
@@ -365,7 +377,7 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
                 tag.putString(ORIGIN_TAG, blueprintOrigin);
             }
             if (roomCell != null) {
-                tag.putIntArray(CELL_TAG, new int[] {roomCell.getX(), roomCell.getZ()});
+                tag.putIntArray(CELL_TAG, new int[] {roomCell.getX(), roomCell.getY(), roomCell.getZ()});
             }
         }
     }

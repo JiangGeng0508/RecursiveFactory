@@ -2,11 +2,15 @@ package com.zinzinc.recursivefactory.world;
 
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.zinzinc.recursivefactory.data.FactoryColors;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Deque;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
@@ -181,6 +185,7 @@ public final class FactoryData extends SavedData {
             FactoryRecord.Cell cell = new FactoryRecord.Cell(
                     pos,
                     chunk.getMinBlockX(),
+                    0,
                     chunk.getMinBlockZ(),
                     false
             );
@@ -192,7 +197,8 @@ public final class FactoryData extends SavedData {
      * Grows a factory by one entrance cell. The room cell is given rather than derived so that removing
      * cells later never shifts the room layout: each cell keeps the room position it was placed with.
      */
-    public void addEntrance(int factoryId, ResourceLocation dimension, BlockPos pos, int roomX, int roomZ) {
+    public void addEntrance(int factoryId, ResourceLocation dimension, BlockPos pos, int roomX, int roomY,
+                            int roomZ) {
         FactoryRecord record = factories.get(factoryId);
         if (record != null && dimension.equals(record.entranceDimension())) {
             List<FactoryRecord.Cell> cells = new ArrayList<>(record.cells());
@@ -204,14 +210,14 @@ public final class FactoryData extends SavedData {
             for (int i = 0; i < cells.size(); i++) {
                 FactoryRecord.Cell cell = cells.get(i);
                 if (cell.entrance().equals(UNBOUND_ENTRANCE)
-                        && cell.roomX() == roomX && cell.roomZ() == roomZ) {
-                    cells.set(i, new FactoryRecord.Cell(pos, roomX, roomZ, cell.floorLaid()));
+                        && cell.roomX() == roomX && cell.roomY() == roomY && cell.roomZ() == roomZ) {
+                    cells.set(i, new FactoryRecord.Cell(pos, roomX, roomY, roomZ, cell.floorLaid()));
                     update(record.withCells(cells));
                     return;
                 }
             }
             // The cell that just joined has no floor yet, including the seam it shares with its neighbour.
-            cells.add(new FactoryRecord.Cell(pos, roomX, roomZ, false));
+            cells.add(new FactoryRecord.Cell(pos, roomX, roomY, roomZ, false));
             update(record.withCells(cells));
         }
 
@@ -235,13 +241,13 @@ public final class FactoryData extends SavedData {
      * its own - the copy is walked into through the one block the player puts down - so it keeps the
      * stand-in entrance and is never bound to a block (see {@link #bindRoomEntrance}).
      */
-    public void addRoomCell(int factoryId, int roomX, int roomZ) {
+    public void addRoomCell(int factoryId, int roomX, int roomY, int roomZ) {
         FactoryRecord record = factories.get(factoryId);
         if (record == null) {
             return;
         }
         List<FactoryRecord.Cell> cells = new ArrayList<>(record.cells());
-        cells.add(new FactoryRecord.Cell(UNBOUND_ENTRANCE, roomX, roomZ, false));
+        cells.add(new FactoryRecord.Cell(UNBOUND_ENTRANCE, roomX, roomY, roomZ, false));
         update(record.withCells(cells));
     }
 
@@ -262,6 +268,7 @@ public final class FactoryData extends SavedData {
         update(record.withCells(List.of(new FactoryRecord.Cell(
                 UNBOUND_ENTRANCE,
                 chunk.getMinBlockX(),
+                0,
                 chunk.getMinBlockZ(),
                 false
         ))));
@@ -285,7 +292,8 @@ public final class FactoryData extends SavedData {
         boolean bound = false;
         for (FactoryRecord.Cell cell : record.cells()) {
             if (!bound && cell.entrance().equals(UNBOUND_ENTRANCE)) {
-                cells.add(new FactoryRecord.Cell(pos, cell.roomX(), cell.roomZ(), cell.floorLaid()));
+                cells.add(new FactoryRecord.Cell(pos, cell.roomX(), cell.roomY(), cell.roomZ(),
+                        cell.floorLaid()));
                 bound = true;
             } else {
                 cells.add(cell);
@@ -295,15 +303,16 @@ public final class FactoryData extends SavedData {
     }
 
     /** Binds exactly the requested preallocated cell, independently of placement order. */
-    public boolean bindRoomEntranceCell(int factoryId, ResourceLocation dimension, BlockPos pos, int roomX, int roomZ) {
+    public boolean bindRoomEntranceCell(int factoryId, ResourceLocation dimension, BlockPos pos, int roomX,
+                                        int roomY, int roomZ) {
         FactoryRecord record = factories.get(factoryId);
         if (record == null || record.entranceDimension() != null && !dimension.equals(record.entranceDimension())) return false;
         List<FactoryRecord.Cell> cells = new ArrayList<>(record.cells());
         for (int i = 0; i < cells.size(); i++) {
             FactoryRecord.Cell cell = cells.get(i);
-            if (cell.roomX() != roomX || cell.roomZ() != roomZ) continue;
+            if (cell.roomX() != roomX || cell.roomY() != roomY || cell.roomZ() != roomZ) continue;
             if (!cell.entrance().equals(UNBOUND_ENTRANCE) && !cell.entrance().equals(pos)) return false;
-            cells.set(i, new FactoryRecord.Cell(pos, roomX, roomZ, cell.floorLaid()));
+            cells.set(i, new FactoryRecord.Cell(pos, roomX, roomY, roomZ, cell.floorLaid()));
             if (record.entranceDimension() == null) record = record.withEntrance(dimension, pos);
             update(record.withCells(cells));
             return true;
@@ -319,7 +328,7 @@ public final class FactoryData extends SavedData {
      * <p>The cell is named by the room it stands on rather than by an entrance block, because a room that
      * was built from a blueprint stands on cells that carry no block of their own.
      */
-    public void markFloorLaid(int factoryId, int roomX, int roomZ) {
+    public void markFloorLaid(int factoryId, int roomX, int roomY, int roomZ, boolean laid) {
         FactoryRecord record = factories.get(factoryId);
         if (record == null) {
             return;
@@ -328,8 +337,9 @@ public final class FactoryData extends SavedData {
         boolean changed = false;
         for (int i = 0; i < cells.size(); i++) {
             FactoryRecord.Cell cell = cells.get(i);
-            if (cell.roomX() == roomX && cell.roomZ() == roomZ && !cell.floorLaid()) {
-                cells.set(i, cell.withFloorLaid(true));
+            if (cell.roomX() == roomX && cell.roomY() == roomY && cell.roomZ() == roomZ
+                    && cell.floorLaid() != laid) {
+                cells.set(i, cell.withFloorLaid(laid));
                 changed = true;
             }
         }
@@ -385,9 +395,6 @@ public final class FactoryData extends SavedData {
     /** The factory whose room covers this position inside the factory dimension, if any. */
     @Nullable
     public FactoryRecord factoryAt(BlockPos pos) {
-        if (pos.getY() < BASE_Y || pos.getY() > CEILING_Y) {
-            return null;
-        }
         for (FactoryRecord record : factories.values()) {
             if (record.roomContains(pos)) {
                 return record;
@@ -423,20 +430,46 @@ public final class FactoryData extends SavedData {
         /**
          * One entrance block and the room cell it stands for. The room origin is saved per cell so the
          * room layout never shifts when cells are removed; the layout as a whole is the entrance layout,
-         * translated, with each cell sixteen blocks across.
+         * translated, with each cell sixteen blocks across and sixteen blocks tall.
          *
          * <p>{@code floorLaid} remembers that the cell's checkerboard floor has been put down, so a
          * later look at the room knows the floor is one the player has been living with rather than one
          * that still has to be built. See {@code room.repairBrokenFloor} for what that changes.
          */
-        public record Cell(BlockPos entrance, int roomX, int roomZ, boolean floorLaid) {
+        public record Cell(BlockPos entrance, int roomX, int roomY, int roomZ, boolean floorLaid) {
             public Cell {
                 entrance = entrance.immutable();
             }
 
+            /**
+             * The cell's bottom barrier layer. A cell is {@link #ROOM_HEIGHT} blocks tall and sits at the
+             * vertical offset {@code roomY} of the factory, so a factory grown upwards is a stack of cells
+             * with their layers one after another.
+             */
+            public int baseY() {
+                return roomY + BASE_Y;
+            }
+
+            /** The cell's checkerboard floor layer, one above {@link #baseY()}. */
+            public int floorY() {
+                return roomY + FLOOR_Y;
+            }
+
+            /** The cell's top barrier layer. */
+            public int ceilingY() {
+                return roomY + CEILING_Y;
+            }
+
+            /** Whether this cell's own box covers a room position. */
+            public boolean contains(int x, int y, int z) {
+                return x >= roomX && x < roomX + CELL_SIZE
+                        && z >= roomZ && z < roomZ + CELL_SIZE
+                        && y >= baseY() && y <= ceilingY();
+            }
+
             /** Middle of the cell, at standing height: where a player arriving through this cell lands. */
             public BlockPos center() {
-                return new BlockPos(roomX + CELL_SIZE / 2, FLOOR_Y + 1, roomZ + CELL_SIZE / 2);
+                return new BlockPos(roomX + CELL_SIZE / 2, floorY() + 1, roomZ + CELL_SIZE / 2);
             }
 
             /**
@@ -446,11 +479,11 @@ public final class FactoryData extends SavedData {
              * sixteenths wide preview shows.
              */
             public BlockPos previewCenter() {
-                return new BlockPos(roomX + CELL_SIZE / 2, FLOOR_Y, roomZ + CELL_SIZE / 2);
+                return new BlockPos(roomX + CELL_SIZE / 2, floorY(), roomZ + CELL_SIZE / 2);
             }
 
             public Cell withFloorLaid(boolean laid) {
-                return new Cell(entrance, roomX, roomZ, laid);
+                return new Cell(entrance, roomX, roomY, roomZ, laid);
             }
         }
 
@@ -460,6 +493,17 @@ public final class FactoryData extends SavedData {
         }
 
         /** The cell standing on the given room coordinates, or null when this factory has no cell there. */
+        @Nullable
+        public Cell cellAtRoom(int roomX, int roomY, int roomZ) {
+            for (Cell cell : cells) {
+                if (cell.roomX() == roomX && cell.roomY() == roomY && cell.roomZ() == roomZ) {
+                    return cell;
+                }
+            }
+            return null;
+        }
+
+        /** Any cell of the factory standing on the given room column, whatever its height. */
         @Nullable
         public Cell cellAtRoom(int roomX, int roomZ) {
             for (Cell cell : cells) {
@@ -480,21 +524,33 @@ public final class FactoryData extends SavedData {
             return null;
         }
 
-        /** The room cell containing a wall, floor or machine position. */
+        /** The room cell containing a wall, floor or machine position, at whatever height it stands. */
         @Nullable
         public Cell cellContaining(BlockPos pos) {
             for (Cell cell : cells) {
-                if (pos.getX() >= cell.roomX() && pos.getX() < cell.roomX() + CELL_SIZE
-                        && pos.getZ() >= cell.roomZ() && pos.getZ() < cell.roomZ() + CELL_SIZE) return cell;
+                if (cell.contains(pos.getX(), pos.getY(), pos.getZ())) {
+                    return cell;
+                }
             }
             return null;
         }
 
+        /** Whether a room position lies inside one of the factory's cells. */
         public boolean roomContains(BlockPos pos) {
-            return roomContains(pos.getX(), pos.getZ());
+            return roomContains(pos.getX(), pos.getY(), pos.getZ());
         }
 
-        /** The horizontal half of {@link #roomContains(BlockPos)}, for callers that walk columns. */
+        /** Whether a room position lies inside one of the factory's cells. */
+        public boolean roomContains(int x, int y, int z) {
+            for (Cell cell : cells) {
+                if (cell.contains(x, y, z)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /** Whether any cell of the factory covers this room column, whatever its height. */
         public boolean roomContains(int x, int z) {
             for (Cell cell : cells) {
                 if (x >= cell.roomX() && x < cell.roomX() + CELL_SIZE
@@ -503,6 +559,84 @@ public final class FactoryData extends SavedData {
                 }
             }
             return false;
+        }
+
+        /** The lowest base layer of the factory's cells over a room column; outside the cells otherwise. */
+        public int columnBaseY(int x, int z) {
+            int base = Integer.MAX_VALUE;
+            for (Cell cell : cells) {
+                if (x >= cell.roomX() && x < cell.roomX() + CELL_SIZE
+                        && z >= cell.roomZ() && z < cell.roomZ() + CELL_SIZE) {
+                    base = Math.min(base, cell.baseY());
+                }
+            }
+            return base;
+        }
+
+        /** The highest ceiling layer of the factory's cells over a room column; outside the cells otherwise. */
+        public int columnCeilingY(int x, int z) {
+            int ceiling = Integer.MIN_VALUE;
+            for (Cell cell : cells) {
+                if (x >= cell.roomX() && x < cell.roomX() + CELL_SIZE
+                        && z >= cell.roomZ() && z < cell.roomZ() + CELL_SIZE) {
+                    ceiling = Math.max(ceiling, cell.ceilingY());
+                }
+            }
+            return ceiling;
+        }
+
+        /** Whether a cell of the factory stands directly below this one, in the same room column. */
+        public boolean hasCellBelow(Cell cell) {
+            return cellAtRoom(cell.roomX(), cell.roomY() - CELL_SIZE, cell.roomZ()) != null;
+        }
+
+        /**
+         * The cells reachable from {@code start} by stepping between cells that share a face, carrying an
+         * entrance block of their own. A factory is grown by putting entrance blocks down beside each
+         * other, so a cell that stands beside another one was joined to it by expansion; a factory whose
+         * middle block was broken comes apart into two pieces here rather than being copied as a room
+         * that is no longer one. Cells with no block of their own - a room that was printed or copied -
+         * are walked through but not carried.
+         */
+        public List<Cell> connectedBoundCells(Cell start) {
+            List<Cell> found = new ArrayList<>();
+            Set<Cell> seen = new HashSet<>();
+            Deque<Cell> queue = new ArrayDeque<>();
+            seen.add(start);
+            queue.add(start);
+            while (!queue.isEmpty()) {
+                Cell cell = queue.poll();
+                if (!cell.entrance().equals(UNBOUND_ENTRANCE)) {
+                    found.add(cell);
+                }
+                for (Cell other : cells) {
+                    if (seen.contains(other) || stepsBetween(cell, other) != 1) {
+                        continue;
+                    }
+                    seen.add(other);
+                    queue.add(other);
+                }
+            }
+            return found;
+        }
+
+        /** How many cell steps lie between two cells that differ along exactly one room axis. */
+        private static int stepsBetween(Cell a, Cell b) {
+            int steps = 0;
+            for (int delta : new int[] {
+                    Math.abs(a.roomX() - b.roomX()),
+                    Math.abs(a.roomY() - b.roomY()),
+                    Math.abs(a.roomZ() - b.roomZ())
+            }) {
+                if (delta == 0) {
+                    continue;
+                }
+                if (delta != CELL_SIZE) {
+                    return -1;
+                }
+                steps++;
+            }
+            return steps;
         }
 
         /** The cell the anchor entrance stands for, falling back to any cell for a record mid-edit. */
@@ -556,6 +690,7 @@ public final class FactoryData extends SavedData {
                 cellTag.putInt("Y", cell.entrance().getY());
                 cellTag.putInt("Z", cell.entrance().getZ());
                 cellTag.putInt("RoomX", cell.roomX());
+                cellTag.putInt("RoomY", cell.roomY());
                 cellTag.putInt("RoomZ", cell.roomZ());
                 cellTag.putBoolean("FloorLaid", cell.floorLaid());
                 cellsTag.add(cellTag);
@@ -576,6 +711,8 @@ public final class FactoryData extends SavedData {
                 cells.add(new Cell(
                         readCellEntrance(cellTag, entrance, readLegacyStandIns),
                         cellTag.getInt("RoomX"),
+                        // Cells saved before a factory could grow upwards stand on the base layer.
+                        cellTag.contains("RoomY") ? cellTag.getInt("RoomY") : 0,
                         cellTag.getInt("RoomZ"),
                         // Cells saved before the floor was tracked count as laid: an older save is not
                         // repaved the first time a player walks back into it.
@@ -600,6 +737,7 @@ public final class FactoryData extends SavedData {
                 record = record.withCells(List.of(new Cell(
                         record.entrancePos(),
                         record.baseChunk().getMinBlockX(),
+                        0,
                         record.baseChunk().getMinBlockZ(),
                         true
                 )));

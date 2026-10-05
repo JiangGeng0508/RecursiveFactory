@@ -294,7 +294,9 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
         blockEntity.restoreBlueprintEntranceNodes();
 
         if (blueprintFile != null) {
-            if (FactoryBlueprint.build(serverLevel, pos, blueprintFile, owner) > 0) {
+            int roomId = FactoryBlueprint.build(serverLevel, pos, blueprintFile, owner);
+            if (roomId > 0) {
+                placeCopiedDoors(level, pos, stack, roomId, data);
                 return;
             }
         } else if (sourceFactory > 0 && takenInThisSave(data, blueprintOrigin)) {
@@ -321,7 +323,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
 
         // Next to an existing entrance, this block grows that factory. Any adjacent cell gives the same
         // answer, so the first one found is enough.
-        for (Direction direction : Direction.Plane.HORIZONTAL) {
+        for (Direction direction : Direction.values()) {
             BlockPos neighbourPos = pos.relative(direction);
             FactoryData.FactoryRecord neighbour = data.factoryWithEntranceCell(
                     level.dimension().location(),
@@ -344,6 +346,32 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
         refreshConnections(level, pos);
         // A lever or a dust line may already be waiting next to the block it was placed against.
         FactoryRelay.updateFromNeighbours(blockEntity);
+    }
+
+    /**
+     * Lays down the other entrance blocks a copied expanded factory travelled with, each bound to the room
+     * cell the copy already stands on (see {@link FactoryDimension#linkEntranceCell}). The item checked
+     * every position before the first block went down, so this has somewhere to put each of them; a cell
+     * the copy no longer stands on - a factory that has changed since it was copied - is skipped.
+     */
+    private static void placeCopiedDoors(Level level, BlockPos anchor, ItemStack stack, int roomId,
+                                         FactoryData data) {
+        List<BlockPos> offsets = RecursiveFactoryItem.doorOffsets(stack);
+        if (offsets.isEmpty()) {
+            return;
+        }
+        FactoryData.FactoryRecord room = data.factory(roomId);
+        if (room == null) {
+            return;
+        }
+        BlockState doorState = ModBlocks.RECURSIVE_FACTORY.get().defaultBlockState()
+                .setValue(FactoryColors.COLOR_PROPERTY,
+                        FactoryColors.stateValue(FactoryColors.kindOfFactory(room.colorIndex(), room.id())));
+        for (BlockPos offset : offsets) {
+            BlockPos target = anchor.offset(offset);
+            level.setBlock(target, doorState, Block.UPDATE_ALL);
+            FactoryDimension.linkEntranceCell(level, target, roomId, offset.multiply(FactoryData.CELL_SIZE));
+        }
     }
 
     /**
@@ -374,7 +402,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
                                        RecursiveFactoryBlockEntity blockEntity,
                                        FactoryData.FactoryRecord factory) {
         FactoryData.FactoryRecord.Cell adjacentCell = null;
-        for (Direction direction : Direction.Plane.HORIZONTAL) {
+        for (Direction direction : Direction.values()) {
             FactoryData.FactoryRecord.Cell cell = factory.cellAt(pos.relative(direction));
             if (cell != null) {
                 adjacentCell = cell;
@@ -386,9 +414,11 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
         }
         int roomX = adjacentCell.roomX()
                 + (pos.getX() - adjacentCell.entrance().getX()) * FactoryData.CELL_SIZE;
+        int roomY = adjacentCell.roomY()
+                + (pos.getY() - adjacentCell.entrance().getY()) * FactoryData.CELL_SIZE;
         int roomZ = adjacentCell.roomZ()
                 + (pos.getZ() - adjacentCell.entrance().getZ()) * FactoryData.CELL_SIZE;
-        data.addEntrance(factory.id(), level.dimension().location(), pos, roomX, roomZ);
+        data.addEntrance(factory.id(), level.dimension().location(), pos, roomX, roomY, roomZ);
         blockEntity.setFactoryId(factory.id());
 
         FactoryData.FactoryRecord grown = data.factory(factory.id());
@@ -411,7 +441,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
      */
     private static @Nullable FactoryData.FactoryRecord copiedFactoryBeside(Level level, FactoryData data,
                                                                           BlockPos pos, int sourceFactory) {
-        for (Direction direction : Direction.Plane.HORIZONTAL) {
+        for (Direction direction : Direction.values()) {
             BlockPos neighbourPos = pos.relative(direction);
             FactoryData.FactoryRecord neighbour = data.factoryWithEntranceCell(
                     level.dimension().location(),

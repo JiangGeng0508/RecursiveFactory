@@ -33,7 +33,7 @@ public final class FactoryPowerLinks {
     }
 
     /** Room coordinates remain stable when a different entrance becomes the factory's anchor. */
-    record LinkKey(int factoryId, int roomX, int roomZ, Direction face) {
+    record LinkKey(int factoryId, int roomX, int roomY, int roomZ, Direction face) {
     }
 
     /** One end of a link: which link, and which of its two ends this is. */

@@ -1,12 +1,25 @@
 package com.zinzinc.recursivefactory.block;
 
+import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import com.zinzinc.recursivefactory.data.ModDataComponents;
+import java.util.ArrayList;
+import java.util.List;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.chat.Component;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.CustomData;
+import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * The entrance block's item form. There is one item and sixteen colour kinds: which one a stack stands for
@@ -14,6 +27,9 @@ import net.minecraft.world.level.block.Block;
  * creative tab lists it once per colour.
  */
 public final class RecursiveFactoryItem extends BlockItem {
+    /** The tag a copy of an expanded factory carries its other entrance blocks in, see the block entity. */
+    private static final String DOORS_TAG = RecursiveFactoryBlockEntity.DOORS_TAG;
+
     public RecursiveFactoryItem(Block block, Item.Properties properties) {
         super(block, properties);
     }
@@ -23,6 +39,59 @@ public final class RecursiveFactoryItem extends BlockItem {
         ItemStack stack = new ItemStack(ModBlocks.RECURSIVE_FACTORY_ITEM.get());
         stack.set(ModDataComponents.COLOR.get(), colorIndex);
         return stack;
+    }
+
+    /**
+     * A copy of an expanded factory is placed all at once: the block the player aims with, and the other
+     * entrance blocks the factory was grown through. Those stand apart from it, so the whole layout is
+     * checked before anything goes down - a position already taken by another block turns the placement
+     * down and the player is told, rather than half a factory being built.
+     */
+    @Override
+    public InteractionResult place(BlockPlaceContext context) {
+        List<BlockPos> doors = doorOffsets(context.getItemInHand());
+        if (!doors.isEmpty()) {
+            Level level = context.getLevel();
+            BlockPos anchor = context.getClickedPos();
+            for (BlockPos offset : doors) {
+                if (canPlaceDoorAt(level, anchor.offset(offset))) {
+                    continue;
+                }
+                if (!level.isClientSide() && context.getPlayer() != null) {
+                    context.getPlayer().displayClientMessage(
+                            Component.translatable("message.recursivefactory.place.blocked"), true);
+                }
+                return InteractionResult.FAIL;
+            }
+        }
+        return super.place(context);
+    }
+
+    /** Whether an entrance block can be put down at {@code pos}: nothing but air or something replaceable. */
+    private static boolean canPlaceDoorAt(Level level, BlockPos pos) {
+        return level.isInWorldBounds(pos) && level.getBlockState(pos).canBeReplaced();
+    }
+
+    /** The other entrance blocks a stack carries, as offsets from the block it is placed as. */
+    static List<BlockPos> doorOffsets(ItemStack stack) {
+        CustomData data = stack.get(DataComponents.BLOCK_ENTITY_DATA);
+        if (data == null) {
+            return List.of();
+        }
+        CompoundTag tag = data.copyTag();
+        if (!tag.contains(DOORS_TAG, Tag.TAG_LIST)) {
+            return List.of();
+        }
+        ListTag list = tag.getList(DOORS_TAG, Tag.TAG_COMPOUND);
+        List<BlockPos> offsets = new ArrayList<>(list.size());
+        for (Tag entry : list) {
+            CompoundTag door = (CompoundTag) entry;
+            BlockPos offset = new BlockPos(door.getInt("X"), door.getInt("Y"), door.getInt("Z"));
+            if (!offset.equals(BlockPos.ZERO)) {
+                offsets.add(offset);
+            }
+        }
+        return offsets;
     }
 
     /** A stack that carries a colour kind says so in its name; one that carries none keeps the plain name. */
