@@ -11,6 +11,11 @@ public final class ModNetworking {
     public static void register(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar(RecursiveFactory.MODID).versioned("1");
         registrar.playToServer(
+                FactoryPickBlockPacket.TYPE,
+                FactoryPickBlockPacket.STREAM_CODEC,
+                FactoryPickBlockPacket::handle
+        );
+        registrar.playToServer(
                 EndpointPreviewPackets.Request.TYPE,
                 EndpointPreviewPackets.Request.STREAM_CODEC,
                 EndpointPreviewPackets.Request::handle

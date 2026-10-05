@@ -50,6 +50,9 @@ Recursive Factory is a NeoForge mod for Minecraft 1.21.1. It provides a reusable
 8. Deploy the schematic, place material containers next to a Schematicannon, load the schematic and gunpowder, and start printing. The entrance appears first; its contents are built progressively. View progress and missing materials in the cannon interface.
 9. Terminals and wires are restored as their supports become available. The old standalone Factory Printer has been removed; existing Mirror Factory items remain usable.
 
+In Creative mode, middle-click a factory entrance (Pick Block) to obtain a factory block with its contents; Ctrl is not required.
+The copy preserves the captured colour, expanded layout, inventory contents and nested factories. Each placement creates an independent factory, even after the original is changed or removed.
+
 ## Configuration
 
 `config/recursivefactory-common.toml`:
