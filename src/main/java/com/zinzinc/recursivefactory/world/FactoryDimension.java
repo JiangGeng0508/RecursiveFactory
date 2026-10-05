@@ -12,6 +12,7 @@ import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryBarrierBlockEntity;
 import com.zinzinc.recursivefactory.config.FactoryConfig;
 import com.zinzinc.recursivefactory.data.FactoryColors;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -75,6 +76,10 @@ public final class FactoryDimension {
      */
     private static final TicketType<ChunkPos> ROOM_TICKET =
             TicketType.create("recursivefactory_room", Comparator.comparingLong(ChunkPos::toLong));
+    /** Temporary entrance tickets derived from players inside rooms, never saved as forced chunks. */
+    private static final TicketType<ChunkPos> ENTRANCE_TICKET =
+            TicketType.create("recursivefactory_occupied_entrance", Comparator.comparingLong(ChunkPos::toLong));
+    private static final Map<ResourceKey<Level>, Set<Long>> ENTRANCE_TICKETS = new HashMap<>();
     /** Rooms something other than their entrance block is still working on, asked again every tick. */
     private static final Set<Integer> KEEP_LOADED = new HashSet<>();
     /** The room chunks this class is holding open, per factory, so they can be let go again. */
@@ -95,6 +100,7 @@ public final class FactoryDimension {
         // never be held on the new one (see holdRoomsOpen): the notes are dropped so that the first tick of
         // the new server works every room out again from the block leading into it.
         ROOM_TICKETS.clear();
+        ENTRANCE_TICKETS.clear();
         PENDING_SPLITS.clear();
         KEEP_LOADED.clear();
         ServerLevel level = server.getLevel(LEVEL_KEY);
@@ -161,6 +167,7 @@ public final class FactoryDimension {
      * there.
      */
     public static void tick(MinecraftServer server) {
+        holdPlayerEntrances(server);
         holdRoomsOpen(server);
         if (PENDING_SPLITS.isEmpty()) {
             return;
@@ -217,6 +224,68 @@ public final class FactoryDimension {
         if (factoryId > 0) {
             KEEP_LOADED.add(factoryId);
         }
+    }
+
+    /** Keeps occupied factories connected to every enclosing factory, up to their outside entrances. */
+    private static void holdPlayerEntrances(MinecraftServer server) {
+        FactoryData data = FactoryData.get(server);
+        ServerLevel roomLevel = server.getLevel(LEVEL_KEY);
+        var pending = new ArrayDeque<FactoryData.FactoryRecord>();
+        if (roomLevel != null) {
+            for (var player : roomLevel.players()) {
+                var record = data.factoryAt(player.blockPosition());
+                if (record != null) pending.add(record);
+            }
+        }
+
+        Set<Integer> visited = new HashSet<>();
+        Map<ResourceKey<Level>, Set<Long>> wanted = new HashMap<>();
+        while (!pending.isEmpty()) {
+            var record = pending.removeFirst();
+            if (!visited.add(record.id())) continue;
+            // Keep rooms running while their entrance tickets are still bringing chunks online.
+            keepLoaded(record.id());
+            if (record.entranceDimension() == null) continue;
+            ResourceKey<Level> dimension = ResourceKey.create(Registries.DIMENSION, record.entranceDimension());
+            if (server.getLevel(dimension) == null) continue;
+            for (var cell : record.cells()) {
+                BlockPos entrance = cell.entrance();
+                if (entrance.equals(FactoryData.UNBOUND_ENTRANCE)) continue;
+                wanted.computeIfAbsent(dimension, key -> new HashSet<>()).add(new ChunkPos(entrance).toLong());
+                if (dimension.equals(LEVEL_KEY)) {
+                    var parent = data.factoryAt(entrance);
+                    if (parent != null) pending.add(parent);
+                }
+            }
+        }
+
+        // Deriving a union for all players prevents one player leaving from releasing another's chain.
+        for (var entry : ENTRANCE_TICKETS.entrySet()) {
+            ServerLevel level = server.getLevel(entry.getKey());
+            if (level == null) continue;
+            Set<Long> needed = wanted.getOrDefault(entry.getKey(), Set.of());
+            for (long chunk : entry.getValue()) {
+                if (!needed.contains(chunk)) {
+                    ChunkPos pos = new ChunkPos(chunk);
+                    level.getChunkSource().removeRegionTicket(ENTRANCE_TICKET, pos, ROOM_TICKET_DISTANCE, pos);
+                }
+            }
+        }
+        for (var entry : wanted.entrySet()) {
+            ServerLevel level = server.getLevel(entry.getKey());
+            if (level == null) continue;
+            Set<Long> held = ENTRANCE_TICKETS.getOrDefault(entry.getKey(), Set.of());
+            for (long chunk : entry.getValue()) {
+                if (!held.contains(chunk)) {
+                    ChunkPos pos = new ChunkPos(chunk);
+                    level.getChunkSource().addRegionTicket(ENTRANCE_TICKET, pos, ROOM_TICKET_DISTANCE, pos);
+                }
+            }
+            // The outer dimension may have no players of its own; its entrance machinery must still tick.
+            level.resetEmptyTime();
+        }
+        ENTRANCE_TICKETS.clear();
+        ENTRANCE_TICKETS.putAll(wanted);
     }
 
     /**
@@ -286,7 +355,11 @@ public final class FactoryDimension {
             return false;
         }
         ServerLevel entranceLevel = server.getLevel(ResourceKey.create(Registries.DIMENSION, dimension));
-        return entranceLevel != null && entranceLevel.isLoaded(record.entrancePos());
+        // Only a chunk the entrance block is still ticked in counts. A chunk merely left in memory - a FULL
+        // chunk kept by vanilla's one-tick unknown ticket, which the room's own machinery asks for again
+        // every tick while it looks at the entrance - must not hold the room open by itself, or a factory
+        // that was used once would never go dormant again.
+        return entranceLevel != null && entranceLevel.shouldTickBlocksAt(record.entrancePos());
     }
 
     /** The chunks of a factory's room, one per cell: a cell is exactly one chunk across. */
