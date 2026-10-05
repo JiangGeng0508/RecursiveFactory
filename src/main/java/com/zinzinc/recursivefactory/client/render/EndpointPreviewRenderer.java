@@ -35,6 +35,7 @@ public final class EndpointPreviewRenderer {
     private static final int REQUEST_INTERVAL_TICKS = 40;
     private static final Map<EndpointBlockEntity, CachedProjection> PROJECTION_CACHE = new WeakHashMap<>();
     private static final Map<EndpointBlockEntity, Long> LAST_REQUEST_TICKS = new WeakHashMap<>();
+    private static final Map<EndpointBlockEntity, PhysicsPreviewRenderer> PHYSICS_CACHE = new WeakHashMap<>();
 
     private EndpointPreviewRenderer() {
     }
@@ -62,7 +63,8 @@ public final class EndpointPreviewRenderer {
                                      MultiBufferSource bufferSource, float partialTick) {
         double clock = FactoryProjectionCache.renderClock(blockEntity.getLevel(), partialTick);
         FactoryProjectionCache cache = getProjectionCache(blockEntity, clock);
-        if (cache == null) {
+        if (cache == null && blockEntity.getPreviewBodies().isEmpty()) {
+            PHYSICS_CACHE.remove(blockEntity);
             return;
         }
 
@@ -71,9 +73,14 @@ public final class EndpointPreviewRenderer {
         poseStack.scale(PREVIEW_SCALE, PREVIEW_SCALE, PREVIEW_SCALE);
         // Sample coordinates are offsets from the middle of the room, so local (0, 0, 0) is the middle of
         // the base layer and the preview comes out centred on the block however lopsided the room is.
-        cache.render(poseStack, bufferSource);
-        cache.renderBlockEntities(poseStack, bufferSource, partialTick);
-        cache.renderEntities(poseStack, bufferSource, clock);
+        if (cache != null) {
+            cache.render(poseStack, bufferSource);
+            cache.renderBlockEntities(poseStack, bufferSource, partialTick);
+            cache.renderEntities(poseStack, bufferSource, clock);
+        }
+        if (blockEntity.getPreviewBodies().isEmpty()) PHYSICS_CACHE.remove(blockEntity);
+        else PHYSICS_CACHE.computeIfAbsent(blockEntity, ignored -> new PhysicsPreviewRenderer()).render(
+                blockEntity.getLevel(), blockEntity.getPreviewBodies(), poseStack, bufferSource, partialTick, clock);
         poseStack.popPose();
     }
 

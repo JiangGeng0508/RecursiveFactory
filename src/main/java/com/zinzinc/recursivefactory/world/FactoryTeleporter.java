@@ -2,6 +2,7 @@ package com.zinzinc.recursivefactory.world;
 
 import com.zinzinc.recursivefactory.data.ModAttachments;
 import com.zinzinc.recursivefactory.data.ReturnStackData;
+import com.zinzinc.recursivefactory.compat.sable.SablePhysicsBodies;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -10,6 +11,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 
 public final class FactoryTeleporter {
     private FactoryTeleporter() {
@@ -109,7 +111,8 @@ public final class FactoryTeleporter {
             xRot = player.getXRot();
         }
 
-        player.teleportTo(targetLevel, x, y, z, yRot, xRot);
+        var destination = SablePhysicsBodies.worldPosition(targetLevel, new Vec3(x, y, z));
+        player.teleportTo(targetLevel, destination.x, destination.y, destination.z, yRot, xRot);
         player.sendSystemMessage(Component.translatable("message.recursivefactory.exited", factoryId));
         return true;
     }

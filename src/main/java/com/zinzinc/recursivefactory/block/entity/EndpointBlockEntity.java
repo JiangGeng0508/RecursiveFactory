@@ -131,6 +131,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     private List<CompoundTag> previewEntities = List.of();
     private List<CompoundTag> previewBlockEntities = List.of();
     private CompoundTag previewWires = new CompoundTag();
+    private List<CompoundTag> previewBodies = List.of();
     /** The speed the far end of the link turns this end at, 0 while the link is not turning it. */
     private float bridgeSpeed;
     /** The stress capacity this end hands to its own network while the link is turning it. */
@@ -665,22 +666,30 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         return previewWires;
     }
 
+    public List<CompoundTag> getPreviewBodies() {
+        return previewBodies;
+    }
+
     public void acceptPreview(List<PreviewBlock> updatedPreview, List<CompoundTag> updatedEntities,
-                              List<CompoundTag> updatedBlockEntities, CompoundTag updatedWires) {
+                              List<CompoundTag> updatedBlockEntities, CompoundTag updatedWires,
+                              List<CompoundTag> updatedBodies) {
         previewBlocks = List.copyOf(updatedPreview);
         previewEntities = List.copyOf(updatedEntities);
         previewBlockEntities = List.copyOf(updatedBlockEntities);
         previewWires = updatedWires.copy();
+        previewBodies = List.copyOf(updatedBodies);
     }
 
     public void refreshPreviewSnapshot() {
     }
 
     public void updatePreview(List<PreviewBlock> updatedPreview, List<CompoundTag> updatedEntities,
-                              List<CompoundTag> updatedBlockEntities, CompoundTag updatedWires) {
+                              List<CompoundTag> updatedBlockEntities, CompoundTag updatedWires,
+                              List<CompoundTag> updatedBodies) {
         if (previewBlocks.equals(updatedPreview)
                 && previewEntities.equals(updatedEntities)
-                && previewBlockEntities.equals(updatedBlockEntities) && previewWires.equals(updatedWires)) {
+                && previewBlockEntities.equals(updatedBlockEntities) && previewWires.equals(updatedWires)
+                && previewBodies.equals(updatedBodies)) {
             return;
         }
         boolean blocksChanged = !previewBlocks.equals(updatedPreview);
@@ -688,6 +697,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         previewEntities = List.copyOf(updatedEntities);
         previewBlockEntities = List.copyOf(updatedBlockEntities);
         previewWires = updatedWires.copy();
+        previewBodies = List.copyOf(updatedBodies);
         setChanged();
         broadcastPreview(blocksChanged);
     }
@@ -724,7 +734,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
                 new ChunkPos(worldPosition),
                 new EndpointPreviewPackets.Sync(
                         worldPosition,
-                        writePreview(previewBlocks, previewEntities, previewBlockEntities, previewWires)
+                        writePreview(previewBlocks, previewEntities, previewBlockEntities, previewWires, previewBodies)
                 )
         );
     }
@@ -908,7 +918,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         }
         tag.putInt(INPUT_POWER_TAG, powerMask(inputPower));
         tag.putInt(OUTPUT_POWER_TAG, powerMask(outputPower));
-        tag.put(PREVIEW_BLOCKS_TAG, writePreview(previewBlocks, previewEntities, previewBlockEntities, previewWires));
+        tag.put(PREVIEW_BLOCKS_TAG, writePreview(previewBlocks, previewEntities, previewBlockEntities, previewWires, previewBodies));
     }
 
     @Override
@@ -976,6 +986,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         previewEntities = readPreviewEntities(tag);
         previewBlockEntities = readPreviewBlockEntities(tag);
         previewWires = readPreviewWires(tag);
+        previewBodies = readPreviewBodies(tag);
     }
 
     /** Four bits per face is all a strength needs, so both tables fit in one int each. */
@@ -1004,6 +1015,12 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
 
     public static CompoundTag writePreview(List<PreviewBlock> blocks, List<CompoundTag> entities,
                                            List<CompoundTag> blockEntities, CompoundTag wires) {
+        return writePreview(blocks, entities, blockEntities, wires, List.of());
+    }
+
+    public static CompoundTag writePreview(List<PreviewBlock> blocks, List<CompoundTag> entities,
+                                           List<CompoundTag> blockEntities, CompoundTag wires,
+                                           List<CompoundTag> bodies) {
         CompoundTag root = new CompoundTag();
         ListTag list = new ListTag();
         for (PreviewBlock previewBlock : blocks) {
@@ -1026,7 +1043,18 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         }
         root.put(PREVIEW_BLOCK_ENTITIES_LIST_TAG, blockEntityList);
         if (!wires.isEmpty()) root.put("Wires", wires.copy());
+        ListTag bodyList = new ListTag();
+        for (CompoundTag body : bodies) bodyList.add(body.copy());
+        if (!bodyList.isEmpty()) root.put("PhysicsBodies", bodyList);
         return root;
+    }
+
+    public static List<CompoundTag> readPreviewBodies(CompoundTag tag) {
+        CompoundTag root = tag.contains(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND)
+                ? tag.getCompound(PREVIEW_BLOCKS_TAG) : tag;
+        List<CompoundTag> bodies = new ArrayList<>();
+        for (Tag entry : root.getList("PhysicsBodies", Tag.TAG_COMPOUND)) bodies.add(((CompoundTag) entry).copy());
+        return List.copyOf(bodies);
     }
 
     public static CompoundTag readPreviewWires(CompoundTag tag) {

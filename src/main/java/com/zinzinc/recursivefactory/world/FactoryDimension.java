@@ -10,6 +10,7 @@ import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryRelay;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryBarrierBlockEntity;
+import com.zinzinc.recursivefactory.compat.sable.SablePhysicsBodies;
 import com.zinzinc.recursivefactory.config.FactoryConfig;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import java.util.ArrayDeque;
@@ -36,6 +37,8 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
 
 /**
@@ -253,8 +256,9 @@ public final class FactoryDimension {
             ResourceKey<Level> dimension = ResourceKey.create(Registries.DIMENSION, record.entranceDimension());
             if (server.getLevel(dimension) == null) continue;
             for (var cell : record.cells()) {
-                BlockPos entrance = cell.entrance();
-                if (entrance.equals(FactoryData.UNBOUND_ENTRANCE)) continue;
+                if (cell.entrance().equals(FactoryData.UNBOUND_ENTRANCE)) continue;
+                BlockPos entrance = BlockPos.containing(SablePhysicsBodies.worldPosition(server.getLevel(dimension),
+                        Vec3.atCenterOf(cell.entrance())));
                 wanted.computeIfAbsent(dimension, key -> new HashSet<>()).add(new ChunkPos(entrance).toLong());
                 if (dimension.equals(LEVEL_KEY)) {
                     var parent = data.factoryAt(entrance);
@@ -302,12 +306,16 @@ public final class FactoryDimension {
      */
     private static void holdRoomsOpen(MinecraftServer server) {
         ServerLevel roomLevel = server.getLevel(LEVEL_KEY);
+        // Where the physics bodies stand, worked out once for the tick: a body keeps the room it is
+        // standing in loaded (see wantsRoomLoaded), and asking Sable once for every room would walk the
+        // same list of bodies over and over.
+        List<AABB> bodies = roomLevel == null ? List.of() : SablePhysicsBodies.bodiesIn(roomLevel);
         Set<Integer> alive = new HashSet<>();
         boolean holding = false;
         for (FactoryData.FactoryRecord record : FactoryData.get(server).factories()) {
             alive.add(record.id());
             Set<Long> held = ROOM_TICKETS.computeIfAbsent(record.id(), id -> new HashSet<>());
-            Set<Long> wanted = roomLevel != null && wantsRoomLoaded(server, record)
+            Set<Long> wanted = roomLevel != null && wantsRoomLoaded(server, record, bodies)
                     ? roomChunks(record)
                     : Set.of();
             holding |= !wanted.isEmpty();
@@ -350,20 +358,52 @@ public final class FactoryDimension {
     }
 
     /** Whether a factory's room is wanted right now, which is what the block leading into it decides. */
-    private static boolean wantsRoomLoaded(MinecraftServer server, FactoryData.FactoryRecord record) {
+    private static boolean wantsRoomLoaded(MinecraftServer server, FactoryData.FactoryRecord record,
+                                           List<AABB> bodies) {
         if (KEEP_LOADED.contains(record.id()) || PENDING_SPLITS.containsKey(record.id())) {
             return true;
         }
         ResourceLocation dimension = record.entranceDimension();
-        if (dimension == null) {
+        if (dimension != null) {
+            ServerLevel entranceLevel = server.getLevel(ResourceKey.create(Registries.DIMENSION, dimension));
+            // Only a chunk the entrance block is still ticked in counts. A chunk merely left in memory - a FULL
+            // chunk kept by vanilla's one-tick unknown ticket, which the room's own machinery asks for again
+            // every tick while it looks at the entrance - must not hold the room open by itself, or a factory
+            // that was used once would never go dormant again.
+            if (entranceLevel != null) {
+                for (var cell : record.cells()) {
+                    if (cell.entrance().equals(FactoryData.UNBOUND_ENTRANCE)) continue;
+                    BlockPos worldPos = BlockPos.containing(SablePhysicsBodies.worldPosition(entranceLevel,
+                            Vec3.atCenterOf(cell.entrance())));
+                    if (entranceLevel.shouldTickBlocksAt(worldPos)) return true;
+                }
+            }
+        }
+        // A room a physics body is standing in is held open too, even with nobody at its entrance. Sable
+        // saves a sub-level away - and stops ticking it - the moment the chunks its world box stands over
+        // stop ticking (see SablePhysicsBodies), so a room that let go while a body still stood in it would
+        // take the body with it: the player still inside the body would be left in a level that no longer
+        // has the body, and could not step back out of it.
+        return physicsBodyStandsIn(bodies, record);
+    }
+
+    /** Whether a physics body's world box overlaps any cell of this factory's room. */
+    private static boolean physicsBodyStandsIn(List<AABB> bodies, FactoryData.FactoryRecord record) {
+        if (bodies.isEmpty() || record.cells().isEmpty()) {
             return false;
         }
-        ServerLevel entranceLevel = server.getLevel(ResourceKey.create(Registries.DIMENSION, dimension));
-        // Only a chunk the entrance block is still ticked in counts. A chunk merely left in memory - a FULL
-        // chunk kept by vanilla's one-tick unknown ticket, which the room's own machinery asks for again
-        // every tick while it looks at the entrance - must not hold the room open by itself, or a factory
-        // that was used once would never go dormant again.
-        return entranceLevel != null && entranceLevel.shouldTickBlocksAt(record.entrancePos());
+        for (FactoryData.FactoryRecord.Cell cell : record.cells()) {
+            AABB room = new AABB(
+                    cell.roomX(), cell.baseY(), cell.roomZ(),
+                    cell.roomX() + FactoryData.CELL_SIZE, cell.ceilingY() + 1, cell.roomZ() + FactoryData.CELL_SIZE
+            );
+            for (AABB body : bodies) {
+                if (body.intersects(room)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /** The chunks of a factory's room, one per cell: a cell is exactly one chunk across. */

@@ -13,6 +13,7 @@ import com.zinzinc.recursivefactory.block.entity.KineticRelay;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.compat.FactorySchematicMaterials;
+import com.zinzinc.recursivefactory.compat.sable.SableAssembly;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import com.zinzinc.recursivefactory.data.ModDataComponents;
 import com.zinzinc.recursivefactory.world.FactoryBlueprint;
@@ -588,6 +589,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
     @Override
     protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
         if (!state.is(newState.getBlock()) && !level.isClientSide() && level.getServer() != null
+                && !SableAssembly.isMoving(level, pos)
                 && level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity blockEntity) {
             int factoryId = blockEntity.getFactoryId();
             FactoryData data = FactoryData.get(level.getServer());

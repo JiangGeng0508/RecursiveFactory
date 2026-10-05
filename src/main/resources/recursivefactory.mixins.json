@@ -3,6 +3,6 @@
   "minVersion": "0.8",
   "package": "com.zinzinc.recursivefactory.mixin",
   "compatibilityLevel": "JAVA_21",
-  "mixins": ["SchematicannonMaterialsMixin", "SchematicPrinterAccessor", "LaunchedItemRoomMixin", "FactoryWireCaptureMixin"],
+  "mixins": ["SchematicannonMaterialsMixin", "SchematicPrinterAccessor", "LaunchedItemRoomMixin", "FactoryWireCaptureMixin", "SableAssemblyMixin"],
   "injectors": {"defaultRequire": 1}
 }

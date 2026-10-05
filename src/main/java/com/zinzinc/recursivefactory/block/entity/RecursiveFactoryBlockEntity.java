@@ -10,6 +10,7 @@ import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
+import com.zinzinc.recursivefactory.compat.sable.SablePhysicsBodies;
 import java.util.List;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
@@ -21,6 +22,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
 
 public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity implements TransformableBlockEntity {
@@ -172,8 +174,9 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
     }
 
     private boolean hasAudience(ServerLevel serverLevel) {
+        var worldPos = SablePhysicsBodies.worldPosition(serverLevel, Vec3.atCenterOf(worldPosition));
         for (ServerPlayer player : serverLevel.players()) {
-            if (player.blockPosition().closerThan(worldPosition, PREVIEW_RANGE)) {
+            if (player.position().distanceToSqr(worldPos) < PREVIEW_RANGE * PREVIEW_RANGE) {
                 return true;
             }
         }
@@ -274,7 +277,7 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
             cell = record.anchorCell();
         }
         if (factoryLevel == null || cell == null) {
-            updatePreview(List.of(), List.of(), List.of(), new CompoundTag());
+            updatePreview(List.of(), List.of(), List.of(), new CompoundTag(), List.of());
             return;
         }
 
@@ -291,7 +294,8 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
                 samplePreviewBlockEntities(factoryLevel, previewCenter, blocks),
                 RecursiveFactory.powerAvailable()
                         ? FactoryWires.capture(factoryLevel, record, previewCenter.below())
-                        : new CompoundTag()
+                        : new CompoundTag(),
+                SablePhysicsBodies.sample(factoryLevel, previewCenter, PREVIEW_SIZE, PREVIEW_HEIGHT)
         );
     }
 

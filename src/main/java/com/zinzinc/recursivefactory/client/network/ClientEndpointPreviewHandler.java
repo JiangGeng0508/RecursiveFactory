@@ -47,7 +47,8 @@ public final class ClientEndpointPreviewHandler {
                     blockEntities.size()
             );
         }
-        endpoint.acceptPreview(blocks, entities, blockEntities, EndpointBlockEntity.readPreviewWires(previewTag));
+        endpoint.acceptPreview(blocks, entities, blockEntities, EndpointBlockEntity.readPreviewWires(previewTag),
+                EndpointBlockEntity.readPreviewBodies(previewTag));
     }
 
     public static void handle(EndpointPreviewPackets.Sync packet) {

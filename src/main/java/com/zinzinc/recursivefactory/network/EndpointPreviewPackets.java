@@ -42,7 +42,7 @@ public final class EndpointPreviewPackets {
                         EndpointBlockEntity.writePreview(
                                 endpoint.getPreviewBlocks(),
                                 endpoint.getPreviewEntities(),
-                                endpoint.getPreviewBlockEntities(), endpoint.getPreviewWires()
+                                endpoint.getPreviewBlockEntities(), endpoint.getPreviewWires(), endpoint.getPreviewBodies()
                         )
                 ));
             });

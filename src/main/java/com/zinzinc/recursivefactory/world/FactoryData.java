@@ -320,6 +320,27 @@ public final class FactoryData extends SavedData {
         return false;
     }
 
+    /** Moves entrance addresses together, preserving room coordinates, ownership and floor state. */
+    public void moveEntrances(ResourceLocation fromDimension, ResourceLocation toDimension,
+                              Map<BlockPos, BlockPos> moved) {
+        for (FactoryRecord record : List.copyOf(factories.values())) {
+            if (!fromDimension.equals(record.entranceDimension())) continue;
+            if (!fromDimension.equals(toDimension) && record.cells().stream()
+                    .anyMatch(cell -> !cell.entrance().equals(UNBOUND_ENTRANCE)
+                            && !moved.containsKey(cell.entrance()))) continue;
+            boolean changed = false;
+            List<FactoryRecord.Cell> cells = new ArrayList<>();
+            for (FactoryRecord.Cell cell : record.cells()) {
+                BlockPos target = moved.get(cell.entrance());
+                cells.add(target == null ? cell : new FactoryRecord.Cell(target, cell.roomX(), cell.roomY(),
+                        cell.roomZ(), cell.floorLaid()));
+                changed |= target != null;
+            }
+            if (changed) update(record.withEntrance(toDimension,
+                    moved.getOrDefault(record.entrancePos(), record.entrancePos())).withCells(cells));
+        }
+    }
+
     /**
      * Notes that one of a factory's cells has had its checkerboard floor laid, so a room that is looked
      * at again does not lay it a second time. Nothing happens when the cell already says so, which keeps
