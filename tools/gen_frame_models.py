@@ -16,8 +16,9 @@ entrance blocks in a row show posts at the two ends and nowhere in between. The 
 bottom edge of a side also ask about the vertical neighbour, so stacked cells lose their internal seams.
 
 FactoryFrameModel adds inside corners using the joined neighbours' connections to the diagonal cell.
-Three occupied cells around an edge each contribute a bar, wrapping the corner on both exposed walls.
-It reuses these models with their existing thickness and tint; straight walls retain only their outer frame.
+At vertical corners all three occupied cells contribute a bar, wrapping both exposed walls. Horizontal
+inside edges use only the elbow cell's bar to stay one pixel wide. Both reuse these models and their tint;
+straight walls retain only their outer frame.
 
 Run from the repository root:  python tools/gen_frame_models.py
 """

@@ -63,7 +63,10 @@ public final class FactoryFrameModel extends BakedModelWrapper<BakedModel> {
             // The server already keeps these connections separate for different factories.
             boolean diagonal = a && connected(neighbours[edge.a().ordinal()], edge.b())
                     || b && connected(neighbours[edge.b().ordinal()], edge.a());
-            if (isConcave(a, b, diagonal)) mask |= 1 << i;
+            boolean horizontal = edge.a().getAxis() == Direction.Axis.Y || edge.b().getAxis() == Direction.Axis.Y;
+            // A horizontal inside edge needs only the elbow cell's bar. Adding the two adjoining
+            // cells' bars as well makes it two pixels wide. Vertical corners still wrap both walls.
+            if (isConcave(a, b, diagonal) && (!horizontal || a && b)) mask |= 1 << i;
         }
         return super.getModelData(level, pos, state, data).derive().with(CONCAVE_EDGES, mask).build();
     }
