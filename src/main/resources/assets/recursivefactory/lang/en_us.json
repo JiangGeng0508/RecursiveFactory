@@ -6,6 +6,8 @@
   "message.recursivefactory.entered": "Entered recursive factory #%s.",
   "message.recursivefactory.exited": "Left recursive factory #%s.",
   "message.recursivefactory.missing": "That recursive factory no longer exists.",
+  "message.recursivefactory.copy_source.missing": "There is no factory entrance to copy at the linked position.",
+  "item.recursivefactory.copy_source": "Copy from: %s [%s, %s, %s] (read when placed)",
   "item.recursivefactory.mirror_factory": "Mirror Factory",
   "message.recursivefactory.copying": "That recursive factory is being copied right now; try again in a moment.",
   "message.recursivefactory.blueprint.loop": "A factory inside this one leads back into a factory that is already being copied.",

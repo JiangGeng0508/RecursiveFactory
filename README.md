@@ -56,8 +56,9 @@ Mobs in an unoccupied factory room are protected from distance despawning caused
 8. Deploy the schematic, place material containers next to a Schematicannon, load the schematic and gunpowder, and start printing. The entrance appears first; its contents are built progressively. View progress and missing materials in the cannon interface.
 9. Terminals and wires are restored as their supports become available. The old standalone Factory Printer has been removed; existing Mirror Factory items remain usable.
 
-In Creative mode, middle-click a factory entrance (Pick Block) to obtain a factory block with its contents; Ctrl is not required. Its item form is drawn as a full cube from an isometric view, like an ordinary block.
-The copy preserves the captured colour, expanded layout, inventory contents and nested factories. It records every entrance block the layout grew through, so an expanded factory is placed back as a whole; if another block already stands in any of those positions, placement is refused with a message on your action bar and nothing is placed. Each placement creates an independent factory, even after the original is changed or removed.
+In Creative mode, middle-click a factory entrance (Pick Block) to obtain a factory block linked to that dimension and position; Ctrl is not required. Picking does not read its contents or create a blueprint file. The tooltip shows the source coordinates.
+Each placement reads the factory currently at that position, copying its current colour, expanded layout, inventory contents and nested factories, and places all connected entrances together. Changes or expansions made after picking are included in the next placement. If the source entrance is missing or the expanded layout is blocked, placement is refused with an action-bar message and nothing is placed. Replacing the source entrance with another factory makes the link copy that new factory. Already placed copies remain independent of later source changes.
+Existing snapshot items keep their original behaviour; pick the entrance again to obtain a coordinate link.
 
 ## Configuration
 

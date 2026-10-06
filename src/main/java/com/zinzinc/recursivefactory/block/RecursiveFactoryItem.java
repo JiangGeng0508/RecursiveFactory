@@ -3,9 +3,12 @@ package com.zinzinc.recursivefactory.block;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import com.zinzinc.recursivefactory.data.ModDataComponents;
+import com.zinzinc.recursivefactory.world.FactoryBlueprint;
+import com.zinzinc.recursivefactory.world.FactoryCopyLink;
 import java.util.ArrayList;
 import java.util.List;
 import net.minecraft.core.BlockPos;
+import net.minecraft.ChatFormatting;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -15,6 +18,8 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.Level;
@@ -49,7 +54,28 @@ public final class RecursiveFactoryItem extends BlockItem {
      */
     @Override
     public InteractionResult place(BlockPlaceContext context) {
+        var target = context.getItemInHand().get(ModDataComponents.COPY_SOURCE.get());
+        if (target != null) {
+            // The server resolves the live source. Predicting an ordinary empty factory on the client
+            // would use stale colour/layout and briefly show the wrong result.
+            if (context.getLevel().isClientSide()) return InteractionResult.SUCCESS;
+            if (!(context.getLevel() instanceof ServerLevel level)
+                    || !context.canPlace() || getPlacementState(context) == null) return InteractionResult.FAIL;
+            try {
+                var source = FactoryCopyLink.resolve(level.getServer(), target);
+                if (!canPlaceDoors(context, source.doors())) return InteractionResult.FAIL;
+                return super.place(new CopyContext(context, source.capture()));
+            } catch (FactoryBlueprint.Refusal refusal) {
+                if (context.getPlayer() != null) context.getPlayer().displayClientMessage(refusal.reason(), true);
+                return InteractionResult.FAIL;
+            }
+        }
         List<BlockPos> doors = doorOffsets(context.getItemInHand());
+        if (!canPlaceDoors(context, doors)) return InteractionResult.FAIL;
+        return super.place(context);
+    }
+
+    private static boolean canPlaceDoors(BlockPlaceContext context, List<BlockPos> doors) {
         if (!doors.isEmpty()) {
             Level level = context.getLevel();
             BlockPos anchor = context.getClickedPos();
@@ -61,10 +87,46 @@ public final class RecursiveFactoryItem extends BlockItem {
                     context.getPlayer().displayClientMessage(
                             Component.translatable("message.recursivefactory.place.blocked"), true);
                 }
-                return InteractionResult.FAIL;
+                return false;
             }
         }
-        return super.place(context);
+        return true;
+    }
+
+    @Override
+    protected BlockState getPlacementState(BlockPlaceContext context) {
+        BlockState state = super.getPlacementState(context);
+        return state != null && context instanceof CopyContext copy
+                ? state.setValue(FactoryColors.COLOR_PROPERTY, FactoryColors.stateValue(copy.prepared.blueprint().colorIndex()))
+                : state;
+    }
+
+    @Override
+    protected boolean placeBlock(BlockPlaceContext context, BlockState state) {
+        if (!super.placeBlock(context, state)) return false;
+        if (context instanceof CopyContext copy
+                && context.getLevel().getBlockEntity(context.getClickedPos()) instanceof RecursiveFactoryBlockEntity entrance) {
+            entrance.prepareCopy(copy.prepared);
+        }
+        return true;
+    }
+
+    private static final class CopyContext extends BlockPlaceContext {
+        private final FactoryCopyLink.Prepared prepared;
+
+        private CopyContext(BlockPlaceContext original, FactoryCopyLink.Prepared prepared) {
+            super(original);
+            this.prepared = prepared;
+        }
+    }
+
+    @Override
+    public void appendHoverText(ItemStack stack, Item.TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
+        super.appendHoverText(stack, context, tooltip, flag);
+        var target = stack.get(ModDataComponents.COPY_SOURCE.get());
+        if (target != null) tooltip.add(Component.translatable("item.recursivefactory.copy_source",
+                target.dimension().location().toString(), target.pos().getX(), target.pos().getY(), target.pos().getZ())
+                .withStyle(ChatFormatting.GRAY));
     }
 
     /** Whether an entrance block can be put down at {@code pos}: nothing but air or something replaceable. */

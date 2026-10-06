@@ -436,6 +436,11 @@ public final class FactoryBlueprint {
         return build(doorLevel, doorPos, blueprint, -1, "the blueprint " + name, owner);
     }
 
+    /** Builds a prevalidated coordinate-link copy directly from memory, independent of neighbouring copies. */
+    public static int build(ServerLevel doorLevel, BlockPos doorPos, FactoryBlueprint blueprint, @Nullable UUID owner) {
+        return build(doorLevel, doorPos, blueprint, -1, blueprint.name(), owner);
+    }
+
     /**
      * Copies a factory that is standing in this world behind a block that was put down for it. What a
      * blueprint taken out of the world carries is the factory the block it was taken from stood in, and
@@ -564,7 +569,7 @@ public final class FactoryBlueprint {
             BlockPos base = new BlockPos(part.roomX() - cell.roomX(), part.roomY() - cell.roomY(),
                     part.roomZ() - cell.roomZ());
             cells.add(base);
-            for (int y = base.getY(); y < base.getY() + FactoryData.INNER_HEIGHT; y++) {
+            for (int y = 0; y < FactoryData.INNER_HEIGHT; y++) {
                 for (int x = 0; x < width; x++) {
                     for (int z = 0; z < width; z++) {
                         BlockPos pos = origin.offset(base).offset(x, y, z);
@@ -595,7 +600,8 @@ public final class FactoryBlueprint {
                         if (shared != null) {
                             nested.put(offset, shared);
                             var first = capturedCells.get(inner.id());
-                            shared.entranceCells.put(offset, new BlockPos(innerCell.roomX() - first.roomX(), 0,
+                            shared.entranceCells.put(offset, new BlockPos(innerCell.roomX() - first.roomX(),
+                                    innerCell.roomY() - first.roomY(),
                                     innerCell.roomZ() - first.roomZ()));
                             continue;
                         }

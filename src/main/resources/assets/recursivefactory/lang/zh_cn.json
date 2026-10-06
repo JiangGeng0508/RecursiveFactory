@@ -6,6 +6,8 @@
   "message.recursivefactory.entered": "已进入递归工厂 #%s。",
   "message.recursivefactory.exited": "已离开递归工厂 #%s。",
   "message.recursivefactory.missing": "该递归工厂已不存在。",
+  "message.recursivefactory.copy_source.missing": "链接坐标处没有可复制的工厂入口。",
+  "item.recursivefactory.copy_source": "复制来源：%s [%s, %s, %s]（放置时读取）",
   "item.recursivefactory.mirror_factory": "镜像工厂",
   "message.recursivefactory.copying": "该递归工厂正在被复制，请稍后再试。",
   "message.recursivefactory.blueprint.loop": "这间房里嵌的工厂又指回了一个正在被抓取的工厂。",

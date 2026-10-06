@@ -9,6 +9,8 @@ import com.mojang.logging.LogUtils;
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
 import com.zinzinc.recursivefactory.world.FactoryData;
+import com.zinzinc.recursivefactory.world.FactoryCopyLink;
+import com.zinzinc.recursivefactory.data.ModDataComponents;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import com.zinzinc.recursivefactory.compat.sable.SablePhysicsBodies;
 import java.util.List;
@@ -119,6 +121,24 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
     @Nullable
     private BlockPos roomCell;
     private CompoundTag cannonRoom = new CompoundTag();
+    private @Nullable FactoryCopyLink.Prepared pendingCopy;
+
+    public void prepareCopy(FactoryCopyLink.Prepared copy) {
+        pendingCopy = copy;
+    }
+
+    public @Nullable FactoryCopyLink.Prepared takePreparedCopy() {
+        var result = pendingCopy;
+        pendingCopy = null;
+        return result;
+    }
+
+    @Override
+    protected void applyImplicitComponents(BlockEntity.DataComponentInput input) {
+        super.applyImplicitComponents(input);
+        // The placed factory is independent; the coordinate link belongs only to the reusable item.
+        input.get(ModDataComponents.COPY_SOURCE.get());
+    }
 
     public CompoundTag takeCannonRoom() {
         CompoundTag result = cannonRoom;

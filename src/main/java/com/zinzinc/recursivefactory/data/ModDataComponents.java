@@ -3,6 +3,7 @@ package com.zinzinc.recursivefactory.data;
 import com.mojang.serialization.Codec;
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import net.minecraft.core.component.DataComponentType;
+import net.minecraft.core.GlobalPos;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.neoforged.bus.api.IEventBus;
@@ -23,6 +24,13 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 public final class ModDataComponents {
     public static final DeferredRegister<DataComponentType<?>> COMPONENTS =
             DeferredRegister.create(Registries.DATA_COMPONENT_TYPE, RecursiveFactory.MODID);
+
+    /** Creative pick-block remembers a location; its contents are read only when the item is placed. */
+    public static final DeferredHolder<DataComponentType<?>, DataComponentType<GlobalPos>> COPY_SOURCE =
+            COMPONENTS.register("copy_source", () -> DataComponentType.<GlobalPos>builder()
+                    .persistent(GlobalPos.CODEC)
+                    .networkSynchronized(GlobalPos.STREAM_CODEC)
+                    .build());
 
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<Integer>> COLOR =
             COMPONENTS.register("color", () -> DataComponentType.<Integer>builder()

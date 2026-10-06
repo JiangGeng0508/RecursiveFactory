@@ -278,6 +278,18 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
         UUID owner = placer instanceof Player player ? player.getUUID() : null;
         FactoryData data = FactoryData.get(level.getServer());
         ServerLevel factoryLevel = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
+        var linkedCopy = blockEntity.takePreparedCopy();
+        if (linkedCopy != null) {
+            blockEntity.clearDoor();
+            int roomId = FactoryBlueprint.build(serverLevel, pos, linkedCopy.blueprint(), owner);
+            if (roomId > 0) {
+                if (RecursiveFactory.powerAvailable() && !linkedCopy.entranceNodes().isEmpty()) {
+                    FactoryWires.place(serverLevel, pos, linkedCopy.entranceNodes());
+                }
+                placeCopiedDoors(level, pos, linkedCopy.doors(), roomId, data);
+            }
+            return;
+        }
         var printedRoom = blockEntity.takeCannonRoom();
         if (!printedRoom.isEmpty()) {
             blockEntity.clearDoor();
@@ -359,7 +371,11 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
      */
     private static void placeCopiedDoors(Level level, BlockPos anchor, ItemStack stack, int roomId,
                                          FactoryData data) {
-        List<BlockPos> offsets = RecursiveFactoryItem.doorOffsets(stack);
+        placeCopiedDoors(level, anchor, RecursiveFactoryItem.doorOffsets(stack), roomId, data);
+    }
+
+    private static void placeCopiedDoors(Level level, BlockPos anchor, List<BlockPos> offsets, int roomId,
+                                         FactoryData data) {
         if (offsets.isEmpty()) {
             return;
         }

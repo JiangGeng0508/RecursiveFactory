@@ -2,16 +2,14 @@ package com.zinzinc.recursivefactory.network;
 
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryItem;
-import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
+import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.world.FactoryBlueprint;
-import com.zinzinc.recursivefactory.world.FactoryData;
-import com.zinzinc.recursivefactory.world.FactoryDimension;
-import com.zinzinc.recursivefactory.world.FactoryLocks;
+import com.zinzinc.recursivefactory.data.FactoryColors;
+import com.zinzinc.recursivefactory.data.ModDataComponents;
+import net.minecraft.core.GlobalPos;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -19,11 +17,10 @@ import net.minecraft.network.protocol.game.ClientboundSetCarriedItemPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
-/** Creative pick-block captures a snapshot and lets the normal block item placement build each copy. */
+/** Creative pick-block records the source coordinates; placement reads and expands the current contents. */
 public record FactoryPickBlockPacket(BlockPos pos) implements CustomPacketPayload {
     public static final Type<FactoryPickBlockPacket> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(RecursiveFactory.MODID, "pick_factory_block"));
@@ -61,48 +58,16 @@ public record FactoryPickBlockPacket(BlockPos pos) implements CustomPacketPayloa
         }
     }
 
-    /** Uses the picked entrance's cell as origin, preserving placement alignment in expanded factories. */
+    /** No room scan or blueprint file: picking records only the entrance location and its display colour. */
     public static ItemStack copyStack(ServerLevel level, BlockPos pos, String owner) {
-        if (!(level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity entrance)) {
+        if (!(level.getBlockEntity(pos) instanceof RecursiveFactoryBlockEntity)) {
             throw FactoryBlueprint.Refusal.of(Component.translatable("message.recursivefactory.missing"));
         }
-        FactoryData data = FactoryData.get(level.getServer());
-        var record = data.factory(entrance.getFactoryId());
-        var cell = record == null ? null : record.cellAt(pos);
-        ServerLevel roomLevel = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
-        if (record == null || cell == null || roomLevel == null) {
-            throw FactoryBlueprint.Refusal.of(Component.translatable("message.recursivefactory.missing"));
-        }
-        FactoryBlueprint blueprint = FactoryLocks.whileLocked(record.id(), () ->
-                FactoryBlueprint.capture(roomLevel, data, record, cell,
-                        owner + FactoryBlueprint.OWNER_SEPARATOR + FactoryBlueprint.newName()));
-        if (!blueprint.write(level.getServer())) {
-            throw FactoryBlueprint.Refusal.of(Component.translatable("message.recursivefactory.blueprint.failed"));
-        }
-
-        ItemStack stack = RecursiveFactoryItem.colored(blueprint.colorIndex());
-        CompoundTag tag = new CompoundTag();
-        tag.putString(RecursiveFactoryBlockEntity.BLUEPRINT_TAG, blueprint.name());
-        CompoundTag nodes = entrance.blueprintEntranceNodes();
-        if (!nodes.isEmpty()) tag.put(RecursiveFactoryBlockEntity.ENTRANCE_NODES_TAG, nodes);
-        // The other entrance blocks the factory was expanded into travel with the copy: the room is copied
-        // with a cell for each of them, but the blocks themselves stand in the world and would be left
-        // behind. They are written as offsets from this block, and placed together with it.
-        ListTag doors = new ListTag();
-        for (FactoryData.FactoryRecord.Cell door : record.connectedBoundCells(cell)) {
-            BlockPos offset = door.entrance().subtract(pos);
-            if (offset.equals(BlockPos.ZERO)) {
-                continue;
-            }
-            CompoundTag entry = new CompoundTag();
-            entry.putInt("X", offset.getX());
-            entry.putInt("Y", offset.getY());
-            entry.putInt("Z", offset.getZ());
-            doors.add(entry);
-        }
-        if (!doors.isEmpty()) tag.put(RecursiveFactoryBlockEntity.DOORS_TAG, doors);
-        // Carry only placement data, never the live factory ID, buffers, power network or preview.
-        BlockItem.setBlockEntityData(stack, ModBlockEntities.RECURSIVE_FACTORY.get(), tag);
+        int color = FactoryColors.kindOfState(level.getBlockState(pos));
+        ItemStack stack = color == FactoryColors.NO_COLOR
+                ? new ItemStack(ModBlocks.RECURSIVE_FACTORY_ITEM.get())
+                : RecursiveFactoryItem.colored(color);
+        stack.set(ModDataComponents.COPY_SOURCE.get(), GlobalPos.of(level.dimension(), pos.immutable()));
         return stack;
     }
 }
