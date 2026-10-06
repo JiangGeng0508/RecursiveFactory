@@ -3,11 +3,13 @@ package com.zinzinc.recursivefactory.block.entity;
 import com.mojang.logging.LogUtils;
 import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
+import com.simibubi.create.content.kinetics.belt.BeltBlockEntity;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
 import com.zinzinc.recursivefactory.world.PreviewPlayerData;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
@@ -76,14 +78,8 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
     private static final String PREVIEW_BLOCKS_LIST_TAG = "Blocks";
     private static final String PREVIEW_ENTITIES_LIST_TAG = "Entities";
     private static final String PREVIEW_BLOCK_ENTITIES_LIST_TAG = "BlockEntities";
-    /** Entities travel as full NBT, so a busy room would otherwise send an unbounded preview. */
-    private static final int MAX_PREVIEW_ENTITIES = 24;
-    /**
-     * Block entities travel as NBT too, and some of them are big (a machine's inventory, a contraption),
-     * so both how many are taken and how large a single one may be are capped.
-     */
-    private static final int MAX_PREVIEW_BLOCK_ENTITIES = 32;
-    private static final int MAX_PREVIEW_BLOCK_ENTITY_BYTES = 16384;
+    /** Neighbour data participates in model queries but must not be drawn a second time. */
+    public static final String PREVIEW_CONTEXT_TAG = "RecursiveFactoryPreviewContext";
     /**
      * Tags that exist for physics only. Dropping them keeps the payload small and, more importantly, keeps
      * an entity that is standing still from looking changed: every one of these is rewritten every tick.
@@ -750,17 +746,48 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
      * hidden (a room's barrier shell, for example) is the caller's to filter.
      */
     public static List<PreviewBlock> samplePreview(ServerLevel level, BlockPos center, int size, int height) {
+        return samplePreview(level, center, size, height, 0);
+    }
+
+    /** A one-block halo supplies connected textures, face culling and neighbouring block entity data. */
+    public static List<PreviewBlock> samplePreviewWithContext(ServerLevel level, BlockPos center, int size, int height) {
+        var blocks = new LinkedHashMap<BlockPos, PreviewBlock>();
+        for (PreviewBlock block : samplePreview(level, center, size, height, 1)) {
+            blocks.put(new BlockPos(block.x(), block.y(), block.z()), block);
+        }
+        // A belt's inventory lives only at its controller, possibly several cells away. Include that
+        // controller as context so each preview can draw the items within its own cell.
+        for (PreviewBlock block : List.copyOf(blocks.values())) {
+            if (block.contextOnly() || !block.state().hasBlockEntity()) continue;
+            BlockEntity be = level.getBlockEntity(center.offset(block.x(), block.y() - 1, block.z()));
+            if (!(be instanceof BeltBlockEntity belt)) continue;
+            BlockPos controller = belt.getController();
+            if (!level.hasChunkAt(controller)
+                    || !(level.getBlockEntity(controller) instanceof BeltBlockEntity controllerBE)
+                    || !controllerBE.isController()) continue;
+            BlockPos local = controller.subtract(center).above();
+            blocks.putIfAbsent(local, new PreviewBlock(local.getX(), local.getY(), local.getZ(),
+                    controllerBE.getBlockState(), true));
+        }
+        return List.copyOf(blocks.values());
+    }
+
+    private static List<PreviewBlock> samplePreview(ServerLevel level, BlockPos center, int size, int height,
+                                                   int padding) {
         List<PreviewBlock> sampled = new ArrayList<>();
         int half = size / 2;
-        for (int y = 0; y < height; y++) {
-            for (int x = -half; x < size - half; x++) {
-                for (int z = -half; z < size - half; z++) {
+        for (int y = -padding; y < height + padding; y++) {
+            for (int x = -half - padding; x < size - half + padding; x++) {
+                for (int z = -half - padding; z < size - half + padding; z++) {
                     BlockPos targetPos = center.offset(x, y - 1, z);
+                    if (!level.hasChunkAt(targetPos)) continue;
                     BlockState state = level.getBlockState(targetPos);
                     if (state.isAir() || state.is(Blocks.BEDROCK)) {
                         continue;
                     }
-                    sampled.add(new PreviewBlock(x, y, z, state));
+                    boolean contextOnly = y < 0 || y >= height || x < -half || x >= size - half
+                            || z < -half || z >= size - half;
+                    sampled.add(new PreviewBlock(x, y, z, state, contextOnly));
                 }
             }
         }
@@ -785,7 +812,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         );
         List<CompoundTag> sampled = new ArrayList<>();
         // Players have their own level list, including arrivals before chunk entity tracking catches up.
-        // Give them priority so a busy mob farm cannot use every slot before its visitors are sampled.
+        // Sample every visible entity; a fixed count silently hid parts of busy rooms.
         List<Entity> entities = new ArrayList<>();
         for (Player player : level.players()) {
             if (isPreviewable(player) && player.getBoundingBox().intersects(box)) entities.add(player);
@@ -793,9 +820,6 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         entities.addAll(level.getEntitiesOfClass(Entity.class, box,
                 entity -> !(entity instanceof Player) && isPreviewable(entity)));
         for (Entity entity : entities) {
-            if (sampled.size() >= MAX_PREVIEW_ENTITIES) {
-                break;
-            }
             CompoundTag tag = entity instanceof Player player ? PreviewPlayerData.sample(player) : new CompoundTag();
             if (!(entity instanceof Player)) entity.saveWithoutId(tag);
             // saveWithoutId deliberately leaves the type id out (its NBT is not meant to be recreated from),
@@ -838,9 +862,6 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
                                                               List<PreviewBlock> blocks) {
         List<CompoundTag> sampled = new ArrayList<>();
         for (PreviewBlock block : blocks) {
-            if (sampled.size() >= MAX_PREVIEW_BLOCK_ENTITIES) {
-                break;
-            }
             if (!block.state().hasBlockEntity()) {
                 continue;
             }
@@ -849,13 +870,13 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
                 continue;
             }
             CompoundTag tag = blockEntity.saveWithId(level.registryAccess());
-            if (tag.sizeInBytes() > MAX_PREVIEW_BLOCK_ENTITY_BYTES) {
-                LOGGER.debug("Skipping oversized block entity {} in the endpoint preview", blockEntity.getType());
-                continue;
+            if (blockEntity instanceof BeltBlockEntity belt) {
+                tag.put("Controller", NbtUtils.writeBlockPos(belt.getController().subtract(center).above()));
             }
             tag.putInt("x", block.x());
             tag.putInt("y", block.y());
             tag.putInt("z", block.z());
+            if (block.contextOnly()) tag.putBoolean(PREVIEW_CONTEXT_TAG, true);
             sampled.add(tag);
         }
         return List.copyOf(sampled);
@@ -1038,6 +1059,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
             entry.putInt("Y", previewBlock.y());
             entry.putInt("Z", previewBlock.z());
             entry.put("State", NbtUtils.writeBlockState(previewBlock.state()));
+            if (previewBlock.contextOnly()) entry.putBoolean(PREVIEW_CONTEXT_TAG, true);
             list.add(entry);
         }
         root.put(PREVIEW_BLOCKS_LIST_TAG, list);
@@ -1088,7 +1110,8 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
                     blockTag.getInt("X"),
                     blockTag.getInt("Y"),
                     blockTag.getInt("Z"),
-                    state
+                    state,
+                    blockTag.getBoolean(PREVIEW_CONTEXT_TAG)
             ));
         }
         return List.copyOf(blocks);
@@ -1118,6 +1141,9 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
         return List.copyOf(blockEntities);
     }
 
-    public record PreviewBlock(int x, int y, int z, BlockState state) {
+    public record PreviewBlock(int x, int y, int z, BlockState state, boolean contextOnly) {
+        public PreviewBlock(int x, int y, int z, BlockState state) {
+            this(x, y, z, state, false);
+        }
     }
 }

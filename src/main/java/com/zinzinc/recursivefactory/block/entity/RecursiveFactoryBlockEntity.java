@@ -284,7 +284,7 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
         // The barrier shell is not part of the preview: only the room's free space is drawn. Its block
         // entities are dropped with it, so the shell's own block entities never travel either.
         BlockPos previewCenter = cell.previewCenter();
-        List<PreviewBlock> blocks = samplePreview(factoryLevel, previewCenter, PREVIEW_SIZE, PREVIEW_HEIGHT)
+        List<PreviewBlock> blocks = samplePreviewWithContext(factoryLevel, previewCenter, PREVIEW_SIZE, PREVIEW_HEIGHT)
                 .stream()
                 .filter(block -> !block.state().is(ModBlocks.FACTORY_BARRIER.get()))
                 .toList();

@@ -86,6 +86,8 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
                 .setValue(BlockStateProperties.EAST, false)
                 .setValue(BlockStateProperties.SOUTH, false)
                 .setValue(BlockStateProperties.WEST, false)
+                .setValue(BlockStateProperties.UP, false)
+                .setValue(BlockStateProperties.DOWN, false)
                 .setValue(FactoryColors.COLOR_PROPERTY, 0));
     }
 
@@ -98,7 +100,8 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
         builder.add(BlockStateProperties.POWERED, BlockStateProperties.FACING, FactoryColors.COLOR_PROPERTY,
                 BlockStateProperties.NORTH, BlockStateProperties.EAST,
-                BlockStateProperties.SOUTH, BlockStateProperties.WEST);
+                BlockStateProperties.SOUTH, BlockStateProperties.WEST,
+                BlockStateProperties.UP, BlockStateProperties.DOWN);
     }
 
     /**
@@ -142,13 +145,12 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
 
     /**
      * Works out one side of the frame from the block that has just changed beside it, which is what keeps a
-     * growing factory joined up while entrance blocks are laid down and taken away. Up and down are not
-     * sides of a room, so a change above or below leaves the state alone.
+     * growing factory joined up while entrance blocks are laid down and taken away, on all six sides.
      */
     @Override
     protected BlockState updateShape(BlockState state, Direction direction, BlockState neighborState,
                                      LevelAccessor level, BlockPos pos, BlockPos neighborPos) {
-        if (!direction.getAxis().isHorizontal() || !state.hasProperty(BlockStateProperties.NORTH)) {
+        if (!state.hasProperty(BlockStateProperties.NORTH)) {
             return state;
         }
         return state.setValue(joinedAcross(direction),
@@ -156,7 +158,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
     }
 
     /**
-     * {@code state} with all four sides worked out from what stands beside {@code pos}. A side is joined
+     * {@code state} with all six sides worked out from what stands beside {@code pos}. A side is joined
      * when the block over there is another entrance block of the same room: the two frames meet along the
      * plane they share, and a plane inside a room is drawn by neither of them. The plane two rooms share
      * is a wall of both of them, see {@link #sharesRoom}.
@@ -165,7 +167,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
         if (!state.hasProperty(BlockStateProperties.NORTH)) {
             return state;
         }
-        for (Direction side : Direction.Plane.HORIZONTAL) {
+        for (Direction side : Direction.values()) {
             state = state.setValue(joinedAcross(side), joins(level, pos, side));
         }
         return state;
@@ -206,14 +208,14 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
     }
 
     /**
-     * Works the four sides of the frame out again for the entrance block at {@code pos} and for the
+     * Works the six sides of the frame out again for the entrance block at {@code pos} and for the
      * blocks beside it. A block that has just been laid down or taken up owes this to its neighbours: a
      * neighbour was asked about the join while the new block's block entity - which is half of the answer,
      * see {@link #sharesRoom} - was not there yet.
      */
     public static void refreshConnections(Level level, BlockPos pos) {
         settleConnections(level, pos);
-        for (Direction side : Direction.Plane.HORIZONTAL) {
+        for (Direction side : Direction.values()) {
             settleConnections(level, pos.relative(side));
         }
     }
@@ -230,8 +232,7 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
     }
 
     /**
-     * The property that says whether the frame carries on into the block on {@code side}. Only the four
-     * sides of a room have one: a room has no side above or below it.
+     * The property that says whether the frame carries on into the block on {@code side}.
      */
     private static BooleanProperty joinedAcross(Direction side) {
         return switch (side) {
@@ -239,7 +240,8 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
             case EAST -> BlockStateProperties.EAST;
             case SOUTH -> BlockStateProperties.SOUTH;
             case WEST -> BlockStateProperties.WEST;
-            default -> throw new IllegalArgumentException("a room has no " + side + " side");
+            case UP -> BlockStateProperties.UP;
+            case DOWN -> BlockStateProperties.DOWN;
         };
     }
 

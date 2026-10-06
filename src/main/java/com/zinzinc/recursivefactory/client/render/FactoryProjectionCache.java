@@ -10,6 +10,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.simibubi.create.foundation.virtualWorld.VirtualRenderWorld;
+import com.simibubi.create.content.kinetics.belt.BeltBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.world.PreviewPlayerData;
 import java.util.ArrayList;
@@ -47,7 +48,6 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LightLayer;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.RenderShape;
@@ -70,6 +70,8 @@ public final class FactoryProjectionCache {
     private final Map<RenderType, SuperByteBuffer> fluidBufferCache = new LinkedHashMap<>();
     private final EntityStore store;
     private final List<BlockEntity> blockEntities = new ArrayList<>();
+    private final Set<BlockPos> contextPositions = new HashSet<>();
+    private final PreviewBeltRenderer beltRenderer;
     private final AABB bounds;
     private final FactoryWirePreviewRenderer wires;
 
@@ -77,7 +79,15 @@ public final class FactoryProjectionCache {
                                   List<CompoundTag> previewEntities, List<CompoundTag> previewBlockEntities,
                                   CompoundTag previewWires,
                                   EntityStore store, double clock) {
+        this(level, previewBlocks, previewEntities, previewBlockEntities, previewWires, store, clock, null);
+    }
+
+    public FactoryProjectionCache(Level level, List<EndpointBlockEntity.PreviewBlock> previewBlocks,
+                                  List<CompoundTag> previewEntities, List<CompoundTag> previewBlockEntities,
+                                  CompoundTag previewWires, EntityStore store, double clock,
+                                  @Nullable AABB cellBounds) {
         this.store = store;
+        beltRenderer = new PreviewBeltRenderer(cellBounds);
         int minX = Integer.MAX_VALUE;
         int minY = Integer.MAX_VALUE;
         int minZ = Integer.MAX_VALUE;
@@ -94,24 +104,28 @@ public final class FactoryProjectionCache {
             maxZ = Math.max(maxZ, previewBlock.z());
         }
 
-        int worldHeight = previewBlocks.isEmpty() ? 16 : Math.max(16, maxY + 2);
+        int worldMinY = previewBlocks.isEmpty() ? 0 : Math.floorDiv(Math.min(0, minY), 16) * 16;
+        int worldHeight = previewBlocks.isEmpty() ? 16 : Math.max(16, maxY + 2 - worldMinY);
         // The world is kept along with the entities, so an entity that survives a rebuild still stands in a
         // live world instead of one this cache threw away.
-        if (store.renderWorld == null || store.worldHeight < worldHeight) {
-            store.renderWorld = createRenderWorld(level, worldHeight);
+        if (store.renderWorld == null || store.worldHeight < worldHeight || store.worldMinY != worldMinY) {
+            store.renderWorld = createRenderWorld(level, worldMinY, worldHeight);
             store.worldHeight = worldHeight;
+            store.worldMinY = worldMinY;
         }
         renderWorld = store.renderWorld;
 
         renderedPositions = store.renderedPositions;
-        for (BlockPos previous : renderedPositions) {
-            renderWorld.setBlock(previous, Blocks.AIR.defaultBlockState(), 0);
-        }
+        renderWorld.clear();
         renderedPositions.clear();
 
         for (EndpointBlockEntity.PreviewBlock previewBlock : previewBlocks) {
             BlockPos localPos = new BlockPos(previewBlock.x(), previewBlock.y(), previewBlock.z());
             renderWorld.setBlock(localPos, previewBlock.state(), 0);
+            if (previewBlock.contextOnly()) {
+                contextPositions.add(localPos);
+                continue;
+            }
             renderedPositions.add(localPos);
             if (!previewBlock.state().getFluidState().isEmpty()) {
                 fluidPositions.add(localPos);
@@ -139,8 +153,8 @@ public final class FactoryProjectionCache {
      * A world with no sky and no neighbours, standing in for the room the preview samples so the block and
      * entity renderers can be run on it. Everything in it is lit from above.
      */
-    private static VirtualRenderWorld createRenderWorld(Level level, int worldHeight) {
-        return new VirtualRenderWorld(level, 0, worldHeight, BlockPos.ZERO, () -> {
+    private static VirtualRenderWorld createRenderWorld(Level level, int worldMinY, int worldHeight) {
+        return new VirtualRenderWorld(level, worldMinY, worldHeight, BlockPos.ZERO, () -> {
         }) {
             @Override
             public boolean supportsVisualization() {
@@ -329,6 +343,20 @@ public final class FactoryProjectionCache {
         blockEntities.add(blockEntity);
     }
 
+    /** Refresh belt item snapshots without re-tessellating thousands of unchanged room blocks. */
+    public void updateBeltInventories(List<CompoundTag> samples) {
+        for (CompoundTag tag : samples) {
+            if (!tag.getString("id").equals("create:belt") || !tag.getBoolean("IsController")) continue;
+            BlockPos pos = BlockEntity.getPosFromTag(tag);
+            try {
+                blockEntities.removeIf(be -> be.getBlockPos().equals(pos));
+                createBlockEntity(tag);
+            } catch (RuntimeException exception) {
+                LOGGER.warn("Skipping belt inventory in the endpoint preview", exception);
+            }
+        }
+    }
+
     /**
      * Draws the room's block entities on top of the blocks they stand on. Their renderers are called
      * directly instead of through the dispatcher's render(): that one culls by the distance from the real
@@ -341,18 +369,29 @@ public final class FactoryProjectionCache {
         }
         BlockEntityRenderDispatcher dispatcher = Minecraft.getInstance().getBlockEntityRenderDispatcher();
         for (BlockEntity blockEntity : blockEntities) {
+            BlockPos pos = blockEntity.getBlockPos();
+            boolean contextOnly = contextPositions.contains(pos);
+            if (contextOnly && !(blockEntity instanceof BeltBlockEntity)) continue;
             BlockEntityRenderer<BlockEntity> renderer = dispatcher.getRenderer(blockEntity);
             if (renderer == null) {
                 continue;
             }
-            BlockPos pos = blockEntity.getBlockPos();
-            poseStack.pushPose();
-            poseStack.translate(pos.getX(), pos.getY(), pos.getZ());
+            // Isolate third-party renderers' transforms, including an exception after a nested push.
+            PoseStack localPose = new PoseStack();
+            localPose.mulPose(poseStack.last().pose());
+            localPose.translate(pos.getX(), pos.getY(), pos.getZ());
             try {
+                if (blockEntity instanceof BeltBlockEntity belt) {
+                    if (contextOnly) beltRenderer.renderControllerItems(belt, partialTick, localPose, bufferSource,
+                            LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY);
+                    else beltRenderer.render(belt, partialTick, localPose, bufferSource,
+                            LightTexture.FULL_BRIGHT, OverlayTexture.NO_OVERLAY);
+                    continue;
+                }
                 renderer.render(
                         blockEntity,
                         partialTick,
-                        poseStack,
+                        localPose,
                         bufferSource,
                         LightTexture.FULL_BRIGHT,
                         OverlayTexture.NO_OVERLAY
@@ -360,7 +399,6 @@ public final class FactoryProjectionCache {
             } catch (RuntimeException exception) {
                 LOGGER.warn("Skipping block entity render in the endpoint preview", exception);
             }
-            poseStack.popPose();
         }
     }
 
@@ -527,6 +565,7 @@ public final class FactoryProjectionCache {
         final PreviewEntityStep step = new PreviewEntityStep();
         private @Nullable VirtualRenderWorld renderWorld;
         private int worldHeight;
+        private int worldMinY;
     }
 
     private static final class ThreadLocalObjects {

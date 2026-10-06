@@ -13,8 +13,7 @@ its own and the blockstate is a multipart: it asks for every bar whose sides are
 A bar that runs up the block lies in two sides at once, and is drawn only when both of them are open: the
 bars at the four corners of a side belong to that side, so a joined side takes its corners with it and two
 entrance blocks in a row show posts at the two ends and nowhere in between. The bars along the top and the
-bottom edge of a side have only that one side to ask about - a room has nothing above or below it, so those
-edges are drawn whenever the side is.
+bottom edge of a side also ask about the vertical neighbour, so stacked cells lose their internal seams.
 
 What a block state cannot see is the cell diagonally across from it, which is what tells a corner of a room
 from a point in the middle of a straight wall. A room whose cells turn a corner therefore keeps a gap in the
@@ -77,11 +76,9 @@ def condition(box):
     """What the blockstate asks about before it draws this bar.
 
     Every side of the room this bar lies in that is joined to the entrance block beside it drops the bar,
-    so the bar is drawn when all of the sides it has to ask about are open. The sides above and below are
-    not asked about: an entrance block has no neighbour up or down, so the bars along the top and the
-    bottom edge of a side answer to that side alone.
+    so the bar is drawn when both of its sides are open, including the sides above and below.
     """
-    sides = [side for side in sides_of(box) if side in ("north", "south", "west", "east")]
+    sides = sides_of(box)
     if not sides:
         raise ValueError("a bar lies in at least one side of the room: " + str(box))
     return {side: "false" for side in sides}

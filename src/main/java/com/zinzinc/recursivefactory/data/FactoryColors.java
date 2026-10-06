@@ -99,7 +99,8 @@ public final class FactoryColors {
     /** The colour a stack is drawn in: the one it carries, or the plain colour for a stack without one. */
     public static int ofStack(ItemStack stack) {
         int colorIndex = colorOf(stack);
-        return colorIndex == NO_COLOR ? UNKNOWN : byIndex(colorIndex);
+        // ItemRenderer in 1.21 reads ARGB, including alpha; a plain RGB tint makes the item invisible.
+        return 0xFF000000 | (colorIndex == NO_COLOR ? UNKNOWN : byIndex(colorIndex));
     }
 
     /**

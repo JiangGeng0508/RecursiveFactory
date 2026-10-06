@@ -7,7 +7,9 @@ import com.zinzinc.recursivefactory.world.FactoryData;
 import java.util.Map;
 import java.util.WeakHashMap;
 import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
@@ -97,15 +99,21 @@ public final class EndpointPreviewRenderer {
         // The blocks are drawn again only when they change. Entities are handed the new sample instead, see
         // FactoryProjectionCache#updateEntities - building them again every tick is what made them twitch.
         int blockHash = 31 * blockEntity.getPreviewBlocks().hashCode()
-                + blockEntity.getPreviewBlockEntities().hashCode();
+                + blockEntityGeometryHash(blockEntity);
         blockHash = 31 * blockHash + blockEntity.getPreviewWires().hashCode();
         int entityHash = blockEntity.getPreviewEntities().hashCode();
+        int blockEntityHash = blockEntity.getPreviewBlockEntities().hashCode();
         CachedProjection cached = PROJECTION_CACHE.get(blockEntity);
         if (cached != null && cached.blockHash() == blockHash) {
+            if (cached.blockEntityHash() != blockEntityHash) {
+                cached.cache().updateBeltInventories(blockEntity.getPreviewBlockEntities());
+            }
             if (cached.entityHash() != entityHash) {
                 cached.cache().updateEntities(blockEntity.getPreviewEntities(), clock);
+            }
+            if (cached.entityHash() != entityHash || cached.blockEntityHash() != blockEntityHash) {
                 PROJECTION_CACHE.put(blockEntity, new CachedProjection(
-                        blockHash, entityHash, cached.entities(), cached.cache()
+                        blockHash, entityHash, blockEntityHash, cached.entities(), cached.cache()
                 ));
             }
             return cached.cache();
@@ -121,13 +129,30 @@ public final class EndpointPreviewRenderer {
                 blockEntity.getPreviewBlockEntities(),
                 blockEntity.getPreviewWires(),
                 entities,
-                clock
+                clock,
+                new AABB(-FactoryData.CELL_SIZE / 2.0, 0, -FactoryData.CELL_SIZE / 2.0,
+                        FactoryData.CELL_SIZE / 2.0, FactoryData.ROOM_HEIGHT, FactoryData.CELL_SIZE / 2.0)
         );
-        PROJECTION_CACHE.put(blockEntity, new CachedProjection(blockHash, entityHash, entities, rebuilt));
+        PROJECTION_CACHE.put(blockEntity, new CachedProjection(blockHash, entityHash, blockEntityHash, entities, rebuilt));
         return rebuilt;
     }
 
-    private record CachedProjection(int blockHash, int entityHash, FactoryProjectionCache.EntityStore entities,
+    private static int blockEntityGeometryHash(EndpointBlockEntity endpoint) {
+        int hash = 1;
+        for (CompoundTag sample : endpoint.getPreviewBlockEntities()) {
+            CompoundTag geometry = sample;
+            if (sample.getString("id").equals("create:belt")) {
+                geometry = sample.copy();
+                // Moving items change every tick, but do not change the room's static mesh.
+                geometry.remove("Inventory");
+            }
+            hash = 31 * hash + geometry.hashCode();
+        }
+        return hash;
+    }
+
+    private record CachedProjection(int blockHash, int entityHash, int blockEntityHash,
+                                    FactoryProjectionCache.EntityStore entities,
                                     FactoryProjectionCache cache) {
     }
 }
