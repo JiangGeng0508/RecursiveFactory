@@ -276,6 +276,13 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
         }
     }
 
+    /** Several remote displays can share the sample already taken during this tick. */
+    public void refreshPreviewForDisplay() {
+        if (level instanceof ServerLevel serverLevel && lastRefreshTick != serverLevel.getGameTime()) {
+            refreshPreviewSnapshot();
+        }
+    }
+
     /** Samples the middle of this entrance block's own cell, which is what its face preview shows. */
     public void refreshPreviewSnapshot() {
         if (!(level instanceof ServerLevel serverLevel)) {

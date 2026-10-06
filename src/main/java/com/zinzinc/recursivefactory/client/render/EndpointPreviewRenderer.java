@@ -1,11 +1,12 @@
 package com.zinzinc.recursivefactory.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
+import com.zinzinc.recursivefactory.block.entity.FactoryPreviewSource;
 import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import java.util.Map;
 import java.util.WeakHashMap;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.Level;
@@ -35,9 +36,9 @@ public final class EndpointPreviewRenderer {
      * this is only a safety net for a broadcast that was missed while the block's chunk was unloaded.
      */
     private static final int REQUEST_INTERVAL_TICKS = 40;
-    private static final Map<EndpointBlockEntity, CachedProjection> PROJECTION_CACHE = new WeakHashMap<>();
-    private static final Map<EndpointBlockEntity, Long> LAST_REQUEST_TICKS = new WeakHashMap<>();
-    private static final Map<EndpointBlockEntity, PhysicsPreviewRenderer> PHYSICS_CACHE = new WeakHashMap<>();
+    private static final Map<FactoryPreviewSource, CachedProjection> PROJECTION_CACHE = new WeakHashMap<>();
+    private static final Map<FactoryPreviewSource, Long> LAST_REQUEST_TICKS = new WeakHashMap<>();
+    private static final Map<FactoryPreviewSource, PhysicsPreviewRenderer> PHYSICS_CACHE = new WeakHashMap<>();
 
     private EndpointPreviewRenderer() {
     }
@@ -46,9 +47,10 @@ public final class EndpointPreviewRenderer {
      * Asks the server for a fresh snapshot on a slow interval, so outside changes reach clients even
      * when a broadcast was missed, for example while the block's chunk was unloaded.
      */
-    public static void requestPreview(EndpointBlockEntity blockEntity) {
+    public static void requestPreview(FactoryPreviewSource blockEntity) {
         Level level = blockEntity.getLevel();
-        if (level == null) {
+        // A miniature's virtual world uses local coordinates, not addresses in the player's level.
+        if (!(level instanceof ClientLevel)) {
             LAST_REQUEST_TICKS.remove(blockEntity);
             return;
         }
@@ -61,7 +63,7 @@ public final class EndpointPreviewRenderer {
         PacketDistributor.sendToServer(new EndpointPreviewPackets.Request(blockEntity.getBlockPos()));
     }
 
-    public static void renderPreview(EndpointBlockEntity blockEntity, PoseStack poseStack,
+    public static void renderPreview(FactoryPreviewSource blockEntity, PoseStack poseStack,
                                      MultiBufferSource bufferSource, float partialTick) {
         double clock = FactoryProjectionCache.renderClock(blockEntity.getLevel(), partialTick);
         FactoryProjectionCache cache = getProjectionCache(blockEntity, clock);
@@ -86,7 +88,7 @@ public final class EndpointPreviewRenderer {
         poseStack.popPose();
     }
 
-    private static FactoryProjectionCache getProjectionCache(EndpointBlockEntity blockEntity, double clock) {
+    private static FactoryProjectionCache getProjectionCache(FactoryPreviewSource blockEntity, double clock) {
         if (blockEntity.getLevel() == null
                 || blockEntity.getPreviewBlocks().isEmpty()
                         && blockEntity.getPreviewEntities().isEmpty()
@@ -137,7 +139,7 @@ public final class EndpointPreviewRenderer {
         return rebuilt;
     }
 
-    private static int blockEntityGeometryHash(EndpointBlockEntity endpoint) {
+    private static int blockEntityGeometryHash(FactoryPreviewSource endpoint) {
         int hash = 1;
         for (CompoundTag sample : endpoint.getPreviewBlockEntities()) {
             CompoundTag geometry = sample;

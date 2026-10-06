@@ -20,6 +20,7 @@ Recursive Factory is a NeoForge mod for Minecraft 1.21.1. It provides a reusable
 - **One cell per entrance block**: each entrance block stands for one room cell. A cell is a 16x16x16 box of room in total -- a solid barrier base, a snow block/white concrete checkerboard floor, 14x14x13 of free space, and a solid barrier ceiling. The barrier shell sits on the chunk edge, so a cell's free space is 14x14. Walls follow the outline of the room, so a room that is not a rectangle is still sealed at its step, and merging two cells patches the floor where the wall between them used to stand. Cells stacked above or below one another join into the same room, opening the wall between them layer to layer.
 - **Face preview**: the entrance block's face shows its own cell as a miniature at 1/16 scale, laid in the opening of the frame and lining up with it exactly, so the room never spills out of the block. The cell is sampled edge to edge, so its sixteen blocks cover the block's face exactly and the previews of two entrance blocks standing next to each other meet on the line between their blocks. The barrier shell is left out of the preview, so what you see through the frame is the room itself.
 - **Entering and leaving**: right-click a recursive factory block to enter it; right-click any barrier from the inside to leave.
+- **One-Way Preview Block**: hold it and right-click a factory entrance to link, then place it wherever you want to watch. It continuously shows that entrance's room cell one block above the pedestal, retaining the source orientation and visible from all sides. It only displays the room, without entry or transport functions. Links work across dimensions and survive mining or pick-block; removing the source clears the preview. A nearby viewer keeps the source room running.
 
 ## Things to know
 
@@ -59,6 +60,8 @@ Mobs in an unoccupied factory room are protected from distance despawning caused
 In Creative mode, middle-click a factory entrance (Pick Block) to obtain a factory block linked to that dimension and position; Ctrl is not required. Picking does not read its contents or create a blueprint file. The tooltip shows the source coordinates.
 Each placement reads the factory currently at that position, copying its current colour, expanded layout, inventory contents and nested factories, and places all connected entrances together. Changes or expansions made after picking are included in the next placement. If the source entrance is missing or the expanded layout is blocked, placement is refused with an action-bar message and nothing is placed. Replacing the source entrance with another factory makes the link copy that new factory. Already placed copies remain independent of later source changes.
 Existing snapshot items keep their original behaviour; pick the entrance again to obtain a coordinate link.
+
+Craft one One-Way Preview Block with glass in the top centre, iron ingot / eye of ender / iron ingot in the middle row, and iron ingot / smooth stone / iron ingot in the bottom row. An unlinked block can be placed but shows no content. Linking consumes no items; right-click another entrance with the held block to change its source.
 
 ## Configuration
 

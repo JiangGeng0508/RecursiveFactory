@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "pattern": [" G ", "IEI", "ISI"],
+  "key": {
+    "G": { "item": "minecraft:glass" },
+    "I": { "item": "minecraft:iron_ingot" },
+    "E": { "item": "minecraft:ender_eye" },
+    "S": { "item": "minecraft:smooth_stone" }
+  },
+  "result": { "id": "recursivefactory:factory_preview", "count": 1 }
+}

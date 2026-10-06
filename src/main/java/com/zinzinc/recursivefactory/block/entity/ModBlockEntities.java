@@ -37,6 +37,10 @@ public final class ModBlockEntities {
                     ).build(null)
             );
 
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<FactoryPreviewBlockEntity>> FACTORY_PREVIEW =
+            BLOCK_ENTITY_TYPES.register("factory_preview", () -> BlockEntityType.Builder.of(
+                    FactoryPreviewBlockEntity::new, ModBlocks.FACTORY_PREVIEW.get()).build(null));
+
     private ModBlockEntities() {
     }
 

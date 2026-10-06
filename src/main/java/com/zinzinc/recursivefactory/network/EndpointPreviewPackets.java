@@ -2,6 +2,8 @@ package com.zinzinc.recursivefactory.network;
 
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
+import com.zinzinc.recursivefactory.block.entity.FactoryPreviewSource;
+import com.zinzinc.recursivefactory.block.entity.FactoryPreviewBlockEntity;
 import com.zinzinc.recursivefactory.client.network.ClientEndpointPreviewHandler;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
@@ -33,7 +35,8 @@ public final class EndpointPreviewPackets {
             context.enqueueWork(() -> {
                 if (!(context.player() instanceof ServerPlayer player)
                         || !player.level().isLoaded(packet.pos())
-                        || !(player.level().getBlockEntity(packet.pos()) instanceof EndpointBlockEntity endpoint)) {
+                        || !(player.level().getBlockEntity(packet.pos()) instanceof FactoryPreviewSource endpoint)
+                        || endpoint instanceof FactoryPreviewBlockEntity display && !display.canView(player)) {
                     return;
                 }
                 endpoint.refreshPreviewSnapshot();

@@ -4,6 +4,7 @@ import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
 import com.zinzinc.recursivefactory.client.render.RecursiveFactoryRenderer;
 import com.zinzinc.recursivefactory.client.render.FactoryFrameModel;
+import com.zinzinc.recursivefactory.client.render.FactoryPreviewRenderer;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
@@ -23,6 +24,7 @@ public final class RecursiveFactoryClient {
 
     private void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerBlockEntityRenderer(ModBlockEntities.RECURSIVE_FACTORY.get(), RecursiveFactoryRenderer::new);
+        event.registerBlockEntityRenderer(ModBlockEntities.FACTORY_PREVIEW.get(), FactoryPreviewRenderer::new);
     }
 
     /**

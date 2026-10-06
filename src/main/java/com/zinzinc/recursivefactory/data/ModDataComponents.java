@@ -32,6 +32,13 @@ public final class ModDataComponents {
                     .networkSynchronized(GlobalPos.STREAM_CODEC)
                     .build());
 
+    /** A display reads a linked entrance without copying or joining its factory. */
+    public static final DeferredHolder<DataComponentType<?>, DataComponentType<GlobalPos>> PREVIEW_SOURCE =
+            COMPONENTS.register("preview_source", () -> DataComponentType.<GlobalPos>builder()
+                    .persistent(GlobalPos.CODEC)
+                    .networkSynchronized(GlobalPos.STREAM_CODEC)
+                    .build());
+
     public static final DeferredHolder<DataComponentType<?>, DataComponentType<Integer>> COLOR =
             COMPONENTS.register("color", () -> DataComponentType.<Integer>builder()
                     .persistent(Codec.INT)

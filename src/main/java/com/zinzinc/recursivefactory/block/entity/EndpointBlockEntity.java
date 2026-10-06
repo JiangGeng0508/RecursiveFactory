@@ -39,7 +39,7 @@ import net.neoforged.neoforge.fluids.FluidStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.slf4j.Logger;
 
-public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity {
+public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity implements FactoryPreviewSource {
     private static final Logger LOGGER = LogUtils.getLogger();
     static final String FACTORY_ID_TAG = "FactoryId";
     private static final String COLOR_TAG = "Color";
