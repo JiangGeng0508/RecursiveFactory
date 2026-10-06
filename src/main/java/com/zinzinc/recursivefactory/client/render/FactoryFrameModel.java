@@ -64,9 +64,11 @@ public final class FactoryFrameModel extends BakedModelWrapper<BakedModel> {
             boolean diagonal = a && connected(neighbours[edge.a().ordinal()], edge.b())
                     || b && connected(neighbours[edge.b().ordinal()], edge.a());
             boolean horizontal = edge.a().getAxis() == Direction.Axis.Y || edge.b().getAxis() == Direction.Axis.Y;
-            // A horizontal inside edge needs only the elbow cell's bar. Adding the two adjoining
-            // cells' bars as well makes it two pixels wide. Vertical corners still wrap both walls.
-            if (isConcave(a, b, diagonal) && (!horizontal || a && b)) mask |= 1 << i;
+            // Keep a horizontal bar on the exposed floor/ceiling side of the step. The elbow cell's
+            // bar lies inside the room, one pixel beside that surface. Only one cell contributes so
+            // the edge stays one pixel wide; vertical corners still wrap both walls.
+            boolean exposedHorizontalFace = edge.a().getAxis() == Direction.Axis.Y ? !a : !b;
+            if (isConcave(a, b, diagonal) && (!horizontal || exposedHorizontalFace)) mask |= 1 << i;
         }
         return super.getModelData(level, pos, state, data).derive().with(CONCAVE_EDGES, mask).build();
     }
