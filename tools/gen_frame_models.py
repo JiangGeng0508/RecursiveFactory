@@ -15,9 +15,9 @@ bars at the four corners of a side belong to that side, so a joined side takes i
 entrance blocks in a row show posts at the two ends and nowhere in between. The bars along the top and the
 bottom edge of a side also ask about the vertical neighbour, so stacked cells lose their internal seams.
 
-What a block state cannot see is the cell diagonally across from it, which is what tells a corner of a room
-from a point in the middle of a straight wall. A room whose cells turn a corner therefore keeps a gap in the
-frame at the inside of that corner. A straight run or a rectangle has no such corner, and is exact.
+FactoryFrameModel adds inside corners using the joined neighbours' connections to the diagonal cell.
+Three occupied cells around an edge each contribute a bar, wrapping the corner on both exposed walls.
+It reuses these models with their existing thickness and tint; straight walls retain only their outer frame.
 
 Run from the repository root:  python tools/gen_frame_models.py
 """

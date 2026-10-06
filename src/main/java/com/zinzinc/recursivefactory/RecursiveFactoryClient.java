@@ -3,6 +3,7 @@ package com.zinzinc.recursivefactory;
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
 import com.zinzinc.recursivefactory.client.render.RecursiveFactoryRenderer;
+import com.zinzinc.recursivefactory.client.render.FactoryFrameModel;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
@@ -16,6 +17,8 @@ public final class RecursiveFactoryClient {
         modEventBus.addListener(this::registerRenderers);
         modEventBus.addListener(this::registerBlockColors);
         modEventBus.addListener(this::registerItemColors);
+        modEventBus.addListener(FactoryFrameModel::registerModels);
+        modEventBus.addListener(FactoryFrameModel::wrapModels);
     }
 
     private void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
