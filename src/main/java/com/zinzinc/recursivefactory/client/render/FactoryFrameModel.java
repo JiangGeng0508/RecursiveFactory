@@ -68,10 +68,11 @@ public final class FactoryFrameModel extends BakedModelWrapper<BakedModel> {
             boolean diagonal = a && connected(neighbours[edge.a().ordinal()], edge.b())
                     || b && connected(neighbours[edge.b().ordinal()], edge.a());
             boolean horizontal = edge.a().getAxis() == Direction.Axis.Y || edge.b().getAxis() == Direction.Axis.Y;
-            // Keep the exposed floor/ceiling height and a single contributing cell. Its horizontal
-            // bar is shifted outward below to meet the vertical posts; those still wrap both walls.
+            // Horizontal bars keep the exposed floor/ceiling height. A vertical corner belongs only
+            // to the elbow cell joined on both sides, so the two arms do not add extra posts.
             boolean exposedHorizontalFace = edge.a().getAxis() == Direction.Axis.Y ? !a : !b;
-            if (isConcave(a, b, diagonal) && (!horizontal || exposedHorizontalFace)) mask |= 1 << i;
+            boolean ownsEdge = horizontal ? exposedHorizontalFace : a && b;
+            if (isConcave(a, b, diagonal) && ownsEdge) mask |= 1 << i;
         }
         return super.getModelData(level, pos, state, data).derive().with(CONCAVE_EDGES, mask).build();
     }

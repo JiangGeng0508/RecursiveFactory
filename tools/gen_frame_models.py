@@ -16,7 +16,7 @@ entrance blocks in a row show posts at the two ends and nowhere in between. The 
 bottom edge of a side also ask about the vertical neighbour, so stacked cells lose their internal seams.
 
 FactoryFrameModel adds inside corners using the joined neighbours' connections to the diagonal cell.
-At vertical corners all three occupied cells contribute a bar, wrapping both exposed walls. Horizontal
+At vertical corners only the elbow cell joined on both sides contributes a single bar. Horizontal
 inside edges use only the exposed floor/ceiling cell's bar, shifted outward one pixel by FactoryFrameModel
 to align with the vertical posts. Both reuse these models and their tint; straight walls retain only
 their outer frame.
