@@ -17,9 +17,9 @@ bottom edge of a side also ask about the vertical neighbour, so stacked cells lo
 
 FactoryFrameModel adds inside corners using the joined neighbours' connections to the diagonal cell.
 At vertical corners all three occupied cells contribute a bar, wrapping both exposed walls. Horizontal
-inside edges use only the exposed floor/ceiling cell's bar to stay aligned and one pixel wide. Both reuse
-these models and their tint;
-straight walls retain only their outer frame.
+inside edges use only the exposed floor/ceiling cell's bar, shifted outward one pixel by FactoryFrameModel
+to align with the vertical posts. Both reuse these models and their tint; straight walls retain only
+their outer frame.
 
 Run from the repository root:  python tools/gen_frame_models.py
 """

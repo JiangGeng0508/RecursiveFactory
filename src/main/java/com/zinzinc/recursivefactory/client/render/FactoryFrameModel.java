@@ -1,5 +1,6 @@
 package com.zinzinc.recursivefactory.client.render;
 
+import com.mojang.math.Transformation;
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import java.util.ArrayList;
@@ -22,8 +23,11 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.client.ChunkRenderTypeSet;
 import net.neoforged.neoforge.client.event.ModelEvent;
 import net.neoforged.neoforge.client.model.BakedModelWrapper;
+import net.neoforged.neoforge.client.model.IQuadTransformer;
+import net.neoforged.neoforge.client.model.QuadTransformers;
 import net.neoforged.neoforge.client.model.data.ModelData;
 import net.neoforged.neoforge.client.model.data.ModelProperty;
+import org.joml.Vector3f;
 
 /** Adds the inside corners that the six connection properties alone cannot describe. */
 public final class FactoryFrameModel extends BakedModelWrapper<BakedModel> {
@@ -64,9 +68,8 @@ public final class FactoryFrameModel extends BakedModelWrapper<BakedModel> {
             boolean diagonal = a && connected(neighbours[edge.a().ordinal()], edge.b())
                     || b && connected(neighbours[edge.b().ordinal()], edge.a());
             boolean horizontal = edge.a().getAxis() == Direction.Axis.Y || edge.b().getAxis() == Direction.Axis.Y;
-            // Keep a horizontal bar on the exposed floor/ceiling side of the step. The elbow cell's
-            // bar lies inside the room, one pixel beside that surface. Only one cell contributes so
-            // the edge stays one pixel wide; vertical corners still wrap both walls.
+            // Keep the exposed floor/ceiling height and a single contributing cell. Its horizontal
+            // bar is shifted outward below to meet the vertical posts; those still wrap both walls.
             boolean exposedHorizontalFace = edge.a().getAxis() == Direction.Axis.Y ? !a : !b;
             if (isConcave(a, b, diagonal) && (!horizontal || exposedHorizontalFace)) mask |= 1 << i;
         }
@@ -93,7 +96,11 @@ public final class FactoryFrameModel extends BakedModelWrapper<BakedModel> {
             if ((mask & (1 << i)) == 0) continue;
             BakedModel bar = bars.get(i);
             if (renderType == null || state != null && bar.getRenderTypes(state, random, ModelData.EMPTY).contains(renderType)) {
-                result.addAll(bar.getQuads(state, side, random, ModelData.EMPTY, renderType));
+                List<BakedQuad> quads = bar.getQuads(state, side, random, ModelData.EMPTY, renderType);
+                IQuadTransformer shift = EDGES.get(i).shift();
+                // Copy only the added horizontal bar: the same source model also draws ordinary
+                // convex edges. Translation preserves its width, UVs, tint and face metadata.
+                result.addAll(shift == null ? quads : shift.process(quads));
             }
         }
         return result;
@@ -111,13 +118,18 @@ public final class FactoryFrameModel extends BakedModelWrapper<BakedModel> {
         List<Edge> edges = new ArrayList<>();
         for (Direction a : Direction.values()) {
             for (Direction b : Direction.values()) {
-                if (a.ordinal() < b.ordinal() && a.getAxis() != b.getAxis()) edges.add(new Edge(a, b));
+                if (a.ordinal() >= b.ordinal() || a.getAxis() == b.getAxis()) continue;
+                Direction outward = a.getAxis() == Direction.Axis.Y ? b
+                        : b.getAxis() == Direction.Axis.Y ? a : null;
+                IQuadTransformer shift = outward == null ? null : QuadTransformers.applying(new Transformation(
+                        new Vector3f(outward.getStepX() / 16.0F, 0, outward.getStepZ() / 16.0F), null, null, null));
+                edges.add(new Edge(a, b, shift));
             }
         }
         return List.copyOf(edges);
     }
 
-    private record Edge(Direction a, Direction b) {
+    private record Edge(Direction a, Direction b, @Nullable IQuadTransformer shift) {
         ModelResourceLocation model() {
             return ModelResourceLocation.standalone(ResourceLocation.fromNamespaceAndPath(RecursiveFactory.MODID,
                     "block/frame_edge_" + a.getSerializedName() + "_" + b.getSerializedName()));
