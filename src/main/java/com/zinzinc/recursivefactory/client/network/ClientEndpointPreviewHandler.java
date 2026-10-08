@@ -49,7 +49,7 @@ public final class ClientEndpointPreviewHandler {
             );
         }
         endpoint.acceptPreview(blocks, entities, blockEntities, EndpointBlockEntity.readPreviewWires(previewTag),
-                EndpointBlockEntity.readPreviewBodies(previewTag));
+                EndpointBlockEntity.readPreviewBodies(previewTag), EndpointBlockEntity.readPreviewRopes(previewTag));
     }
 
     public static void handle(EndpointPreviewPackets.Sync packet) {

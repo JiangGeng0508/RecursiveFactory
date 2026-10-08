@@ -39,6 +39,7 @@ public final class EndpointPreviewRenderer {
     private static final Map<FactoryPreviewSource, CachedProjection> PROJECTION_CACHE = new WeakHashMap<>();
     private static final Map<FactoryPreviewSource, Long> LAST_REQUEST_TICKS = new WeakHashMap<>();
     private static final Map<FactoryPreviewSource, PhysicsPreviewRenderer> PHYSICS_CACHE = new WeakHashMap<>();
+    private static final Map<FactoryPreviewSource, RopePreviewRenderer> ROPE_CACHE = new WeakHashMap<>();
 
     private EndpointPreviewRenderer() {
     }
@@ -67,8 +68,9 @@ public final class EndpointPreviewRenderer {
                                      MultiBufferSource bufferSource, float partialTick) {
         double clock = FactoryProjectionCache.renderClock(blockEntity.getLevel(), partialTick);
         FactoryProjectionCache cache = getProjectionCache(blockEntity, clock);
-        if (cache == null && blockEntity.getPreviewBodies().isEmpty()) {
+        if (cache == null && blockEntity.getPreviewBodies().isEmpty() && blockEntity.getPreviewRopes().isEmpty()) {
             PHYSICS_CACHE.remove(blockEntity);
+            ROPE_CACHE.remove(blockEntity);
             return;
         }
 
@@ -85,6 +87,9 @@ public final class EndpointPreviewRenderer {
         if (blockEntity.getPreviewBodies().isEmpty()) PHYSICS_CACHE.remove(blockEntity);
         else PHYSICS_CACHE.computeIfAbsent(blockEntity, ignored -> new PhysicsPreviewRenderer()).render(
                 blockEntity.getLevel(), blockEntity.getPreviewBodies(), poseStack, bufferSource, partialTick, clock);
+        if (blockEntity.getPreviewRopes().isEmpty()) ROPE_CACHE.remove(blockEntity);
+        else ROPE_CACHE.computeIfAbsent(blockEntity, ignored -> new RopePreviewRenderer()).render(
+                blockEntity.getPreviewRopes(), poseStack, bufferSource, clock);
         poseStack.popPose();
     }
 

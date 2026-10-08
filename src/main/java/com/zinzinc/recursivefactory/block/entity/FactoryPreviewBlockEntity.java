@@ -31,6 +31,7 @@ public final class FactoryPreviewBlockEntity extends BlockEntity implements Fact
     private List<CompoundTag> blockEntities = List.of();
     private CompoundTag wires = new CompoundTag();
     private List<CompoundTag> bodies = List.of();
+    private List<CompoundTag> ropes = List.of();
 
     public FactoryPreviewBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.FACTORY_PREVIEW.get(), pos, state);
@@ -62,19 +63,19 @@ public final class FactoryPreviewBlockEntity extends BlockEntity implements Fact
                     FactoryDimension.keepLoaded(record.id());
                     entrance.refreshPreviewForDisplay();
                     updatePreview(entrance.getPreviewBlocks(), entrance.getPreviewEntities(),
-                            entrance.getPreviewBlockEntities(), entrance.getPreviewWires(), entrance.getPreviewBodies());
+                            entrance.getPreviewBlockEntities(), entrance.getPreviewWires(), entrance.getPreviewBodies(), entrance.getPreviewRopes());
                     return;
                 }
             }
         }
-        updatePreview(List.of(), List.of(), List.of(), new CompoundTag(), List.of());
+        updatePreview(List.of(), List.of(), List.of(), new CompoundTag(), List.of(), List.of());
     }
 
     private void updatePreview(List<EndpointBlockEntity.PreviewBlock> blocks, List<CompoundTag> entities,
-                               List<CompoundTag> blockEntities, CompoundTag wires, List<CompoundTag> bodies) {
+                               List<CompoundTag> blockEntities, CompoundTag wires, List<CompoundTag> bodies, List<CompoundTag> ropes) {
         if (this.blocks.equals(blocks) && this.entities.equals(entities) && this.blockEntities.equals(blockEntities)
-                && this.wires.equals(wires) && this.bodies.equals(bodies)) return;
-        acceptPreview(blocks, entities, blockEntities, wires, bodies);
+                && this.wires.equals(wires) && this.bodies.equals(bodies) && this.ropes.equals(ropes)) return;
+        acceptPreview(blocks, entities, blockEntities, wires, bodies, ropes);
         if (level instanceof ServerLevel serverLevel) PacketDistributor.sendToPlayersTrackingChunk(serverLevel,
                 new ChunkPos(worldPosition), new EndpointPreviewPackets.Sync(worldPosition, previewTag()));
         // Preview contents are transient. Only the coordinate link belongs in the chunk's save data.
@@ -82,12 +83,13 @@ public final class FactoryPreviewBlockEntity extends BlockEntity implements Fact
 
     @Override
     public void acceptPreview(List<EndpointBlockEntity.PreviewBlock> blocks, List<CompoundTag> entities,
-                              List<CompoundTag> blockEntities, CompoundTag wires, List<CompoundTag> bodies) {
+                              List<CompoundTag> blockEntities, CompoundTag wires, List<CompoundTag> bodies, List<CompoundTag> ropes) {
         this.blocks = List.copyOf(blocks);
         this.entities = List.copyOf(entities);
         this.blockEntities = List.copyOf(blockEntities);
         this.wires = wires.copy();
         this.bodies = List.copyOf(bodies);
+        this.ropes = List.copyOf(ropes);
     }
 
     @Override public List<EndpointBlockEntity.PreviewBlock> getPreviewBlocks() { return blocks; }
@@ -95,9 +97,10 @@ public final class FactoryPreviewBlockEntity extends BlockEntity implements Fact
     @Override public List<CompoundTag> getPreviewBlockEntities() { return blockEntities; }
     @Override public CompoundTag getPreviewWires() { return wires; }
     @Override public List<CompoundTag> getPreviewBodies() { return bodies; }
+    @Override public List<CompoundTag> getPreviewRopes() { return ropes; }
 
     private CompoundTag previewTag() {
-        return EndpointBlockEntity.writePreview(blocks, entities, blockEntities, wires, bodies);
+        return EndpointBlockEntity.writePreview(blocks, entities, blockEntities, wires, bodies, ropes);
     }
 
     @Override
@@ -113,7 +116,8 @@ public final class FactoryPreviewBlockEntity extends BlockEntity implements Fact
         CompoundTag preview = tag.getCompound("Preview");
         acceptPreview(EndpointBlockEntity.readPreviewBlocks(preview, registries),
                 EndpointBlockEntity.readPreviewEntities(preview), EndpointBlockEntity.readPreviewBlockEntities(preview),
-                EndpointBlockEntity.readPreviewWires(preview), EndpointBlockEntity.readPreviewBodies(preview));
+                EndpointBlockEntity.readPreviewWires(preview), EndpointBlockEntity.readPreviewBodies(preview),
+                EndpointBlockEntity.readPreviewRopes(preview));
     }
 
     @Override

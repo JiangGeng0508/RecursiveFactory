@@ -13,6 +13,7 @@ import com.zinzinc.recursivefactory.world.FactoryCopyLink;
 import com.zinzinc.recursivefactory.data.ModDataComponents;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import com.zinzinc.recursivefactory.compat.sable.SablePhysicsBodies;
+import com.zinzinc.recursivefactory.compat.sable.SableRopes;
 import java.util.List;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
@@ -304,7 +305,7 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
             cell = record.anchorCell();
         }
         if (factoryLevel == null || cell == null) {
-            updatePreview(List.of(), List.of(), List.of(), new CompoundTag(), List.of());
+            updatePreview(List.of(), List.of(), List.of(), new CompoundTag(), List.of(), List.of());
             return;
         }
 
@@ -322,7 +323,8 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
                 RecursiveFactory.powerAvailable()
                         ? FactoryWires.capture(factoryLevel, record, previewCenter.below())
                         : new CompoundTag(),
-                SablePhysicsBodies.sample(factoryLevel, previewCenter, PREVIEW_SIZE, PREVIEW_HEIGHT)
+                SablePhysicsBodies.sample(factoryLevel, previewCenter, PREVIEW_SIZE, PREVIEW_HEIGHT),
+                SableRopes.sample(factoryLevel, previewCenter)
         );
     }
 

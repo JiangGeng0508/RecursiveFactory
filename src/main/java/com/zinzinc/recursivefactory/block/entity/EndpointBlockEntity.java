@@ -129,6 +129,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
     private List<CompoundTag> previewBlockEntities = List.of();
     private CompoundTag previewWires = new CompoundTag();
     private List<CompoundTag> previewBodies = List.of();
+    private List<CompoundTag> previewRopes = List.of();
     /** The speed the far end of the link turns this end at, 0 while the link is not turning it. */
     private float bridgeSpeed;
     /** The stress capacity this end hands to its own network while the link is turning it. */
@@ -667,14 +668,19 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
         return previewBodies;
     }
 
+    public List<CompoundTag> getPreviewRopes() {
+        return previewRopes;
+    }
+
     public void acceptPreview(List<PreviewBlock> updatedPreview, List<CompoundTag> updatedEntities,
                               List<CompoundTag> updatedBlockEntities, CompoundTag updatedWires,
-                              List<CompoundTag> updatedBodies) {
+                              List<CompoundTag> updatedBodies, List<CompoundTag> updatedRopes) {
         previewBlocks = List.copyOf(updatedPreview);
         previewEntities = List.copyOf(updatedEntities);
         previewBlockEntities = List.copyOf(updatedBlockEntities);
         previewWires = updatedWires.copy();
         previewBodies = List.copyOf(updatedBodies);
+        previewRopes = List.copyOf(updatedRopes);
     }
 
     public void refreshPreviewSnapshot() {
@@ -682,11 +688,11 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
 
     public void updatePreview(List<PreviewBlock> updatedPreview, List<CompoundTag> updatedEntities,
                               List<CompoundTag> updatedBlockEntities, CompoundTag updatedWires,
-                              List<CompoundTag> updatedBodies) {
+                              List<CompoundTag> updatedBodies, List<CompoundTag> updatedRopes) {
         if (previewBlocks.equals(updatedPreview)
                 && previewEntities.equals(updatedEntities)
                 && previewBlockEntities.equals(updatedBlockEntities) && previewWires.equals(updatedWires)
-                && previewBodies.equals(updatedBodies)) {
+                && previewBodies.equals(updatedBodies) && previewRopes.equals(updatedRopes)) {
             return;
         }
         boolean blocksChanged = !previewBlocks.equals(updatedPreview);
@@ -695,6 +701,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
         previewBlockEntities = List.copyOf(updatedBlockEntities);
         previewWires = updatedWires.copy();
         previewBodies = List.copyOf(updatedBodies);
+        previewRopes = List.copyOf(updatedRopes);
         setChanged();
         broadcastPreview(blocksChanged);
     }
@@ -731,7 +738,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
                 new ChunkPos(worldPosition),
                 new EndpointPreviewPackets.Sync(
                         worldPosition,
-                        writePreview(previewBlocks, previewEntities, previewBlockEntities, previewWires, previewBodies)
+                        writePreview(previewBlocks, previewEntities, previewBlockEntities, previewWires, previewBodies, previewRopes)
                 )
         );
     }
@@ -870,6 +877,11 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
                 continue;
             }
             CompoundTag tag = blockEntity.saveWithId(level.registryAccess());
+            if (tag.getString("id").startsWith("simulated:") && tag.contains("OwnStrand")) {
+                // Ropes have their own preview stream. Do not recreate server physics objects in a
+                // virtual client world or rebuild the entire room mesh whenever rope points move.
+                tag.remove("Strand");
+            }
             if (blockEntity instanceof BeltBlockEntity belt) {
                 tag.put("Controller", NbtUtils.writeBlockPos(belt.getController().subtract(center).above()));
             }
@@ -948,7 +960,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
         }
         tag.putInt(INPUT_POWER_TAG, powerMask(inputPower));
         tag.putInt(OUTPUT_POWER_TAG, powerMask(outputPower));
-        tag.put(PREVIEW_BLOCKS_TAG, writePreview(previewBlocks, previewEntities, previewBlockEntities, previewWires, previewBodies));
+        tag.put(PREVIEW_BLOCKS_TAG, writePreview(previewBlocks, previewEntities, previewBlockEntities, previewWires, previewBodies, previewRopes));
     }
 
     @Override
@@ -1017,6 +1029,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
         previewBlockEntities = readPreviewBlockEntities(tag);
         previewWires = readPreviewWires(tag);
         previewBodies = readPreviewBodies(tag);
+        previewRopes = readPreviewRopes(tag);
     }
 
     /** Four bits per face is all a strength needs, so both tables fit in one int each. */
@@ -1051,6 +1064,12 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
     public static CompoundTag writePreview(List<PreviewBlock> blocks, List<CompoundTag> entities,
                                            List<CompoundTag> blockEntities, CompoundTag wires,
                                            List<CompoundTag> bodies) {
+        return writePreview(blocks, entities, blockEntities, wires, bodies, List.of());
+    }
+
+    public static CompoundTag writePreview(List<PreviewBlock> blocks, List<CompoundTag> entities,
+                                           List<CompoundTag> blockEntities, CompoundTag wires,
+                                           List<CompoundTag> bodies, List<CompoundTag> ropes) {
         CompoundTag root = new CompoundTag();
         ListTag list = new ListTag();
         for (PreviewBlock previewBlock : blocks) {
@@ -1077,7 +1096,18 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
         ListTag bodyList = new ListTag();
         for (CompoundTag body : bodies) bodyList.add(body.copy());
         if (!bodyList.isEmpty()) root.put("PhysicsBodies", bodyList);
+        ListTag ropeList = new ListTag();
+        for (CompoundTag rope : ropes) ropeList.add(rope.copy());
+        if (!ropeList.isEmpty()) root.put("Ropes", ropeList);
         return root;
+    }
+
+    public static List<CompoundTag> readPreviewRopes(CompoundTag tag) {
+        CompoundTag root = tag.contains(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND)
+                ? tag.getCompound(PREVIEW_BLOCKS_TAG) : tag;
+        List<CompoundTag> ropes = new ArrayList<>();
+        for (Tag entry : root.getList("Ropes", Tag.TAG_COMPOUND)) ropes.add(((CompoundTag) entry).copy());
+        return List.copyOf(ropes);
     }
 
     public static List<CompoundTag> readPreviewBodies(CompoundTag tag) {

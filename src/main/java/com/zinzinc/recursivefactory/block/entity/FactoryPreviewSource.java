@@ -15,7 +15,8 @@ public interface FactoryPreviewSource {
     List<CompoundTag> getPreviewBlockEntities();
     CompoundTag getPreviewWires();
     List<CompoundTag> getPreviewBodies();
+    List<CompoundTag> getPreviewRopes();
     void refreshPreviewSnapshot();
     void acceptPreview(List<EndpointBlockEntity.PreviewBlock> blocks, List<CompoundTag> entities,
-                       List<CompoundTag> blockEntities, CompoundTag wires, List<CompoundTag> bodies);
+                       List<CompoundTag> blockEntities, CompoundTag wires, List<CompoundTag> bodies, List<CompoundTag> ropes);
 }
