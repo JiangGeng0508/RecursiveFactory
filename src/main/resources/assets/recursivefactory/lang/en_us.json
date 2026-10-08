@@ -4,7 +4,7 @@
   "block.recursivefactory.recursive_factory.colored": "%s Recursive Factory",
   "block.recursivefactory.factory_barrier": "Factory Barrier",
   "block.recursivefactory.factory_preview": "One-Way Preview Block",
-  "item.recursivefactory.factory_preview.usage": "Right-click a factory entrance to link; place to show its live preview one block above.",
+  "item.recursivefactory.factory_preview.usage": "Right-click a factory entrance to link; place to show its live preview on the thin base.",
   "item.recursivefactory.factory_preview.source": "Preview source: %s [%s, %s, %s]",
   "message.recursivefactory.preview.bound": "Linked to entrance [%s, %s, %s]. Place to display its live preview.",
   "message.recursivefactory.preview.missing": "This entrance has no factory to preview yet.",

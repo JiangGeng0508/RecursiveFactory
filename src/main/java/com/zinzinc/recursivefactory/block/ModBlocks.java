@@ -67,7 +67,7 @@ public final class ModBlocks {
     public static final DeferredBlock<FactoryPreviewBlock> FACTORY_PREVIEW = BLOCKS.register("factory_preview",
             () -> new FactoryPreviewBlock(BlockBehaviour.Properties.of().mapColor(MapColor.METAL)
                     .strength(3.0F, 6.0F).sound(SoundType.METAL).lightLevel(state -> 7)
-                    .requiresCorrectToolForDrops().pushReaction(PushReaction.BLOCK)));
+                    .noOcclusion().requiresCorrectToolForDrops().pushReaction(PushReaction.BLOCK)));
 
     public static final DeferredItem<FactoryPreviewItem> FACTORY_PREVIEW_ITEM = ITEMS.register("factory_preview",
             () -> new FactoryPreviewItem(FACTORY_PREVIEW.get(), new Item.Properties()));

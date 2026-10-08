@@ -8,9 +8,11 @@ import java.util.List;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.BaseEntityBlock;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityTicker;
@@ -18,10 +20,13 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.loot.LootParams;
 import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
-/** A pedestal that displays a linked entrance's miniature in the block above it. */
+/** A thin plate that displays a linked entrance's miniature within its own block space. */
 public final class FactoryPreviewBlock extends BaseEntityBlock {
     public static final MapCodec<FactoryPreviewBlock> CODEC = simpleCodec(FactoryPreviewBlock::new);
+    private static final VoxelShape SHAPE = Block.box(0, 0, 0, 16, 1, 16);
 
     public FactoryPreviewBlock(Properties properties) { super(properties); }
 
@@ -30,6 +35,11 @@ public final class FactoryPreviewBlock extends BaseEntityBlock {
 
     @Override
     protected RenderShape getRenderShape(BlockState state) { return RenderShape.MODEL; }
+
+    @Override
+    protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext context) {
+        return SHAPE;
+    }
 
     @Override
     public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {

@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
 import com.simibubi.create.content.kinetics.belt.BeltBlockEntity;
+import com.simibubi.create.content.logistics.vault.ItemVaultBlockEntity;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
 import com.zinzinc.recursivefactory.world.PreviewPlayerData;
@@ -884,6 +885,14 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
             }
             if (blockEntity instanceof BeltBlockEntity belt) {
                 tag.put("Controller", NbtUtils.writeBlockPos(belt.getController().subtract(center).above()));
+            }
+            if (blockEntity instanceof ItemVaultBlockEntity) {
+                // Vault CT compares each part's controller address. The controller itself uses its
+                // local block position, so leaving followers in world coordinates disconnects it.
+                for (String key : List.of("Controller", "LastKnownPos")) {
+                    NbtUtils.readBlockPos(tag, key).ifPresent(pos ->
+                            tag.put(key, NbtUtils.writeBlockPos(pos.subtract(center).above())));
+                }
             }
             tag.putInt("x", block.x());
             tag.putInt("y", block.y());

@@ -18,7 +18,6 @@ public final class FactoryPreviewRenderer implements BlockEntityRenderer<Factory
         poseStack.pushPose();
         try {
             // Keep the source's world orientation. The miniature is visible from every side.
-            poseStack.translate(0, 1, 0);
             EndpointPreviewRenderer.renderPreview(display, poseStack, buffers, partialTick);
         } finally {
             poseStack.popPose();
@@ -27,7 +26,7 @@ public final class FactoryPreviewRenderer implements BlockEntityRenderer<Factory
 
     @Override
     public AABB getRenderBoundingBox(FactoryPreviewBlockEntity display) {
-        return new AABB(display.getBlockPos()).expandTowards(0, 1, 0);
+        return new AABB(display.getBlockPos());
     }
 
     @Override
