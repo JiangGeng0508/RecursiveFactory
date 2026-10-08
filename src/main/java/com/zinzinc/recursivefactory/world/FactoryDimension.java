@@ -26,6 +26,9 @@ import java.util.UUID;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.Holder;
+import net.minecraft.core.Registry;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
@@ -34,6 +37,8 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.biome.Biomes;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -93,7 +98,31 @@ public final class FactoryDimension {
             ResourceLocation.fromNamespaceAndPath(RecursiveFactory.MODID, "recursive_factory")
     );
 
+    /**
+     * The single biome the factory dimension is generated with, from its flat level generator. Every room
+     * stands in it, so it is also the biome a preview of a room has to be coloured with: grass, leaves and
+     * water all take their tint from the biome under them.
+     */
+    public static final ResourceKey<Biome> BIOME_KEY = ResourceKey.create(
+            Registries.BIOME,
+            ResourceLocation.fromNamespaceAndPath(RecursiveFactory.MODID, "recursive_factory")
+    );
+
     private FactoryDimension() {
+    }
+
+    /** The biome a preview of a room is drawn with, out of whichever registries the client holds. */
+    public static Holder<Biome> previewBiome(RegistryAccess registries) {
+        return biome(registries.registryOrThrow(Registries.BIOME), BIOME_KEY);
+    }
+
+    /**
+     * Looks a biome up and falls back to plains where the registry does not carry it, so a client that
+     * somehow never received the factory dimension's biome still draws the preview in one flat colour.
+     */
+    public static Holder<Biome> biome(Registry<Biome> biomes, ResourceKey<Biome> key) {
+        return biomes.getHolder(key).<Holder<Biome>>map(holder -> holder)
+                .orElseGet(() -> biomes.getHolderOrThrow(Biomes.PLAINS));
     }
 
     public static void initialize(MinecraftServer server) {

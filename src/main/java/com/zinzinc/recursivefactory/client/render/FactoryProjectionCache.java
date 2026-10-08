@@ -47,7 +47,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.RenderShape;
@@ -109,7 +108,7 @@ public final class FactoryProjectionCache {
         // The world is kept along with the entities, so an entity that survives a rebuild still stands in a
         // live world instead of one this cache threw away.
         if (store.renderWorld == null || store.worldHeight < worldHeight || store.worldMinY != worldMinY) {
-            store.renderWorld = createRenderWorld(level, worldMinY, worldHeight);
+            store.renderWorld = PreviewRenderWorld.create(level, worldMinY, worldHeight);
             store.worldHeight = worldHeight;
             store.worldMinY = worldMinY;
         }
@@ -147,30 +146,6 @@ public final class FactoryProjectionCache {
                 ? new AABB(BlockPos.ZERO)
                 : new AABB(minX, minY, minZ, maxX + 1, maxY + 1, maxZ + 1);
         redraw();
-    }
-
-    /**
-     * A world with no sky and no neighbours, standing in for the room the preview samples so the block and
-     * entity renderers can be run on it. Everything in it is lit from above.
-     */
-    private static VirtualRenderWorld createRenderWorld(Level level, int worldMinY, int worldHeight) {
-        return new VirtualRenderWorld(level, worldMinY, worldHeight, BlockPos.ZERO, () -> {
-        }) {
-            @Override
-            public boolean supportsVisualization() {
-                return false;
-            }
-
-            @Override
-            public int getBrightness(LightLayer lightLayer, BlockPos pos) {
-                return 15;
-            }
-
-            @Override
-            public int getRawBrightness(BlockPos pos, int amount) {
-                return 15;
-            }
-        };
     }
 
     public AABB getBounds() {
