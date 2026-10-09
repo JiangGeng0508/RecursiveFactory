@@ -79,8 +79,7 @@ public final class FactoryCannonPlan {
         void allocate(ServerLevel level) {
             if (id != 0) return;
             FactoryData data = FactoryData.get(level.getServer());
-            id = FactoryDimension.newRoom(level, data, null, room.colorIndex());
-            FactoryDimension.sizeRoom(level, data, id, room.cells());
+            id = FactoryDimension.newRoom(level, data, null, room.colorIndex(), room.cells());
         }
 
         SchematicPrinter reader(ServerLevel level) {
@@ -324,6 +323,10 @@ public final class FactoryCannonPlan {
                 fired(cannon);
                 return true;
             }
+            // A shot consumes materials when launched, but its supporting block does not exist yet.
+            // Do not skip wires (or finish the room) until its last projectile has landed.
+            if (cannon.flyingBlocks.stream().anyMatch(shot -> shot instanceof RoomLaunchedItem flight
+                    && flight.recursivefactory$roomId() == room.id)) return true;
             if (room.wireCursor < room.wires.size()) {
                 CompoundTag step = room.wires.get(room.wireCursor);
                 if (!FactoryWires.supportsPresent(level, room.origin, step)) {

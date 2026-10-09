@@ -71,6 +71,13 @@ public final class RecursiveFactoryItem extends BlockItem {
             }
         }
         List<BlockPos> doors = doorOffsets(context.getItemInHand());
+        if (context.getLevel() instanceof ServerLevel level
+                && !context.getItemInHand().has(DataComponents.BLOCK_ENTITY_DATA)
+                && !RecursiveFactoryBlock.canExpandAt(level, context.getClickedPos())) {
+            if (context.getPlayer() != null) context.getPlayer().displayClientMessage(
+                    Component.translatable("message.recursivefactory.room.invalid"), true);
+            return InteractionResult.FAIL;
+        }
         if (!canPlaceDoors(context, doors)) return InteractionResult.FAIL;
         return super.place(context);
     }
@@ -80,7 +87,14 @@ public final class RecursiveFactoryItem extends BlockItem {
             Level level = context.getLevel();
             BlockPos anchor = context.getClickedPos();
             for (BlockPos offset : doors) {
-                if (canPlaceDoorAt(level, anchor.offset(offset))) {
+                BlockPos target = anchor.offset(offset);
+                var player = context.getPlayer();
+                if (canPlaceDoorAt(level, target) && level.getWorldBorder().isWithinBounds(target)
+                        && (player == null || level.mayInteract(player, target)
+                                && player.mayUseItemAt(target, context.getClickedFace(), context.getItemInHand()))
+                        && level.isUnobstructed(ModBlocks.RECURSIVE_FACTORY.get().defaultBlockState(), target,
+                                player == null ? net.minecraft.world.phys.shapes.CollisionContext.empty()
+                                        : net.minecraft.world.phys.shapes.CollisionContext.of(player))) {
                     continue;
                 }
                 if (!level.isClientSide() && context.getPlayer() != null) {

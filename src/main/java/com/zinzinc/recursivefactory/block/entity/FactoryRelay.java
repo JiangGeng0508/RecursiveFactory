@@ -60,6 +60,7 @@ import org.slf4j.Logger;
  */
 public final class FactoryRelay {
     private static final Logger LOGGER = LogUtils.getLogger();
+    private static final ThreadLocal<Set<ItemRoute>> FLUID_PATH = ThreadLocal.withInitial(HashSet::new);
 
     private FactoryRelay() {
     }
@@ -274,6 +275,19 @@ public final class FactoryRelay {
      */
     public static FluidStack extractFluid(EndpointBlockEntity local, @Nullable Direction face,
                                           FluidStack resource, int amount, boolean simulate) {
+        Set<ItemRoute> path = FLUID_PATH.get();
+        ItemRoute route = new ItemRoute(local, face);
+        if (!path.add(route)) return FluidStack.EMPTY;
+        try {
+            return extractFluidOnce(local, face, resource, amount, simulate);
+        } finally {
+            path.remove(route);
+            if (path.isEmpty()) FLUID_PATH.remove();
+        }
+    }
+
+    private static FluidStack extractFluidOnce(EndpointBlockEntity local, @Nullable Direction face,
+                                               FluidStack resource, int amount, boolean simulate) {
         if (amount <= 0 || !(local.getLevel() instanceof ServerLevel localLevel)) {
             return FluidStack.EMPTY;
         }

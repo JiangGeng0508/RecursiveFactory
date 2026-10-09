@@ -39,9 +39,12 @@ public final class FactoryCopyLink {
                          FactoryData.FactoryRecord record, FactoryData.FactoryRecord.Cell cell,
                          List<BlockPos> doors) {
         public Prepared capture() {
-            return FactoryLocks.whileLocked(record.id(), () -> new Prepared(
-                    FactoryBlueprint.capture(roomLevel, data, record, cell, "coordinate link at " + cell.entrance()),
-                    doors, entrance.blueprintEntranceNodes()));
+            return FactoryLocks.whileLocked(record.id(), () -> {
+                FactoryBlueprint blueprint = FactoryBlueprint.capture(roomLevel, data, record, cell,
+                        "coordinate link at " + cell.entrance());
+                for (var room : blueprint.rooms()) FactoryRoomLayout.baseRoomY(roomLevel, room.cells());
+                return new Prepared(blueprint, doors, entrance.blueprintEntranceNodes());
+            });
         }
     }
 

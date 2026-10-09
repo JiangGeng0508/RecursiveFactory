@@ -5,12 +5,16 @@ import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
 import com.zinzinc.recursivefactory.client.render.RecursiveFactoryRenderer;
 import com.zinzinc.recursivefactory.client.render.FactoryFrameModel;
 import com.zinzinc.recursivefactory.client.render.FactoryPreviewRenderer;
+import com.zinzinc.recursivefactory.client.render.EndpointPreviewRenderer;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
+import net.neoforged.neoforge.client.event.ModelEvent;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.level.LevelEvent;
 
 @Mod(value = RecursiveFactory.MODID, dist = Dist.CLIENT)
 public final class RecursiveFactoryClient {
@@ -20,6 +24,10 @@ public final class RecursiveFactoryClient {
         modEventBus.addListener(this::registerItemColors);
         modEventBus.addListener(FactoryFrameModel::registerModels);
         modEventBus.addListener(FactoryFrameModel::wrapModels);
+        modEventBus.addListener((ModelEvent.BakingCompleted event) -> EndpointPreviewRenderer.clearCaches());
+        NeoForge.EVENT_BUS.addListener((LevelEvent.Unload event) -> {
+            if (event.getLevel().isClientSide()) EndpointPreviewRenderer.clearCaches();
+        });
     }
 
     private void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {

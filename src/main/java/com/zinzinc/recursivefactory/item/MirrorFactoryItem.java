@@ -1,5 +1,7 @@
 package com.zinzinc.recursivefactory.item;
 
+import java.util.List;
+
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
 import com.zinzinc.recursivefactory.data.FactoryColors;
@@ -180,16 +182,17 @@ public final class MirrorFactoryItem extends Item {
             // block pointing back at the one it was copied from.
             FactoryBlueprint read = FactoryBlueprint.capture(roomLevel, data, source, from,
                     FactoryBlueprint.newName());
-            int copyId = FactoryDimension.newRoom(roomLevel, data, source.owner(), colorIndex);
+            int copyId = FactoryDimension.newRoom(roomLevel, data, source.owner(), colorIndex, read.root().cells());
             read.placeAll(roomLevel, data, copyId, source.owner());
             return copyId;
         }
 
         // The room the copy was printed into is gone; build it from the file it was printed from instead,
         // and the factories the file has nested in it with it.
-        int copyId = FactoryDimension.newRoom(roomLevel, data, source.owner(), colorIndex);
         String fileName = stack.get(ModDataComponents.BLUEPRINT.get());
         FactoryBlueprint blueprint = fileName == null ? null : FactoryBlueprint.read(server, fileName);
+        int copyId = FactoryDimension.newRoom(roomLevel, data, source.owner(), colorIndex,
+                blueprint == null ? List.of(BlockPos.ZERO) : blueprint.root().cells());
         if (blueprint != null) {
             blueprint.placeAll(roomLevel, data, copyId, source.owner());
         }

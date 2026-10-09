@@ -149,10 +149,30 @@ public final class FactoryData extends SavedData {
     }
 
     public FactoryRecord create(@Nullable UUID owner, int colorIndex) {
+        return create(owner, colorIndex, List.of(BlockPos.ZERO), 0);
+    }
+
+    public FactoryRecord create(@Nullable UUID owner, int colorIndex, List<BlockPos> offsets, int roomY) {
+        FactoryRoomLayout.validate(offsets);
+        int slotX;
+        int slotZ;
+        List<FactoryRecord.Cell> cells;
+        do {
+            slotX = nextSlotIndex % 64;
+            slotZ = nextSlotIndex / 64;
+            if (nextSlotIndex < 0 || (long) slotZ * SLOT_SPACING_BLOCKS + 16 > 29_999_968) {
+                throw FactoryRoomLayout.invalid();
+            }
+            nextSlotIndex++;
+            int x = 16 + slotX * SLOT_SPACING_BLOCKS;
+            int z = 16 + slotZ * SLOT_SPACING_BLOCKS;
+            cells = offsets.stream().sorted(java.util.Comparator.comparing(offset -> !offset.equals(BlockPos.ZERO)))
+                    .map(offset -> new FactoryRecord.Cell(UNBOUND_ENTRANCE,
+                    x + offset.getX(), roomY + offset.getY(), z + offset.getZ(), false)).toList();
+            if (cells.stream().anyMatch(cell -> cell.roomX() < -29_999_984 || cell.roomX() > 29_999_968
+                    || cell.roomZ() < -29_999_984 || cell.roomZ() > 29_999_968)) throw FactoryRoomLayout.invalid();
+        } while (cells.stream().anyMatch(cell -> !canOccupy(-1, cell.roomX(), cell.roomZ())));
         int factoryId = nextFactoryId++;
-        int slotX = nextSlotIndex % 64;
-        int slotZ = nextSlotIndex / 64;
-        nextSlotIndex++;
 
         FactoryRecord record = new FactoryRecord(
                 factoryId,
@@ -162,13 +182,26 @@ public final class FactoryData extends SavedData {
                 slotZ,
                 null,
                 BlockPos.ZERO,
-                List.of(),
+                cells,
                 // A factory a player started stands for itself rather than for one that was copied.
                 -1
         );
         factories.put(factoryId, record);
         setDirty();
         return record;
+    }
+
+    /** Reserve the whole column, so another factory cannot build a shell through this one. */
+    public boolean canOccupy(int factoryId, int roomX, int roomZ) {
+        if (roomX < -29_999_984 || roomX > 29_999_968 || roomZ < -29_999_984 || roomZ > 29_999_968) return false;
+        for (FactoryRecord other : factories.values()) {
+            if (other.id() == factoryId) continue;
+            for (FactoryRecord.Cell cell : other.cells()) {
+                if (Math.abs((long) cell.roomX() - roomX) < CELL_SIZE
+                        && Math.abs((long) cell.roomZ() - roomZ) < CELL_SIZE) return false;
+            }
+        }
+        return true;
     }
 
     private void update(FactoryRecord record) {

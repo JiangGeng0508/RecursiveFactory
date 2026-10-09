@@ -1,0 +1,10 @@
+// Run with: gradlew -I tools/verification/verify.init.gradle runServer --no-daemon --console=plain
+// Only this explicit verification run adds the probe; a normal build never packages it.
+allprojects {
+    afterEvaluate {
+        if (project.hasProperty('auditWithoutPower')) configurations.localRuntime.dependencies.clear()
+        sourceSets.main.java.srcDir(file('tools/verification/src'))
+        runs.server.workingDirectory = file(findProperty('auditRunDir') ?: 'run/project-audit')
+        runs.server.systemProperty 'forge.logging.console.level', 'info'
+    }
+}

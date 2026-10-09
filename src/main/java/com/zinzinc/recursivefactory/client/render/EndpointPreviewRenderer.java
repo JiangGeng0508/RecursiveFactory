@@ -44,6 +44,13 @@ public final class EndpointPreviewRenderer {
     private EndpointPreviewRenderer() {
     }
 
+    public static void clearCaches() {
+        PROJECTION_CACHE.clear();
+        LAST_REQUEST_TICKS.clear();
+        PHYSICS_CACHE.clear();
+        ROPE_CACHE.clear();
+    }
+
     /**
      * Asks the server for a fresh snapshot on a slow interval, so outside changes reach clients even
      * when a broadcast was missed, for example while the block's chunk was unloaded.

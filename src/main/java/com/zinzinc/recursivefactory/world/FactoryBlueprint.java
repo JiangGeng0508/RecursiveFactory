@@ -527,7 +527,8 @@ public final class FactoryBlueprint {
             return -1;
         }
         FactoryData data = FactoryData.get(server);
-        int roomId = FactoryDimension.newRoom(roomLevel, data, owner, blueprint.colorIndex());
+        for (Room room : blueprint.rooms()) FactoryRoomLayout.baseRoomY(roomLevel, room.cells());
+        int roomId = FactoryDimension.newRoom(roomLevel, data, owner, blueprint.colorIndex(), blueprint.root().cells());
         data.markCopiedFrom(roomId, copiedFrom);
         int placed = blueprint.placeAll(roomLevel, data, roomId, owner);
         FactoryDimension.linkEntrance(doorLevel, doorPos, roomId, blueprint.colorIndex());
@@ -569,7 +570,9 @@ public final class FactoryBlueprint {
             BlockPos base = new BlockPos(part.roomX() - cell.roomX(), part.roomY() - cell.roomY(),
                     part.roomZ() - cell.roomZ());
             cells.add(base);
-            for (int y = 0; y < FactoryData.INNER_HEIGHT; y++) {
+            // The three former shell/floor layers become buildable when cells join vertically.
+            int firstY = record.hasCellBelow(part) ? FactoryData.BASE_Y - FactoryData.FLOOR_Y - 1 : 0;
+            for (int y = firstY; y <= FactoryData.INNER_HEIGHT; y++) {
                 for (int x = 0; x < width; x++) {
                     for (int z = 0; z < width; z++) {
                         BlockPos pos = origin.offset(base).offset(x, y, z);
@@ -703,7 +706,7 @@ public final class FactoryBlueprint {
             } else {
                 boolean first = !built.containsKey(nested);
                 int nestedRoomId = built.computeIfAbsent(nested,
-                        child -> FactoryDimension.newRoom(level, data, owner, child.colorIndex()));
+                        child -> FactoryDimension.newRoom(level, data, owner, child.colorIndex(), child.cells()));
                 if (first) placed += placeRoom(level, data, nestedRoomId, nested, owner);
                 BlockPos target = roomPos(cell, entry.pos());
                 placeBlock(level, target, entry.state(), entry.nbt(), false);
@@ -1002,7 +1005,7 @@ public final class FactoryBlueprint {
             // Read gzipped, the way a Create schematic is written, so a blueprint is a structure file and
             // not a raw NBT dump.
             root = NbtIo.readCompressed(file, NbtAccounter.create(0x20000000L));
-        } catch (IOException exception) {
+        } catch (IOException | RuntimeException exception) {
             LOGGER.warn("Could not read the blueprint {}", file, exception);
             return null;
         }
@@ -1010,10 +1013,20 @@ public final class FactoryBlueprint {
     }
 
     public static @Nullable FactoryBlueprint read(MinecraftServer server, String name, CompoundTag root) {
+        try {
+            return readValidated(server, name, root);
+        } catch (RuntimeException exception) {
+            LOGGER.warn("Refusing invalid factory blueprint {}: {}", name, exception.getMessage());
+            return null;
+        }
+    }
+
+    private static @Nullable FactoryBlueprint readValidated(MinecraftServer server, String name, CompoundTag root) {
         HolderLookup<net.minecraft.world.level.block.Block> lookup = server.registryAccess()
                 .lookupOrThrow(Registries.BLOCK);
         CompoundTag meta = root.getCompound(META_TAG);
         int colorIndex = meta.contains(COLOR_TAG) ? meta.getInt(COLOR_TAG) : FactoryColors.NO_COLOR;
+        if (colorIndex < FactoryColors.NO_COLOR || colorIndex >= FactoryColors.COLOR_COUNT) return null;
         int sourceFactory = meta.contains(SOURCE_TAG) ? meta.getInt(SOURCE_TAG) : -1;
         String storedName = meta.contains(NAME_TAG) ? meta.getString(NAME_TAG) : name;
 
@@ -1029,27 +1042,31 @@ public final class FactoryBlueprint {
 
         // The rooms nested in the top one, each hanging off the room that holds the entrance block leading
         // to it. They are listed in the order a copy builds them - a room after the room it hangs off - so a
-        // room whose parent is not in the list yet is one a hand-edited file got wrong, and is left out.
+        // room whose parent is not in the list yet makes the file invalid. Reject the complete file so
+        // later parent indices cannot silently refer to a different room.
         FactoryBlueprint blueprint = new FactoryBlueprint(storedName, top, colorIndex, sourceFactory);
         List<Room> added = new ArrayList<>(blueprint.rooms());
+        List<Integer> depths = new ArrayList<>(List.of(0));
         List<Tag> listed = meta.getList(ROOMS_TAG, Tag.TAG_COMPOUND);
         for (int index = door ? 1 : 0; index < listed.size(); index++) {
             CompoundTag roomTag = (CompoundTag) listed.get(index);
             int parentIndex = roomTag.getInt(PARENT_TAG);
             ListTag pos = roomTag.getList(POS_TAG, Tag.TAG_INT);
             if (parentIndex < 0 || parentIndex >= added.size() || pos.size() != 3) {
-                LOGGER.warn("The blueprint {} lists a room hanging off room {} and is not read further;"
-                        + " it is copied without that room", name, parentIndex);
-                continue;
+                LOGGER.warn("Refusing blueprint {}: invalid parent room {} or entrance position", name, parentIndex);
+                return null;
             }
             Room parent = added.get(parentIndex);
+            int depth = depths.get(parentIndex) + 1;
+            if (depth > MAX_NESTING_DEPTH) return null;
             BlockPos anchor = new BlockPos(pos.getInt(0), pos.getInt(1), pos.getInt(2));
             int roomColor = roomTag.getCompound(META_TAG).contains(COLOR_TAG)
                     ? roomTag.getCompound(META_TAG).getInt(COLOR_TAG)
                     : colorIndex;
+            if (roomColor < FactoryColors.NO_COLOR || roomColor >= FactoryColors.COLOR_COUNT) return null;
             Room room = readRoom(name, roomTag, lookup, anchor, roomColor);
             if (room == null) {
-                continue;
+                return null;
             }
             parent.nested.put(anchor, room);
             for (Tag value : roomTag.getList("Entrances", Tag.TAG_COMPOUND)) {
@@ -1062,6 +1079,17 @@ public final class FactoryBlueprint {
                 parent.nested.put(BlockPos.of(((net.minecraft.nbt.LongTag) value).getAsLong()), room);
             }
             added.add(room);
+            depths.add(depth);
+        }
+        ServerLevel roomLevel = server.getLevel(FactoryDimension.LEVEL_KEY);
+        if (roomLevel == null) return null;
+        for (Room room : added) {
+            FactoryRoomLayout.baseRoomY(roomLevel, room.cells());
+            for (var child : room.nested.entrySet()) {
+                if (room.blocks().stream().noneMatch(entry -> entry.pos().equals(child.getKey())
+                        && entry.state().is(ModBlocks.RECURSIVE_FACTORY.get()))
+                        || !child.getValue().cells().contains(child.getValue().entranceCell(child.getKey()))) return null;
+            }
         }
         blueprint.relist();
         return blueprint;
@@ -1084,6 +1112,7 @@ public final class FactoryBlueprint {
         }
         ListTag palette = tag.getList(PALETTE_TAG, Tag.TAG_COMPOUND);
         List<BlockPos> cells = readCells(tag);
+        FactoryRoomLayout.validate(cells);
         BlockPos min = minCorner(cells);
         List<BlockState> states = new ArrayList<>(palette.size());
         for (Tag entry : palette) {
@@ -1095,14 +1124,22 @@ public final class FactoryBlueprint {
             CompoundTag blockTag = (CompoundTag) entry;
             ListTag pos = blockTag.getList("pos", Tag.TAG_INT);
             if (pos.size() != 3) {
-                continue;
+                return null;
             }
             int index = blockTag.getInt("state");
             if (index < 0 || index >= states.size()) {
-                continue;
+                return null;
             }
+            BlockPos offset = new BlockPos(Math.addExact(pos.getInt(0), min.getX()), pos.getInt(1),
+                    Math.addExact(pos.getInt(2), min.getZ()));
+            if (cells.stream().noneMatch(cell -> (long) offset.getX() - cell.getX() >= 0
+                    && (long) offset.getX() - cell.getX() < FactoryData.CELL_SIZE
+                    && (long) offset.getZ() - cell.getZ() >= 0
+                    && (long) offset.getZ() - cell.getZ() < FactoryData.CELL_SIZE
+                    && (long) offset.getY() + 2 - cell.getY() >= 0
+                    && (long) offset.getY() + 2 - cell.getY() < FactoryData.CELL_SIZE)) return null;
             blocks.add(new Entry(
-                    new BlockPos(pos.getInt(0) + min.getX(), pos.getInt(1), pos.getInt(2) + min.getZ()),
+                    offset,
                     states.get(index),
                     blockTag.contains("nbt", Tag.TAG_COMPOUND) ? blockTag.getCompound("nbt") : null
             ));
@@ -1130,7 +1167,7 @@ public final class FactoryBlueprint {
      * {@code .\world\.}, so the two have to be compared in the same shape for the check to mean anything.
      */
     private static @Nullable Path fileIn(Path folder, String name) {
-        if (name.isEmpty() || name.indexOf('\\') >= 0) {
+        if (name.isEmpty() || name.chars().anyMatch(c -> c < 32 || "\\:*?\"<>|".indexOf(c) >= 0)) {
             LOGGER.warn("Refusing a blueprint name that is not a plain file name: {}", name);
             return null;
         }

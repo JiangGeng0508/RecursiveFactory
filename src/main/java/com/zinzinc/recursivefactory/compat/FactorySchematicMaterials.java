@@ -53,7 +53,7 @@ public final class FactorySchematicMaterials {
                     if (!slot.remaining.isDamageableItem()) continue;
                     slot.remaining.setDamageValue(slot.remaining.getDamageValue() + 1);
                     // Match Create's tool-use semantics, including its break threshold.
-                    if (slot.remaining.getDamageValue() > slot.remaining.getMaxDamage()) slot.remaining.shrink(1);
+                    if (slot.remaining.getDamageValue() >= slot.remaining.getMaxDamage()) slot.remaining.shrink(1);
                     left = 0;
                 } else {
                     int amount = Math.min(left, slot.remaining.getCount());

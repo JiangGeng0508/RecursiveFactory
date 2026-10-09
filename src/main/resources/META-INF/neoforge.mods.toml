@@ -8,7 +8,7 @@ version="${mod_version}"
 displayName="${mod_name}"
 authors="ZinZinc"
 description='''
-A recursively reusable pocket factory dimension with mirrored item and redstone endpoints.
+Expandable, nested pocket factories with live previews, item and fluid transfer, redstone and Create rotation. Copy and build factories with Create schematics and the Schematicannon.
 '''
 
 [[mixins]]

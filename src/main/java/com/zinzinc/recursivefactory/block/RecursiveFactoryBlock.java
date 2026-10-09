@@ -19,6 +19,7 @@ import com.zinzinc.recursivefactory.data.ModDataComponents;
 import com.zinzinc.recursivefactory.world.FactoryBlueprint;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
+import com.zinzinc.recursivefactory.world.FactoryRoomLayout;
 import com.zinzinc.recursivefactory.world.FactoryTeleporter;
 import java.util.ArrayList;
 import java.util.List;
@@ -420,24 +421,9 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
                                        @Nullable ServerLevel factoryLevel,
                                        RecursiveFactoryBlockEntity blockEntity,
                                        FactoryData.FactoryRecord factory) {
-        FactoryData.FactoryRecord.Cell adjacentCell = null;
-        for (Direction direction : Direction.values()) {
-            FactoryData.FactoryRecord.Cell cell = factory.cellAt(pos.relative(direction));
-            if (cell != null) {
-                adjacentCell = cell;
-                break;
-            }
-        }
-        if (adjacentCell == null) {
-            return false;
-        }
-        int roomX = adjacentCell.roomX()
-                + (pos.getX() - adjacentCell.entrance().getX()) * FactoryData.CELL_SIZE;
-        int roomY = adjacentCell.roomY()
-                + (pos.getY() - adjacentCell.entrance().getY()) * FactoryData.CELL_SIZE;
-        int roomZ = adjacentCell.roomZ()
-                + (pos.getZ() - adjacentCell.entrance().getZ()) * FactoryData.CELL_SIZE;
-        data.addEntrance(factory.id(), level.dimension().location(), pos, roomX, roomY, roomZ);
+        BlockPos room = expansionCell(pos, data, factoryLevel, factory);
+        if (room == null) return false;
+        data.addEntrance(factory.id(), level.dimension().location(), pos, room.getX(), room.getY(), room.getZ());
         blockEntity.setFactoryId(factory.id());
 
         FactoryData.FactoryRecord grown = data.factory(factory.id());
@@ -450,6 +436,38 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
         refreshConnections(level, pos);
         FactoryRelay.updateFromNeighbours(blockEntity);
         return true;
+    }
+
+    /** Player placement must refuse a blocked expansion before consuming the item. */
+    public static boolean canExpandAt(ServerLevel level, BlockPos pos) {
+        FactoryData data = FactoryData.get(level.getServer());
+        ServerLevel roomLevel = level.getServer().getLevel(FactoryDimension.LEVEL_KEY);
+        if (roomLevel == null) return false;
+        boolean adjacent = false;
+        for (Direction direction : Direction.values()) {
+            var record = data.factoryWithEntranceCell(level.dimension().location(), pos.relative(direction));
+            if (record == null) continue;
+            adjacent = true;
+            if (expansionCell(pos, data, roomLevel, record) != null) return true;
+        }
+        return !adjacent;
+    }
+
+    private static @Nullable BlockPos expansionCell(BlockPos pos, FactoryData data,
+            @Nullable ServerLevel roomLevel, FactoryData.FactoryRecord record) {
+        if (roomLevel == null) return null;
+        for (Direction direction : Direction.values()) {
+            var cell = record.cellAt(pos.relative(direction));
+            if (cell == null) continue;
+            int x = cell.roomX() - direction.getStepX() * FactoryData.CELL_SIZE;
+            int y = cell.roomY() - direction.getStepY() * FactoryData.CELL_SIZE;
+            int z = cell.roomZ() - direction.getStepZ() * FactoryData.CELL_SIZE;
+            var occupied = record.cellAtRoom(x, y, z);
+            if (FactoryRoomLayout.fits(roomLevel, x, y, z) && data.canOccupy(record.id(), x, z)
+                    && (occupied == null || occupied.entrance().equals(FactoryData.UNBOUND_ENTRANCE)))
+                return new BlockPos(x, y, z);
+        }
+        return null;
     }
 
     /**

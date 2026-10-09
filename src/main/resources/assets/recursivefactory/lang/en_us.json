@@ -25,5 +25,6 @@
   "message.recursivefactory.place.blocked": "There is no room for the factory's other entrance blocks there.",
   "message.recursivefactory.mirror.placed": "Placed a mirror factory, room #%s.",
   "message.recursivefactory.power.terminal": "Factory power node installed.",
-  "message.recursivefactory.power.terminal_taken": "This face of the entrance's room cell already has a node. Remove it with a wrench first."
+  "message.recursivefactory.power.terminal_taken": "This face of the entrance's room cell already has a node. Remove it with a wrench first.",
+  "message.recursivefactory.room.invalid": "Cannot expand or copy this factory: the room would exceed the dimension bounds or overlap another factory."
 }
