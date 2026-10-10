@@ -1128,7 +1128,7 @@ public final class FactoryDimension {
      * The checkerboard the floor is made of, on a fixed parity of the absolute coordinates so the rows of
      * one cell carry on into the next one instead of meeting in two matching colours.
      */
-    private static BlockState floorState(int x, int z) {
+    public static BlockState floorState(int x, int z) {
         return ((x ^ z) & 1) == 0
                 ? Blocks.WHITE_CONCRETE.defaultBlockState()
                 : Blocks.SNOW_BLOCK.defaultBlockState();

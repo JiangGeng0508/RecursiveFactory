@@ -294,7 +294,7 @@ public final class FactoryCannonPlan {
                 ((SchematicPrinterAccessor) printer).recursivefactory$position(entry.pos());
                 ItemRequirement requirement = printer.getCurrentRequirement();
                 if (requirement.isInvalid() || !printer.shouldPlaceCurrent(level,
-                        (p, s, be, old, other, solid) -> shouldPlace(cannon, level, p, s, be, old, other, solid))) {
+                        (p, s, be, old, other, solid) -> shouldPlace(cannon, room, level, p, s, be, old, other, solid))) {
                     room.cursor++;
                     continue;
                 }
@@ -380,10 +380,14 @@ public final class FactoryCannonPlan {
         return (int) (Math.max(10, Math.sqrt(Math.sqrt(to.distSqr(from))) * 4f));
     }
 
-    private static boolean shouldPlace(SchematicannonBlockEntity cannon, ServerLevel level, BlockPos pos,
+    private static boolean shouldPlace(SchematicannonBlockEntity cannon, RoomPrint room, ServerLevel level, BlockPos pos,
             BlockState state, BlockEntity be, BlockState old, BlockState other, boolean solid) {
         if (((FactoryCannonAccess) cannon).recursivefactory$ignore(state, be)) return false;
         if (!cannon.replaceBlockEntities && (old.hasBlockEntity() || other != null && other.hasBlockEntity())) return false;
+        // A new room's generated floor is a placeholder, including where the source has a hole.
+        // Replacing player-built blocks or the other half of a multipart block still follows cannon options.
+        if (other == null && room.room.isFloor(pos.subtract(room.origin))
+                && old.equals(FactoryDimension.floorState(pos.getX(), pos.getZ()))) return true;
         boolean replaceable = !old.isRedstoneConductor(level, pos)
                 && (other == null || !other.isRedstoneConductor(level, pos));
         return cannon.replaceMode == 3 || !state.isAir() && (cannon.replaceMode == 2
@@ -438,7 +442,7 @@ public final class FactoryCannonPlan {
                 if (requirement.isInvalid() || entry.state().isAir()
                         || ((FactoryCannonAccess) cannon).recursivefactory$ignore(entry.state(), be)) continue;
                 if (room.id != 0 && level.isLoaded(room.origin.offset(entry.pos())) && !printer.shouldPlaceCurrent(level,
-                        (p, s, entity, old, other, solid) -> shouldPlace(cannon, level, p, s, entity, old, other, solid))) continue;
+                        (p, s, entity, old, other, solid) -> shouldPlace(cannon, room, level, p, s, entity, old, other, solid))) continue;
                 if (!requirement.isEmpty()) cannon.checklist.require(requirement);
                 cannon.blocksToPlace++;
             }

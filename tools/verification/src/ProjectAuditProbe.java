@@ -57,6 +57,9 @@ public final class ProjectAuditProbe {
         run("cannon", () -> {
             if (com.zinzinc.recursivefactory.RecursiveFactory.powerAvailable()) CannonChecks.cannon(outside, inside);
         });
+        run("cannon floors", () -> {
+            if (com.zinzinc.recursivefactory.RecursiveFactory.powerAvailable()) CannonChecks.cannonFloors(outside, inside);
+        });
         System.out.println("[rfaudit] COMPLETE checks=" + checks + " failures=" + failures);
         event.getServer().halt(false);
     }
@@ -148,16 +151,29 @@ public final class ProjectAuditProbe {
         var nested = door(inside, origin.offset(4, 15, 4));
         BlockPos nestedOrigin = FactoryBlueprint.origin(record(outside, nested.getFactoryId()).anchorCell());
         inside.setBlockAndUpdate(nestedOrigin.offset(3, 0, 3), Blocks.GOLD_BLOCK.defaultBlockState());
+        // Floor changes travel with the room: one tile the player swapped out and one hole dug into the
+        // checkerboard. The rest of that layer is the tile the room generated and is not written down.
+        BlockPos rebuiltFloor = origin.offset(2, -1, 2);
+        BlockPos clearedFloor = origin.offset(3, -1, 3);
+        check(inside.getBlockState(rebuiltFloor).equals(FactoryDimension.floorState(rebuiltFloor.getX(), rebuiltFloor.getZ()))
+                        && inside.getBlockState(clearedFloor).equals(FactoryDimension.floorState(clearedFloor.getX(), clearedFloor.getZ())),
+                "test room starts on the checkerboard the room is built with");
+        inside.setBlockAndUpdate(rebuiltFloor, Blocks.GOLD_BLOCK.defaultBlockState());
+        inside.setBlockAndUpdate(clearedFloor, Blocks.AIR.defaultBlockState());
         var blueprint = FactoryBlueprint.capture(inside, data, original, original.anchorCell(), "audit.nbt");
-        check(blueprint.blocks().size() == 3 && blueprint.rooms().size() == 2, "all three former shell layers and nested factory are captured");
+        check(blueprint.blocks().size() == 5 && blueprint.rooms().size() == 2,
+                "room contents, floor changes and nested factory are captured");
         CompoundTag serialized = blueprint.serialize(outside.registryAccess());
         var restored = FactoryBlueprint.read(outside.getServer(), "audit.nbt", serialized);
-        check(restored != null && restored.size() == 4 && restored.rooms().size() == 2, "complete nested snapshot survives NBT round trip");
+        check(restored != null && restored.size() == 6 && restored.rooms().size() == 2, "complete nested snapshot survives NBT round trip");
         BlockPos target = new BlockPos(120, 200, 100);
         outside.setBlockAndUpdate(target, ModBlocks.RECURSIVE_FACTORY.get().defaultBlockState());
         int copied = FactoryBlueprint.build(outside, target, restored, null);
         BlockPos to = FactoryBlueprint.origin(record(outside, copied).anchorCell());
         check(inside.getBlockState(to.offset(4, 13, 4)).is(Blocks.DIAMOND_BLOCK), "copy places former ceiling content");
+        check(inside.getBlockState(to.offset(2, -1, 2)).is(Blocks.GOLD_BLOCK), "copy keeps a floor tile the player replaced");
+        check(inside.getBlockState(to.offset(3, -1, 3)).isAir() && !inside.getBlockState(to.offset(2, -1, 3)).isAir(),
+                "copy keeps a hole dug into the floor and leaves the rest of the checkerboard alone");
         check(inside.getBlockEntity(to.offset(4, 14, 4)) instanceof ChestBlockEntity chest
                 && chest.getItem(0).getCount() == 7, "copy preserves seam container contents");
         var copiedNested = (RecursiveFactoryBlockEntity) inside.getBlockEntity(to.offset(4, 15, 4));
@@ -365,6 +381,58 @@ public final class ProjectAuditProbe {
                 check(inventory.getStackInSlot(0).isEmpty() && inventory.getStackInSlot(1).isEmpty()
                         && inventory.getStackInSlot(2).isEmpty() && restored.statusMsg.equals("finished"),
                         "resumed cannon completes and charges each material once");
+            } catch (Exception error) { throw new RuntimeException(error); }
+        }
+        /**
+         * A room whose only contents are floor changes: a tile the player replaced and a hole dug into the
+         * checkerboard. A cannon builds its own room with a floor of its own, so both have to be printed
+         * over it, and neither may cost the material of the generated tile it replaces.
+         */
+        private static void cannonFloors(ServerLevel outside, ServerLevel inside) {
+            try {
+                BlockPos source = new BlockPos(1400, 200, 100), target = source.east(20);
+                outside.getChunk(target);
+                outside.getChunk(target.south(4));
+                var entrance = door(outside, source);
+                BlockPos origin = FactoryBlueprint.origin(record(outside, entrance.getFactoryId()).anchorCell());
+                inside.setBlockAndUpdate(origin.offset(2, -1, 2), Blocks.GOLD_BLOCK.defaultBlockState());
+                inside.setBlockAndUpdate(origin.offset(3, -1, 3), Blocks.AIR.defaultBlockState());
+                var template = new net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate();
+                template.fillFromWorld(outside, source, new Vec3i(1, 1, 1), false, null);
+                var path = java.nio.file.Path.of("schematics/uploaded/audit/cannon-floors.nbt");
+                java.nio.file.Files.createDirectories(path.getParent());
+                NbtIo.writeCompressed(template.save(new CompoundTag()), path);
+                var stack = com.simibubi.create.content.schematics.SchematicItem.create(outside, "cannon-floors.nbt", "audit");
+                stack.set(com.simibubi.create.AllDataComponents.SCHEMATIC_ANCHOR, target);
+                stack.set(com.simibubi.create.AllDataComponents.SCHEMATIC_DEPLOYED, true);
+                var inventory = new ItemStackHandler(2);
+                inventory.setStackInSlot(0, ModBlocks.RECURSIVE_FACTORY_ITEM.toStack());
+                inventory.setStackInSlot(1, new ItemStack(Items.GOLD_BLOCK));
+                var cannon = new TestCannon(target.south(4));
+                cannon.setLevel(outside);
+                cannon.inventory.setStackInSlot(0, stack);
+                cannon.state = com.simibubi.create.content.schematics.cannon.SchematicannonBlockEntity.State.RUNNING;
+                cannon.remainingFuel = 100;
+                // Initializing loads the blueprint and looks for the inventories beside the cannon again,
+                // which drops one attached before it, so the materials go on afterwards.
+                cannon.step();
+                cannon.attachedInventories.add(inventory);
+                for (int i = 0; i < 30 && !cannon.statusMsg.equals("finished"); i++) {
+                    cannon.state = com.simibubi.create.content.schematics.cannon.SchematicannonBlockEntity.State.RUNNING;
+                    cannon.step();
+                    land(cannon, outside);
+                }
+                int copied = ((RecursiveFactoryBlockEntity) outside.getBlockEntity(target)).getFactoryId();
+                BlockPos to = FactoryBlueprint.origin(record(outside, copied).anchorCell());
+                check(inside.getBlockState(to.offset(2, -1, 2)).is(Blocks.GOLD_BLOCK),
+                        "cannon swaps a floor tile the source room replaced");
+                check(inside.getBlockState(to.offset(3, -1, 3)).isAir()
+                                && inside.getBlockState(to.offset(2, -1, 3))
+                                        .equals(FactoryDimension.floorState(to.getX() + 2, to.getZ() + 3)),
+                        "cannon clears a floor hole and leaves the rest of the checkerboard alone");
+                check(inventory.getStackInSlot(0).isEmpty() && inventory.getStackInSlot(1).isEmpty()
+                                && cannon.statusMsg.equals("finished"),
+                        "a floor-only room is charged for the tile it holds and nothing else");
             } catch (Exception error) { throw new RuntimeException(error); }
         }
         private static void land(TestCannon cannon, ServerLevel level) {

@@ -41,11 +41,11 @@ Use the middle of a wall, away from corners. Open boundaries between merged cell
 
 ## Copy a factory
 
-**Survival:** right-click an entrance with Create's **Blank Schematic**, deploy the resulting schematic, then load it into a **Schematicannon** with gunpowder and nearby material inventories. The cannon places the entrance first and builds the interior progressively. Missing materials pause the task; progress and the captured contents survive saving and reloading.
+**Survival:** select the factory entrances with Create's **Schematic and Quill** and save the schematic. Deploy it, then load it into a **Schematicannon** with gunpowder and nearby material inventories. The cannon places the entrance first and builds the interior progressively. Missing materials pause the task; progress and the captured contents survive saving and reloading.
 
 **Creative:** middle-click an entrance, then place the obtained block. It reads the source factory when placed and creates an independent copy, including its connected entrances and nested factories. Changes to the source are included in the next copy. A missing source or obstructed entrance layout prevents placement.
 
-Create's **Schematic and Quill** also supports selecting entrances. Factory capture supports up to **8 nested levels** and rejects loops. Installed CEE nodes and internal wires are included; connections leaving the captured room are excluded.
+Copies preserve replaced floor tiles and floor holes. Unchanged default tiles are generated with the room and require no extra cannon materials. Right-clicking an entrance with a Blank Schematic no longer captures the factory. Factory capture supports up to **8 nested levels** and rejects loops. Installed CEE nodes and internal wires are included; connections leaving the captured room are excluded.
 
 ## Preview display
 
