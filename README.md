@@ -89,4 +89,4 @@ Build the distributable:
 
 The jar is written to `build/libs/`. See [verification instructions](tools/verification/README.md) for the isolated server regression suite.
 
-Entrance assets and rendering were informed by the MIT-licensed Create: Pocket Factory project.
+Entrance models, textures and preview rendering are original to this mod; the projection-preview approach follows the MIT-licensed Create: Pocket Factory project.

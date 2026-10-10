@@ -29,6 +29,16 @@ artifact = Path(sys.argv[1]) if len(sys.argv) > 1 else root / f"build/libs/recur
 with zipfile.ZipFile(artifact) as jar:
     names = jar.namelist()
     assert not any("Probe" in name or "FactoryPrinter" in name or "factory_printer" in name for name in names)
+    # Everything shipped has to belong to this mod (or be a vanilla tag file). This keeps assets
+    # borrowed from another mod, such as the entrance texture taken from Create: Pocket Factory
+    # before 1.1.18, from quietly reappearing in the distributable.
+    own_namespaces = ("assets/recursivefactory/", "data/recursivefactory/", "data/minecraft/",
+                      "com/zinzinc/recursivefactory/")
+    own_files = {"pack.mcmeta", "recursivefactory.mixins.json",
+                 "META-INF/MANIFEST.MF", "META-INF/neoforge.mods.toml"}
+    foreign = sorted(name for name in names
+                     if not name.endswith("/") and not name.startswith(own_namespaces) and name not in own_files)
+    assert not foreign, f"entries outside this mod's namespaces: {foreign}"
     descriptor = jar.read("META-INF/neoforge.mods.toml").decode("utf-8")
     assert "${" not in descriptor
     metadata = tomllib.loads(descriptor)
@@ -39,4 +49,5 @@ with zipfile.ZipFile(artifact) as jar:
     for source in (root / "src/main/java").rglob("*.java"):
         name = str(source.relative_to(root / "src/main/java").with_suffix(".class")).replace("\\", "/")
         assert name in names, name
-print(f"PASS {artifact.name}: {len(names)} entries; correct version; no probes or removed printer")
+print(f"PASS {artifact.name}: {len(names)} entries; correct version; own namespaces only; "
+      "no probes or removed printer")

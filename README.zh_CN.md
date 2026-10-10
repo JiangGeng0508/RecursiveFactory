@@ -89,4 +89,4 @@ Sable / Simulated 为可选兼容，可在预览中显示受支持的物理结�
 
 产物位于 `build/libs/`。独立服务器回归的运行方式见[验证说明](tools/verification/README.md)。
 
-入口模型、贴图与预览渲染设计参考了采用 MIT 许可的 Create: Pocket Factory 项目。
+入口的模型、贴图与预览渲染为本模组原创；投影预览的做法参考了采用 MIT 许可的 Create: Pocket Factory 项目。

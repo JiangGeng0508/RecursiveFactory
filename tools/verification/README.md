@@ -20,4 +20,8 @@
    python tools/verification/check_artifact.py
    ```
 
+   脚本除版本号、翻译与模型引用外，还会核对 jar 内的条目只落在本模组自己的命名空间
+   （`assets/recursivefactory/`、`data/recursivefactory/`、`data/minecraft/`）与几个固定元数据文件上，
+   防止别的模组的贴图或模型被夹带进正式产物。
+
 测试未覆盖客户端实际画面、长期运行性能或所有第三方模组组合。
