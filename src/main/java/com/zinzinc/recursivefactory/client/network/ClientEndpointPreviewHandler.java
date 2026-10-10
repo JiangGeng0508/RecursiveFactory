@@ -37,16 +37,6 @@ public final class ClientEndpointPreviewHandler {
                     entities.size(),
                     blockEntities.size()
             );
-        } else if (!entities.equals(endpoint.getPreviewEntities())
-                || !blockEntities.equals(endpoint.getPreviewBlockEntities())) {
-            // Moving entities change the preview every tick, so only the first sighting is worth a line.
-            LOGGER.debug(
-                    "Received endpoint preview at {} with {} blocks, {} entities and {} block entities",
-                    pos,
-                    blocks.size(),
-                    entities.size(),
-                    blockEntities.size()
-            );
         }
         endpoint.acceptPreview(blocks, entities, blockEntities, EndpointBlockEntity.readPreviewWires(previewTag),
                 EndpointBlockEntity.readPreviewBodies(previewTag), EndpointBlockEntity.readPreviewRopes(previewTag));

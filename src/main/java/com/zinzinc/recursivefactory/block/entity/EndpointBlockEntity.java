@@ -715,18 +715,10 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
         if (!(level instanceof ServerLevel serverLevel)) {
             return;
         }
-        // An entity that walks around changes the preview every tick; only a change to the blocks is worth a
-        // line at info, the rest would flood the log. Both still go out on the wire.
+        // A moving entity changes the preview every tick, so only a change to the blocks is worth a line.
+        // The preview itself still goes out either way; nothing is logged for the rest.
         if (blocksChanged) {
             LOGGER.info(
-                    "Broadcasting endpoint preview at {} with {} blocks, {} entities and {} block entities",
-                    worldPosition,
-                    previewBlocks.size(),
-                    previewEntities.size(),
-                    previewBlockEntities.size()
-            );
-        } else {
-            LOGGER.debug(
                     "Broadcasting endpoint preview at {} with {} blocks, {} entities and {} block entities",
                     worldPosition,
                     previewBlocks.size(),
