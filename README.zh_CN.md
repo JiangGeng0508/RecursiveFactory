@@ -71,6 +71,18 @@ Sable / Simulated 为可选兼容，可在预览中显示受支持的物理结�
 
 ## 开发构建
 
+启动已有开发环境的测试客户端（需要 Java 21）：
+
+```powershell
+.\run-client.bat
+```
+
+启动脚本使用 Gradle 本地依赖缓存，避免远程 Maven 仓库不可达时卡在启动前的依赖检查；仍会编译最新源码。游戏目录为 `run/client/`，日志位于 `run/client/logs/latest.log`。
+
+首次克隆或更换依赖后，先联网运行 `.\gradlew.bat runClient --console=plain` 下载所需文件。若出现 `No cached version ... available for offline mode`，也使用这条联网命令补齐缓存。
+
+构建发布产物：
+
 ```powershell
 .\gradlew.bat build --no-daemon --console=plain
 ```

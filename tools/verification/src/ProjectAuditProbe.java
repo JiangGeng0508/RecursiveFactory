@@ -7,12 +7,15 @@ import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
 import com.zinzinc.recursivefactory.block.entity.*;
 import com.zinzinc.recursivefactory.compat.FactorySchematicMaterials;
+import com.zinzinc.recursivefactory.data.ModDataComponents;
 import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
 import com.zinzinc.recursivefactory.network.FactoryPickBlockPacket;
 import com.zinzinc.recursivefactory.world.*;
 import java.util.*;
 import net.minecraft.core.*;
 import net.minecraft.nbt.*;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.item.*;
@@ -44,6 +47,7 @@ public final class ProjectAuditProbe {
     @SubscribeEvent public static void started(ServerStartedEvent event) {
         ServerLevel outside = event.getServer().overworld();
         ServerLevel inside = event.getServer().getLevel(FactoryDimension.LEVEL_KEY);
+        run("item tooltips", () -> tooltips(outside, inside));
         run("layout", () -> layout(inside));
         run("copy", () -> copy(outside, inside));
         run("fluid cycle", () -> fluids(outside, inside));
@@ -55,6 +59,35 @@ public final class ProjectAuditProbe {
         });
         System.out.println("[rfaudit] COMPLETE checks=" + checks + " failures=" + failures);
         event.getServer().halt(false);
+    }
+
+    private static void tooltips(ServerLevel outside, ServerLevel inside) {
+        for (boolean preview : new boolean[]{true, false}) {
+            var component = preview ? ModDataComponents.PREVIEW_SOURCE.get() : ModDataComponents.COPY_SOURCE.get();
+            String key = preview ? "item.recursivefactory.factory_preview.source" : "item.recursivefactory.copy_source";
+            for (TooltipFlag flag : new TooltipFlag[]{TooltipFlag.NORMAL, TooltipFlag.ADVANCED}) {
+                for (ServerLevel sourceLevel : new ServerLevel[]{null, outside, inside}) {
+                    ItemStack stack = preview ? ModBlocks.FACTORY_PREVIEW_ITEM.toStack() : ModBlocks.RECURSIVE_FACTORY_ITEM.toStack();
+                    GlobalPos source = sourceLevel == null ? null : GlobalPos.of(sourceLevel.dimension(), new BlockPos(-12, 94, 34));
+                    if (source != null) stack.set(component, source);
+                    var lines = stack.getTooltipLines(Item.TooltipContext.of(outside), null, flag);
+                    var sourceLines = lines.stream().map(Component::getContents)
+                            .filter(contents -> contents instanceof TranslatableContents text && text.getKey().equals(key))
+                            .map(contents -> (TranslatableContents) contents).toList();
+                    for (Component line : lines) {
+                        line.getString();
+                        Component.Serializer.toJson(line, outside.registryAccess());
+                    }
+                    boolean correct = source == null ? sourceLines.isEmpty() : sourceLines.size() == 1
+                            && Arrays.equals(sourceLines.getFirst().getArgs(), new Object[]{
+                                    source.dimension().location().toString(), -12, 94, 34});
+                    check(correct && Objects.equals(source, stack.get(component)),
+                            (preview ? "preview" : "copy") + " tooltip builds and serializes without changing its binding: "
+                                    + (sourceLevel == null ? "unbound" : sourceLevel.dimension().location())
+                                    + ", advanced=" + flag.isAdvanced());
+                }
+            }
+        }
     }
 
     private static RecursiveFactoryBlockEntity door(ServerLevel level, BlockPos pos) {

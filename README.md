@@ -71,6 +71,18 @@ Sable/Simulated integration adds previews of supported physics structures and ro
 
 ## Build
 
+Start the test client in an existing development environment (Java 21 required):
+
+```powershell
+.\run-client.bat
+```
+
+The launcher uses Gradle's cached dependencies to avoid stalling on an unreachable Maven repository. It still compiles the current sources. Game files are in `run/client/`; the log is `run/client/logs/latest.log`.
+
+On a fresh clone or after changing dependencies, run `.\gradlew.bat runClient --console=plain` online to download the required files. Use the same command if Gradle reports `No cached version ... available for offline mode`.
+
+Build the distributable:
+
 ```powershell
 .\gradlew.bat build --no-daemon --console=plain
 ```

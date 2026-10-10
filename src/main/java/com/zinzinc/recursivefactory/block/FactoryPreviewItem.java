@@ -48,7 +48,7 @@ public final class FactoryPreviewItem extends BlockItem {
         tooltip.add(Component.translatable("item.recursivefactory.factory_preview.usage").withStyle(ChatFormatting.GRAY));
         GlobalPos source = stack.get(ModDataComponents.PREVIEW_SOURCE.get());
         if (source != null) tooltip.add(Component.translatable("item.recursivefactory.factory_preview.source",
-                source.dimension().location(), source.pos().getX(), source.pos().getY(), source.pos().getZ())
+                source.dimension().location().toString(), source.pos().getX(), source.pos().getY(), source.pos().getZ())
                 .withStyle(ChatFormatting.AQUA));
     }
 }
