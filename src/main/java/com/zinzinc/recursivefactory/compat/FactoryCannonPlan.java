@@ -5,7 +5,10 @@ import com.simibubi.create.content.schematics.cannon.LaunchedItem;
 import com.simibubi.create.content.schematics.cannon.SchematicannonBlockEntity;
 import com.simibubi.create.content.schematics.requirement.ItemRequirement;
 import com.zinzinc.recursivefactory.RecursiveFactory;
+import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
+import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
+import com.zinzinc.recursivefactory.block.entity.FactoryBarrierBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.mixin.SchematicPrinterAccessor;
 import com.zinzinc.recursivefactory.power.FactoryWires;
@@ -19,6 +22,7 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -291,6 +295,29 @@ public final class FactoryCannonPlan {
                     pause(cannon, "targetNotLoaded");
                     return true;
                 }
+                if (entry.state().is(ModBlocks.FACTORY_BARRIER.get())) {
+                    // Generated shell blocks are already present; a shot installs just their redstone.
+                    if (!(level.getBlockEntity(target) instanceof FactoryBarrierBlockEntity barrier)
+                            || barrier.getFactoryId() != room.id || entry.nbt() == null) {
+                        room.cursor++;
+                        continue;
+                    }
+                    int missing = entry.nbt().getInt(EndpointBlockEntity.REDSTONE_PORTS_TAG)
+                            & 63 & ~barrier.redstonePorts();
+                    if (missing == 0) { room.cursor++; continue; }
+                    ItemRequirement ports = new ItemRequirement(ItemRequirement.ItemUseType.CONSUME,
+                            new ItemStack(Items.REDSTONE, Integer.bitCount(missing)));
+                    if (!pay(cannon, ports)) {
+                        if (cannon.skipMissing) { room.cursor++; continue; }
+                        return true;
+                    }
+                    barrier.restoreRedstonePorts(missing);
+                    room.cursor++;
+                    cannon.blocksPlaced++;
+                    cannon.playFiringSound();
+                    fired(cannon);
+                    return true;
+                }
                 ((SchematicPrinterAccessor) printer).recursivefactory$position(entry.pos());
                 ItemRequirement requirement = printer.getCurrentRequirement();
                 if (requirement.isInvalid() || !printer.shouldPlaceCurrent(level,
@@ -435,6 +462,19 @@ public final class FactoryCannonPlan {
             SchematicPrinter printer = room.reader(level);
             for (int b = room.cursor; b < room.entries.size(); b++) {
                 FactoryBlueprint.Entry entry = room.entries.get(b);
+                if (entry.state().is(ModBlocks.FACTORY_BARRIER.get())) {
+                    int missing = entry.nbt() == null ? 0 : entry.nbt().getInt(
+                            EndpointBlockEntity.REDSTONE_PORTS_TAG) & 63;
+                    if (room.id != 0 && level.getBlockEntity(room.origin.offset(entry.pos()))
+                            instanceof FactoryBarrierBlockEntity barrier)
+                        missing &= ~barrier.redstonePorts();
+                    if (missing != 0) {
+                        cannon.checklist.require(new ItemRequirement(ItemRequirement.ItemUseType.CONSUME,
+                                new ItemStack(Items.REDSTONE, Integer.bitCount(missing))));
+                        cannon.blocksToPlace++;
+                    }
+                    continue;
+                }
                 ((SchematicPrinterAccessor) printer).recursivefactory$position(entry.pos());
                 ItemRequirement requirement = printer.getCurrentRequirement();
                 BlockEntity be = ((SchematicPrinterAccessor) printer).recursivefactory$reader()

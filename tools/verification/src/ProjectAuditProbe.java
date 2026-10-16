@@ -53,6 +53,9 @@ public final class ProjectAuditProbe {
         run("copy", () -> copy(outside, inside));
         run("fluid cycle", () -> fluids(outside, inside));
         run("item and redstone relays", () -> relays(outside, inside));
+        run("redstone activation", () -> RedstoneChecks.run(outside, inside, ProjectAuditProbe::check));
+        run("redstone copies", () -> RedstoneChecks.copies(outside, inside, ProjectAuditProbe::check));
+        run("redstone cannon", () -> RedstoneChecks.cannon(outside, inside, ProjectAuditProbe::check));
         run("requests and placement", () -> requests(outside, inside));
         run("materials", () -> materials(outside));
         run("cannon", () -> {
@@ -292,6 +295,8 @@ public final class ProjectAuditProbe {
                 && chest.getItem(1).is(Items.DIAMOND) && chest.getItem(1).getCount() == 3 && !entrance.hasPendingItems(),
                 "mixed items reach the matching inner wall without loss or duplication");
         var remote = (EndpointBlockEntity) inside.getBlockEntity(wall);
+        entrance.activateRedstone(Direction.NORTH);
+        remote.activateRedstone(Direction.SOUTH);
         int[] signals = new int[6];
         signals[Direction.NORTH.ordinal()] = 9;
         FactoryRelay.syncPower(entrance, signals);

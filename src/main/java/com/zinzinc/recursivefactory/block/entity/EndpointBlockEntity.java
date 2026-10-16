@@ -70,6 +70,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
     private static final int POWER_BITS = 4;
     private static final String INPUT_POWER_TAG = "InputPower";
     private static final String OUTPUT_POWER_TAG = "OutputPower";
+    public static final String REDSTONE_PORTS_TAG = "RedstonePorts";
     /** Saves from when a link stored which faces were live instead of how strong each of them is. */
     private static final String LEGACY_INPUT_FACES_TAG = "InputFaces";
     private static final String LEGACY_OUTPUT_FACES_TAG = "OutputFaces";
@@ -122,6 +123,9 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
     private final int[] inputPower = new int[FACE_COUNT];
     /** Strength emitted from each face, 0-15: what the far end of the link drives this end with. */
     private final int[] outputPower = new int[FACE_COUNT];
+    /** Installed redstone connections, one bit per face. Missing tags leave old worlds closed too. */
+    private int redstonePorts;
+
     /** The face {@link #noteBlockedTransport} last reported; see there. Not saved on purpose. */
     private @Nullable Direction lastBlockedFace;
     /** The face {@link #noteBlockedFluidTransport} last reported; see {@link #noteBlockedTransport}. */
@@ -174,6 +178,44 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
 
     protected EndpointBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState blockState) {
         super(type, pos, blockState);
+    }
+
+    public boolean isRedstoneEnabled(Direction face) {
+        return (redstonePorts & faceMask(face)) != 0;
+    }
+
+    public int redstonePorts() {
+        return redstonePorts;
+    }
+
+    /** Restore installed connections without copying transient signal strengths or factory identity. */
+    public void restoreRedstonePorts(int ports) {
+        for (Direction face : Direction.values()) {
+            if ((ports & faceMask(face)) != 0) activateRedstone(face);
+        }
+    }
+
+    @Override
+    public void writeSafe(CompoundTag tag, HolderLookup.Provider registries) {
+        super.writeSafe(tag, registries);
+        tag.putInt(REDSTONE_PORTS_TAG, redstonePorts);
+    }
+
+    public int redstonePortCount() {
+        return Integer.bitCount(redstonePorts);
+    }
+
+    public boolean activateRedstone(Direction face) {
+        if (isRedstoneEnabled(face)) return false;
+        redstonePorts |= faceMask(face);
+        setChanged();
+        if (level != null && !level.isClientSide) {
+            getBlockState().updateNeighbourShapes(level, worldPosition, Block.UPDATE_ALL);
+            FactoryRelay.refreshPower(this);
+            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_CLIENTS);
+            level.updateNeighborsAt(worldPosition, getBlockState().getBlock());
+        }
+        return true;
     }
 
     /**
@@ -310,8 +352,8 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
      * Drops the parts of an endpoint's saved data that belong to where the block stands rather than to
      * what the block is.
      *
-     * <p>A copy of an endpoint block carries the block and how it was set up - an entrance block's six
-     * face modes, say - but never the factory it happens to be wired into, the colour it was painted, the
+     * <p>A copy of an endpoint block carries the block and how it was set up - its installed redstone
+     * connections, for example - but never the factory it happens to be wired into, the colour it was painted, the
      * items and redstone that were passing through it at the time, or the snapshot it was showing. A copy
      * is wired into a factory of its own and painted in that factory's colour (see {@code FactoryBlueprint}
      * and {@code FactoryDimension#linkEntrance}); carrying the original's id over instead would point the
@@ -949,6 +991,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
     @Override
     protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.write(tag, registries, clientPacket);
+        tag.putInt(REDSTONE_PORTS_TAG, redstonePorts);
         if (hasFactoryId()) {
             tag.putInt(FACTORY_ID_TAG, factoryId);
         }
@@ -987,6 +1030,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
     @Override
     protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.read(tag, registries, clientPacket);
+        redstonePorts = tag.getInt(REDSTONE_PORTS_TAG) & 63;
         if (!clientPacket) cellLinksChecked = false;
         // The link is worked out again on the next tick rather than carried over from the save, so a
         // saved speed is not mistaken for a generator of this end's own until the entrance block has

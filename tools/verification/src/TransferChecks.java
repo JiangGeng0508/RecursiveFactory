@@ -66,6 +66,8 @@ final class TransferChecks {
         var room = FactoryData.get(outside.getServer()).factory(entrance.getFactoryId());
         BlockPos wall = FactoryDimension.wallLine(room, room.anchorCell(), Direction.NORTH).getFirst();
         var barrier = (EndpointBlockEntity) inside.getBlockEntity(wall);
+        entrance.activateRedstone(Direction.NORTH);
+        barrier.activateRedstone(Direction.SOUTH);
         BlockPos receive = FactoryDimension.inward(room, wall, Direction.NORTH);
         inside.setBlockAndUpdate(receive, Blocks.CHEST.defaultBlockState());
         var chest = (ChestBlockEntity) inside.getBlockEntity(receive);

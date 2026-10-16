@@ -7,6 +7,7 @@ import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import com.simibubi.create.foundation.utility.CreatePaths;
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
+import com.zinzinc.recursivefactory.block.entity.FactoryBarrierBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import java.io.IOException;
@@ -582,14 +583,23 @@ public final class FactoryBlueprint {
             cells.add(base);
             // The three former shell/floor layers become buildable when cells join vertically.
             boolean bottom = !record.hasCellBelow(part);
-            int firstY = bottom ? -1 : FactoryData.BASE_Y - FactoryData.FLOOR_Y - 1;
+            int firstY = FactoryData.BASE_Y - FactoryData.FLOOR_Y - 1;
             for (int y = firstY; y <= FactoryData.INNER_HEIGHT; y++) {
                 for (int x = 0; x < width; x++) {
                     for (int z = 0; z < width; z++) {
                         BlockPos pos = origin.offset(base).offset(x, y, z);
                         BlockState state = level.getBlockState(pos);
                         boolean floor = bottom && y == -1;
-                        if (state.is(ModBlocks.FACTORY_BARRIER.get())
+                        if (state.is(ModBlocks.FACTORY_BARRIER.get())) {
+                            if (level.getBlockEntity(pos) instanceof EndpointBlockEntity endpoint
+                                    && endpoint.redstonePortCount() > 0) {
+                                CompoundTag ports = new CompoundTag();
+                                ports.putInt(EndpointBlockEntity.REDSTONE_PORTS_TAG, endpoint.redstonePorts());
+                                captured.add(new Entry(base.offset(x, y, z), state, ports));
+                            }
+                            continue;
+                        }
+                        if ((bottom && y < -1)
                                 || (floor ? state.equals(FactoryDimension.floorState(pos.getX(), pos.getZ())) : state.isAir())) {
                             continue;
                         }
@@ -669,7 +679,14 @@ public final class FactoryBlueprint {
 
     /** Puts one block of a blueprint where it belongs inside a room cell. */
     public static void placeEntry(ServerLevel level, FactoryData.FactoryRecord.Cell cell, Entry entry) {
-        placeBlock(level, roomPos(cell, entry.pos()), entry.state(), entry.nbt(), true);
+        BlockPos pos = roomPos(cell, entry.pos());
+        if (entry.state().is(ModBlocks.FACTORY_BARRIER.get())) {
+            // The shell already exists, with the new factory's binding. Install only the saved ports.
+            if (entry.nbt() != null && level.getBlockEntity(pos) instanceof FactoryBarrierBlockEntity barrier)
+                barrier.restoreRedstonePorts(entry.nbt().getInt(EndpointBlockEntity.REDSTONE_PORTS_TAG));
+            return;
+        }
+        placeBlock(level, pos, entry.state(), entry.nbt(), true);
     }
 
     /**

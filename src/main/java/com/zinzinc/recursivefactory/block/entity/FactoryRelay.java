@@ -358,6 +358,10 @@ public final class FactoryRelay {
      * found - and turned back off - after the input that chose it has gone away.
      */
     public static void syncPower(EndpointBlockEntity local, int[] inputPower) {
+        inputPower = inputPower.clone();
+        for (Direction face : Direction.values()) {
+            if (!local.isRedstoneEnabled(face)) inputPower[face.ordinal()] = 0;
+        }
         boolean wasPowered = local.isOutputPowered();
         int[] previous = local.getInputPowers();
         local.setInputPowers(inputPower);
@@ -440,15 +444,17 @@ public final class FactoryRelay {
     }
 
     private static int incomingPower(ServerLevel level, EndpointBlockEntity local, Direction face) {
+        if (!local.isRedstoneEnabled(face)) return 0;
         int power = 0;
         for (RemoteEndpoint remote : redstoneRemotes(level, local, face)) {
-            if (remote.level().getBlockEntity(remote.pos()) instanceof EndpointBlockEntity endpoint)
+            if (remote.level().getBlockEntity(remote.pos()) instanceof EndpointBlockEntity endpoint
+                    && endpoint.isRedstoneEnabled(face.getOpposite()))
                 power = Math.max(power, endpoint.getInputPower(face.getOpposite()));
         }
         return power;
     }
 
-    /** Redstone covers the whole cell face and combines multiple inputs only within that cell. */
+    /** Potential ports cover the cell face; only installed ports exchange signals within that cell. */
     private static List<RemoteEndpoint> redstoneRemotes(ServerLevel level, EndpointBlockEntity local, Direction face) {
         var record = FactoryData.get(level.getServer()).factory(local.getFactoryId());
         if (record == null) return List.of();
@@ -490,6 +496,7 @@ public final class FactoryRelay {
      */
     public static int emittedSignal(BlockState state, @Nullable BlockEntity blockEntity, Direction direction) {
         if (!(blockEntity instanceof EndpointBlockEntity endpoint)
+                || !endpoint.isRedstoneEnabled(direction.getOpposite())
                 || !endpoint.isRemotePowered()
                 || !state.hasProperty(BlockStateProperties.POWERED)
                 || !state.getValue(BlockStateProperties.POWERED)) {
@@ -513,7 +520,7 @@ public final class FactoryRelay {
     private static int[] readInputs(Level level, BlockPos pos, EndpointBlockEntity local) {
         int[] inputs = new int[Direction.values().length];
         for (Direction direction : Direction.values()) {
-            if (local.getOutputPower(direction) > 0) {
+            if (!local.isRedstoneEnabled(direction) || local.getOutputPower(direction) > 0) {
                 continue;
             }
             BlockPos neighbourPos = pos.relative(direction);

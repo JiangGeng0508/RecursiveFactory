@@ -115,6 +115,12 @@ public final class FactoryBarrierBlock extends BaseEntityBlock implements IRotat
     }
 
     @Override
+    public boolean canConnectRedstone(BlockState state, BlockGetter level, BlockPos pos, @Nullable Direction direction) {
+        return direction != null && level.getBlockEntity(pos) instanceof EndpointBlockEntity endpoint
+                && endpoint.isRedstoneEnabled(direction.getOpposite());
+    }
+
+    @Override
     protected boolean isSignalSource(BlockState state) {
         return true;
     }

@@ -1,4 +1,7 @@
 {
+  "message.recursivefactory.redstone.activated": "Redstone connection activated.",
+  "message.recursivefactory.redstone.installed": "This redstone connection is already active.",
+  "message.recursivefactory.redstone.invalid": "Cannot activate here. Use an outer entrance face or a room-facing barrier.",
   "itemGroup.recursivefactory.main": "Recursive Factory",
   "block.recursivefactory.recursive_factory": "Recursive Factory",
   "block.recursivefactory.recursive_factory.colored": "%s Recursive Factory",

@@ -1,7 +1,9 @@
 package com.zinzinc.recursivefactory.world;
 
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.GlobalPos;
 import net.minecraft.nbt.CompoundTag;
@@ -43,11 +45,17 @@ public final class FactoryCopyLink {
                 FactoryBlueprint blueprint = FactoryBlueprint.capture(roomLevel, data, record, cell,
                         "coordinate link at " + cell.entrance());
                 for (var room : blueprint.rooms()) FactoryRoomLayout.baseRoomY(roomLevel, room.cells());
-                return new Prepared(blueprint, doors, entrance.blueprintEntranceNodes());
+                var ports = new LinkedHashMap<BlockPos, Integer>();
+                for (var part : record.connectedBoundCells(cell)) {
+                    if (entrance.getLevel().getBlockEntity(part.entrance()) instanceof RecursiveFactoryBlockEntity other)
+                        ports.put(part.entrance().subtract(cell.entrance()), other.redstonePorts());
+                }
+                return new Prepared(blueprint, doors, entrance.blueprintEntranceNodes(), Map.copyOf(ports));
             });
         }
     }
 
     /** Lives only during one placement; never stored on the held item or written to disk. */
-    public record Prepared(FactoryBlueprint blueprint, List<BlockPos> doors, CompoundTag entranceNodes) {}
+    public record Prepared(FactoryBlueprint blueprint, List<BlockPos> doors, CompoundTag entranceNodes,
+                           Map<BlockPos, Integer> redstonePorts) {}
 }

@@ -1,4 +1,7 @@
 {
+  "message.recursivefactory.redstone.activated": "已激活此处的红石连接。",
+  "message.recursivefactory.redstone.installed": "此处的红石连接已激活。",
+  "message.recursivefactory.redstone.invalid": "无法在此处激活红石连接；请选择入口外侧或朝向房间的屏障。",
   "itemGroup.recursivefactory.main": "递归工厂",
   "block.recursivefactory.recursive_factory": "递归工厂",
   "block.recursivefactory.recursive_factory.colored": "%s递归工厂",
