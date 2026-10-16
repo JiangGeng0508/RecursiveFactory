@@ -6,6 +6,7 @@ import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
 import com.zinzinc.recursivefactory.block.FactoryBarrierBlock;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
+import com.zinzinc.recursivefactory.config.FactoryConfig;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import java.util.ArrayList;
@@ -93,6 +94,7 @@ public final class KineticRelay {
      * belonging to different cells do not couple directly.
      */
     public static boolean takesShaft(LevelReader level, BlockPos pos, BlockState state, Direction face) {
+        if (!FactoryConfig.kineticTransferEnabled()) return false;
         BlockPos neighbour = pos.relative(face);
         Block neighbourBlock = level.getBlockState(neighbour)
                 .getBlock();
@@ -236,6 +238,8 @@ public final class KineticRelay {
         if (!(local.getLevel() instanceof ServerLevel)) {
             return;
         }
+        local.refreshKineticTransfer();
+        if (!FactoryConfig.kineticTransferEnabled()) return;
         if (local.getBlockState().getBlock() instanceof FactoryBarrierBlock) {
             dropStale(local);
             return;

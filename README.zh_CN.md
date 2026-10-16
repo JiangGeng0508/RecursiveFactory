@@ -57,15 +57,20 @@
 
 入口区块加载时，内部房间保持运行。玩家在嵌套工厂内时，会逐层维持入口链加载；预览方块附近有人观看时，也会保持来源房间运行。不再需要时释放临时加载请求。
 
-配置文件：`config/recursivefactory-common.toml`
+打开**模组 → 递归工厂 → 配置 → 通用 → 入口传输**，可分别开关应力、流体和物品传输。配置也保存在 `config/recursivefactory-common.toml`；多人游戏中的传输以服务端设置为准。
 
 | 配置项 | 默认值 | 作用 |
 | --- | --- | --- |
+| `transfer.kineticEnabled` | `true`* | 入口方块与工厂屏障传输应力。 |
+| `transfer.fluidEnabled` | `true`* | 入口方块与工厂屏障传输流体。 |
+| `transfer.itemEnabled` | `true`* | 入口方块与工厂屏障传输物品。 |
 | `room.repairBrokenFloor` | `false` | 准备房间时补回缺失的棋盘地板。 |
 | `power.linkEnabled` | `true` | 启用 CEE 电力传输。 |
 | `power.linkResistance` | `10` | 输电链路每端电阻，单位 Ω。 |
 | `power.linkResponse` | `0.5` | 输电链路每 tick 的响应比例。 |
 | `power.linkMaxCurrent` | `1000` | 最大请求电流，单位 A。 |
+
+*加载**末影传输**（`createendertransmission`）时，上述三项默认均为 `false`。已保存的设置优先，仍可手动分别开启。关闭某项传输会保留缓冲中的物品或流体，重新开启后继续传输。
 
 Sable / Simulated 为可选兼容，可在预览中显示受支持的物理结构和绳子。从旧版 **32 格高房间**升级时，建议新建世界，避免房间结构不兼容。
 

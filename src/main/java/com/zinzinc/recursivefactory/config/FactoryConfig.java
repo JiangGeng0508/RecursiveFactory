@@ -1,5 +1,6 @@
 package com.zinzinc.recursivefactory.config;
 
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
 /**
@@ -11,6 +12,21 @@ import net.neoforged.neoforge.common.ModConfigSpec;
  */
 public final class FactoryConfig {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
+
+    public static final ModConfigSpec.BooleanValue KINETIC_TRANSFER_ENABLED = transferSwitch("kineticEnabled",
+            "Whether factory entrances and room barriers transfer rotation and stress.");
+    public static final ModConfigSpec.BooleanValue FLUID_TRANSFER_ENABLED = transferSwitch("fluidEnabled",
+            "Whether factory entrances and room barriers transfer fluids.");
+    public static final ModConfigSpec.BooleanValue ITEM_TRANSFER_ENABLED = transferSwitch("itemEnabled",
+            "Whether factory entrances and room barriers transfer items.");
+
+    private static ModConfigSpec.BooleanValue transferSwitch(String name, String description) {
+        return BUILDER.comment(description,
+                        "Defaults to true, or false when Create Ender Transmission (createendertransmission) is loaded.",
+                        "An explicitly saved value takes priority over this default.")
+                .translation("recursivefactory.configuration.transfer." + name)
+                .define("transfer." + name, () -> !ModList.get().isLoaded("createendertransmission"));
+    }
 
     public static final ModConfigSpec.BooleanValue REPAIR_BROKEN_FLOOR = BUILDER
             .comment(
@@ -69,6 +85,18 @@ public final class FactoryConfig {
             .defineInRange("power.linkMaxCurrent", 1000.0D, 1.0D, 1.0E7D);
 
     public static final ModConfigSpec SPEC = BUILDER.build();
+
+    public static boolean kineticTransferEnabled() {
+        return SPEC.isLoaded() ? KINETIC_TRANSFER_ENABLED.getAsBoolean() : KINETIC_TRANSFER_ENABLED.getDefault();
+    }
+
+    public static boolean fluidTransferEnabled() {
+        return SPEC.isLoaded() ? FLUID_TRANSFER_ENABLED.getAsBoolean() : FLUID_TRANSFER_ENABLED.getDefault();
+    }
+
+    public static boolean itemTransferEnabled() {
+        return SPEC.isLoaded() ? ITEM_TRANSFER_ENABLED.getAsBoolean() : ITEM_TRANSFER_ENABLED.getDefault();
+    }
 
     /** True when the two ends of a factory face's electrical link are tied together. */
     public static boolean powerLinkEnabled() {

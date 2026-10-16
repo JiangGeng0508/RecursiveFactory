@@ -28,7 +28,7 @@ version = re.search(r"^mod_version=(.+)$", (root / "gradle.properties").read_tex
 artifact = Path(sys.argv[1]) if len(sys.argv) > 1 else root / f"build/libs/recursivefactory-{version}.jar"
 with zipfile.ZipFile(artifact) as jar:
     names = jar.namelist()
-    assert not any("Probe" in name or "FactoryPrinter" in name or "factory_printer" in name for name in names)
+    assert not any("Probe" in name or "/probe/" in name or "FactoryPrinter" in name or "factory_printer" in name for name in names)
     # Everything shipped has to belong to this mod (or be a vanilla tag file). This keeps assets
     # borrowed from another mod, such as the entrance texture taken from Create: Pocket Factory
     # before 1.1.18, from quietly reappearing in the distributable.

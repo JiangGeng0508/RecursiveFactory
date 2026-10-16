@@ -6,5 +6,7 @@ allprojects {
         sourceSets.main.java.srcDir(file('tools/verification/src'))
         runs.server.workingDirectory = file(findProperty('auditRunDir') ?: 'run/project-audit')
         runs.server.systemProperty 'forge.logging.console.level', 'info'
+        if (project.hasProperty('auditExpectedTransfers'))
+            runs.server.systemProperty 'rfaudit.expectedTransfers', project.property('auditExpectedTransfers')
     }
 }

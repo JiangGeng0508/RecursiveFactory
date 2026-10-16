@@ -2,6 +2,7 @@ package com.zinzinc.recursivefactory.block.entity;
 
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.zinzinc.recursivefactory.block.ModBlocks;
+import com.zinzinc.recursivefactory.config.FactoryConfig;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.item.ItemStack;
@@ -76,12 +77,12 @@ public final class ModBlockEntities {
     private record EndpointFluidHandler(EndpointBlockEntity endpoint, Direction side) implements IFluidHandler {
         @Override
         public int getTanks() {
-            return 1;
+            return FactoryConfig.fluidTransferEnabled() ? 1 : 0;
         }
 
         @Override
         public FluidStack getFluidInTank(int tank) {
-            if (tank != 0) {
+            if (!FactoryConfig.fluidTransferEnabled() || tank != 0) {
                 return FluidStack.EMPTY;
             }
             FluidStack waiting = endpoint.getPendingFluid();
@@ -93,12 +94,12 @@ public final class ModBlockEntities {
 
         @Override
         public int getTankCapacity(int tank) {
-            return EndpointBlockEntity.FLUID_CAPACITY;
+            return FactoryConfig.fluidTransferEnabled() && tank == 0 ? EndpointBlockEntity.FLUID_CAPACITY : 0;
         }
 
         @Override
         public boolean isFluidValid(int tank, FluidStack stack) {
-            return tank == 0;
+            return FactoryConfig.fluidTransferEnabled() && tank == 0;
         }
 
         @Override
@@ -122,6 +123,7 @@ public final class ModBlockEntities {
     private record EndpointItemHandler(EndpointBlockEntity endpoint, Direction side) implements IItemHandler {
         @Override
         public int getSlots() {
+            if (!FactoryConfig.itemTransferEnabled()) return 0;
             int slots = EndpointBlockEntity.PENDING_SLOTS;
             for (IItemHandler source : FactoryRelay.itemSources(endpoint, side)) {
                 slots += source.getSlots();
@@ -136,6 +138,7 @@ public final class ModBlockEntities {
          */
         @Override
         public ItemStack getStackInSlot(int slot) {
+            if (!FactoryConfig.itemTransferEnabled()) return ItemStack.EMPTY;
             if (slot < EndpointBlockEntity.PENDING_SLOTS) {
                 return endpoint.getPendingStack(slot);
             }
@@ -159,6 +162,7 @@ public final class ModBlockEntities {
 
         @Override
         public int getSlotLimit(int slot) {
+            if (!FactoryConfig.itemTransferEnabled()) return 0;
             if (slot >= 0 && slot < EndpointBlockEntity.PENDING_SLOTS) {
                 return 64;
             }
@@ -168,7 +172,8 @@ public final class ModBlockEntities {
 
         @Override
         public boolean isItemValid(int slot, ItemStack stack) {
-            return slot >= 0 && slot < EndpointBlockEntity.PENDING_SLOTS && side != null && endpoint.hasFactoryId();
+            return FactoryConfig.itemTransferEnabled() && slot >= 0 && slot < EndpointBlockEntity.PENDING_SLOTS
+                    && side != null && endpoint.hasFactoryId();
         }
 
         private record RemoteSlot(IItemHandler handler, int slot) { }

@@ -13,6 +13,9 @@
 
    默认加载构建配置中的 CEE。追加 `-PauditWithoutPower` 可验证不安装 CEE 的运行环境，此时跳过电力节点的大炮测试。两种环境请分别使用新目录，顺序运行。
 
+   入口传输检查覆盖三个开关的八种组合、缓存能力接口、缓冲保留与恢复、红石独立性，以及真实 Create 动力网络的断开和重连。默认值检查使用实际加载的模组列表：未装末影传输时为 `111`，将 NeoForge 1.21.1 的 `createendertransmission` jar 放入测试目录的 `mods/` 后为 `000`。
+   若要验证已保存设置优先，在新测试目录的 `config/recursivefactory-common.toml` 预置 `[transfer]` 三个值，并追加 `-PauditExpectedTransfers=101`（依次为应力、流体、物品，按预置值调整）。探针只在内存中切换设置，后续回归按三项全开运行，不保存这些临时选择。
+
 3. 生成正式产物并检查资源、翻译与包内容：
 
    ```powershell

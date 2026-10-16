@@ -57,15 +57,20 @@ Crafting: glass in the top centre; iron ingot, Eye of Ender, iron ingot in the m
 
 Loaded entrances keep their rooms running. Players inside nested factories keep the entrance chain loaded; nearby preview viewers also keep the displayed room running. Temporary loading requests are released when no longer needed.
 
-Settings live in `config/recursivefactory-common.toml`:
+Open **Mods → Recursive Factory → Config → Common → Entrance transfer** to toggle rotation/stress, fluids and items separately. Settings are also saved in `config/recursivefactory-common.toml`; multiplayer transfer follows the server's settings.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
+| `transfer.kineticEnabled` | `true`* | Transfer rotation and stress through entrances and barriers. |
+| `transfer.fluidEnabled` | `true`* | Transfer fluids through entrances and barriers. |
+| `transfer.itemEnabled` | `true`* | Transfer items through entrances and barriers. |
 | `room.repairBrokenFloor` | `false` | Restore missing checkerboard floor blocks when preparing a room. |
 | `power.linkEnabled` | `true` | Enable CEE power transfer. |
 | `power.linkResistance` | `10` | Resistance per end, in ohms. |
 | `power.linkResponse` | `0.5` | Power link response per tick. |
 | `power.linkMaxCurrent` | `1000` | Maximum requested current, in amps. |
+
+*All three transfer defaults become `false` when **Create Ender Transmission** (`createendertransmission`) is loaded. Saved values take priority and can be enabled individually. Disabling a channel preserves buffered items or fluids until it is enabled again.
 
 Sable/Simulated integration adds previews of supported physics structures and ropes. These mods are optional. When upgrading from the old **32-block-high** room format, start a new world to avoid incompatible room geometry.
 

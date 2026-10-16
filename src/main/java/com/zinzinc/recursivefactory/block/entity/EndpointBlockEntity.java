@@ -5,6 +5,7 @@ import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
 import com.simibubi.create.content.kinetics.belt.BeltBlockEntity;
 import com.simibubi.create.content.logistics.vault.ItemVaultBlockEntity;
+import com.zinzinc.recursivefactory.config.FactoryConfig;
 import com.zinzinc.recursivefactory.data.FactoryColors;
 import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
 import com.zinzinc.recursivefactory.world.PreviewPlayerData;
@@ -152,6 +153,24 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
      * is worked out again on every tick.
      */
     private int outwardFaces;
+    private boolean kineticTransferEnabled = true;
+
+    /** Detach saved or live networks when disabled, and reconnect them when enabled again. */
+    void refreshKineticTransfer() {
+        boolean enabled = FactoryConfig.kineticTransferEnabled();
+        if (kineticTransferEnabled == enabled) return;
+        kineticTransferEnabled = enabled;
+        cellLinksChecked = false;
+        if (enabled) {
+            // Another wall block may already have reconnected this one during this tick. Detaching
+            // here would tear down that newly restored network before the far wall gets its turn.
+            attachKinetics();
+        } else {
+            detachKinetics();
+            forgetLink();
+            setOutwardFaces(0);
+        }
+    }
 
     protected EndpointBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState blockState) {
         super(type, pos, blockState);
@@ -381,7 +400,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
 
     /** Takes a stack through a named face into the one slot it names; only that slot is looked at. */
     public ItemStack offer(int slot, ItemStack stack, @Nullable Direction inputSide, boolean simulate) {
-        if (stack.isEmpty() || !hasFactoryId() || inputSide == null
+        if (!FactoryConfig.itemTransferEnabled() || stack.isEmpty() || !hasFactoryId() || inputSide == null
                 || slot < 0 || slot >= PENDING_SLOTS) {
             return stack;
         }
@@ -404,7 +423,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
 
     /** Simulation and execution share the same capacity, identity and input-face checks. */
     public ItemStack offer(ItemStack stack, @Nullable Direction inputSide, boolean simulate) {
-        if (stack.isEmpty() || !hasFactoryId() || inputSide == null) {
+        if (!FactoryConfig.itemTransferEnabled() || stack.isEmpty() || !hasFactoryId() || inputSide == null) {
             return stack;
         }
         ItemStack remainder = stack;
@@ -508,7 +527,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
      * the far end of its own link first, or it would come out of the wrong side of the room.
      */
     public int roomForFluid(FluidStack stack, @Nullable Direction inputSide) {
-        if (stack.isEmpty() || !hasFactoryId() || inputSide == null) {
+        if (!FactoryConfig.fluidTransferEnabled() || stack.isEmpty() || !hasFactoryId() || inputSide == null) {
             return 0;
         }
         if (!pendingFluid.isEmpty()
@@ -899,9 +918,10 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
 
     @Override
     public void tick() {
+        if (level != null && !level.isClientSide) refreshKineticTransfer();
         super.tick();
         if (level != null && !level.isClientSide) {
-            if (!cellLinksChecked) {
+            if (!cellLinksChecked && FactoryConfig.kineticTransferEnabled()) {
                 cellLinksChecked = true;
                 KineticRelay.separateSavedLinks(this);
             }

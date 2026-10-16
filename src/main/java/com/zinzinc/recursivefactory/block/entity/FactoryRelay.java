@@ -5,6 +5,7 @@ import com.simibubi.create.api.packager.InventoryIdentifier;
 import com.simibubi.create.content.fluids.FluidPropagator;
 import com.zinzinc.recursivefactory.block.FactoryBarrierBlock;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
+import com.zinzinc.recursivefactory.config.FactoryConfig;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import java.util.ArrayList;
@@ -66,7 +67,8 @@ public final class FactoryRelay {
     }
 
     public static void transport(EndpointBlockEntity local) {
-        if (!local.hasPendingItems() || !(local.getLevel() instanceof ServerLevel localLevel)) {
+        if (!FactoryConfig.itemTransferEnabled() || !local.hasPendingItems()
+                || !(local.getLevel() instanceof ServerLevel localLevel)) {
             return;
         }
         // Every slot is one stack with its own input face, and it is that face - not whichever face the
@@ -138,7 +140,7 @@ public final class FactoryRelay {
      * fluid is not reported as having nowhere to go.
      */
     public static void transportFluid(EndpointBlockEntity local) {
-        if (local.getPendingFluid().isEmpty() || local.getPendingFluidInput() == null
+        if (!FactoryConfig.fluidTransferEnabled() || local.getPendingFluid().isEmpty() || local.getPendingFluidInput() == null
                 || !(local.getLevel() instanceof ServerLevel localLevel)) {
             return;
         }
@@ -210,6 +212,7 @@ public final class FactoryRelay {
 
     /** Inventories exposed for extraction, in the same order for slot counts, reads and extraction. */
     static List<IItemHandler> itemSources(EndpointBlockEntity local, @Nullable Direction face) {
+        if (!FactoryConfig.itemTransferEnabled()) return List.of();
         List<ItemSource> sources = new ArrayList<>();
         collectItemSources(local, face, new HashSet<>(), sources);
         return sources.stream().map(ItemSource::handler).toList();
@@ -275,6 +278,7 @@ public final class FactoryRelay {
      */
     public static FluidStack extractFluid(EndpointBlockEntity local, @Nullable Direction face,
                                           FluidStack resource, int amount, boolean simulate) {
+        if (!FactoryConfig.fluidTransferEnabled()) return FluidStack.EMPTY;
         Set<ItemRoute> path = FLUID_PATH.get();
         ItemRoute route = new ItemRoute(local, face);
         if (!path.add(route)) return FluidStack.EMPTY;

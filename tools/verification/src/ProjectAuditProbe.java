@@ -47,6 +47,7 @@ public final class ProjectAuditProbe {
     @SubscribeEvent public static void started(ServerStartedEvent event) {
         ServerLevel outside = event.getServer().overworld();
         ServerLevel inside = event.getServer().getLevel(FactoryDimension.LEVEL_KEY);
+        run("transfer settings", () -> TransferChecks.run(outside, inside, ProjectAuditProbe::check));
         run("item tooltips", () -> tooltips(outside, inside));
         run("layout", () -> layout(inside));
         run("copy", () -> copy(outside, inside));
