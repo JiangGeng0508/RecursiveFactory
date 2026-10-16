@@ -34,7 +34,7 @@ A face selects the **same compass side** of the room: the north face connects to
 
 - **Items / fluids:** connect a hopper, funnel, pipe or pump outside; place the receiving container directly against the matching inner wall. Connections work in both directions.
 - **Rotation:** attach shafts or machines directly to the barrier wall and to the corresponding entrance face.
-- **Redstone:** right-click an entrance face and an individual barrier on its matching inner wall with redstone dust. Each connection consumes **1 dust** in survival; both ends must be activated. Only the installed barrier blocks relay signals. Repeated clicks do not consume more dust, and creative installation is free. Existing worlds also require activation.
+- **Redstone:** **right-click with a Create Wrench without sneaking**, or **sneak-right-click empty-handed**, to toggle an entrance face or an individual barrier on its matching inner wall. Connections start disabled; enable both ends for bidirectional transfer and repeat either action to disable one. No redstone dust, items or wrench durability are consumed. Normal empty-hand use still enters or leaves the factory, and sneaking with a wrench does not toggle redstone. Existing worlds retain their enabled connections.
 - **Electricity, optional:** with **Create: Electro Energetics**, place a Connector against the entrance and the matching inner wall, then attach wires to the resulting surface nodes. Each face supports one node on each side; remove nodes with a Create wrench.
 
 Use the middle of a wall, away from corners. Open boundaries between merged cells do not forward connections to another cell's outer wall. Create package logistics are not supported.
@@ -45,7 +45,7 @@ Use the middle of a wall, away from corners. Open boundaries between merged cell
 
 **Creative:** middle-click an entrance, then place the obtained block. It reads the source factory when placed and creates an independent copy, including its connected entrances and nested factories. Changes to the source are included in the next copy. A missing source or obstructed entrance layout prevents placement.
 
-Copies preserve replaced floor tiles, floor holes and installed redstone connections. The cannon consumes one redstone dust per connection. Unchanged default tiles are generated with the room and require no extra cannon materials. Right-clicking an entrance with a Blank Schematic no longer captures the factory. Factory capture supports up to **8 nested levels** and rejects loops. Installed CEE nodes and internal wires are included; connections leaving the captured room are excluded.
+Copies preserve replaced floor tiles, floor holes and each redstone connection's enabled state. Restoring connection settings with the cannon requires no redstone dust. Unchanged default tiles are generated with the room and require no extra cannon materials. Right-clicking an entrance with a Blank Schematic no longer captures the factory. Factory capture supports up to **8 nested levels** and rejects loops. Installed CEE nodes and internal wires are included; connections leaving the captured room are excluded.
 
 ## Preview display
 

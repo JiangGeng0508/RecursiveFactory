@@ -53,7 +53,7 @@ public final class ProjectAuditProbe {
         run("copy", () -> copy(outside, inside));
         run("fluid cycle", () -> fluids(outside, inside));
         run("item and redstone relays", () -> relays(outside, inside));
-        run("redstone activation", () -> RedstoneChecks.run(outside, inside, ProjectAuditProbe::check));
+        run("redstone toggles", () -> RedstoneChecks.run(outside, inside, ProjectAuditProbe::check));
         run("redstone copies", () -> RedstoneChecks.copies(outside, inside, ProjectAuditProbe::check));
         run("redstone cannon", () -> RedstoneChecks.cannon(outside, inside, ProjectAuditProbe::check));
         run("preview persistence", () -> PreviewPersistenceChecks.run(outside, inside, ProjectAuditProbe::check));

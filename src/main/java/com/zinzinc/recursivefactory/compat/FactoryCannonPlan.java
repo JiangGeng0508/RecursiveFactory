@@ -22,7 +22,6 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -296,7 +295,7 @@ public final class FactoryCannonPlan {
                     return true;
                 }
                 if (entry.state().is(ModBlocks.FACTORY_BARRIER.get())) {
-                    // Generated shell blocks are already present; a shot installs just their redstone.
+                    // Generated shell blocks are already present; restore their free redstone settings.
                     if (!(level.getBlockEntity(target) instanceof FactoryBarrierBlockEntity barrier)
                             || barrier.getFactoryId() != room.id || entry.nbt() == null) {
                         room.cursor++;
@@ -305,12 +304,6 @@ public final class FactoryCannonPlan {
                     int missing = entry.nbt().getInt(EndpointBlockEntity.REDSTONE_PORTS_TAG)
                             & 63 & ~barrier.redstonePorts();
                     if (missing == 0) { room.cursor++; continue; }
-                    ItemRequirement ports = new ItemRequirement(ItemRequirement.ItemUseType.CONSUME,
-                            new ItemStack(Items.REDSTONE, Integer.bitCount(missing)));
-                    if (!pay(cannon, ports)) {
-                        if (cannon.skipMissing) { room.cursor++; continue; }
-                        return true;
-                    }
                     barrier.restoreRedstonePorts(missing);
                     room.cursor++;
                     cannon.blocksPlaced++;
@@ -469,8 +462,6 @@ public final class FactoryCannonPlan {
                             instanceof FactoryBarrierBlockEntity barrier)
                         missing &= ~barrier.redstonePorts();
                     if (missing != 0) {
-                        cannon.checklist.require(new ItemRequirement(ItemRequirement.ItemUseType.CONSUME,
-                                new ItemStack(Items.REDSTONE, Integer.bitCount(missing))));
                         cannon.blocksToPlace++;
                     }
                     continue;

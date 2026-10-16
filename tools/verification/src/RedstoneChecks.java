@@ -1,6 +1,7 @@
 package com.zinzinc.recursivefactory.probe;
 
 import com.mojang.authlib.GameProfile;
+import com.simibubi.create.AllItems;
 import com.simibubi.create.foundation.utility.BlockHelper;
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.entity.*;
@@ -19,7 +20,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.common.util.FakePlayer;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 
-/** Exercises installation through the actual interaction event and signals against real room walls. */
+/** Exercises connection toggles through the actual interaction event and real room walls. */
 final class RedstoneChecks {
     static void run(ServerLevel outside, ServerLevel inside, BiConsumer<Boolean, String> check) {
         var door = door(outside, new BlockPos(980, 200, 100));
@@ -28,9 +29,9 @@ final class RedstoneChecks {
         player.setGameMode(GameType.SURVIVAL);
         var builder = new FakePlayer(inside, new GameProfile(UUID.randomUUID(), "RedstoneInside"));
         builder.setGameMode(GameType.SURVIVAL);
-        player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.REDSTONE, 20));
-        builder.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.REDSTONE, 20));
-        check.accept(door.redstonePortCount() == 0, "new entrances have no installed redstone connections");
+        player.setItemInHand(InteractionHand.MAIN_HAND, AllItems.WRENCH.asStack());
+        builder.setShiftKeyDown(true);
+        check.accept(door.redstonePortCount() == 0, "new entrances have no enabled redstone connections");
 
         for (Direction face : Direction.values()) {
             BlockPos wall = FactoryDimension.wallLine(record, record.anchorCell(), face).getFirst();
@@ -41,23 +42,27 @@ final class RedstoneChecks {
             input[face.ordinal()] = 9;
             FactoryRelay.syncPower(door, input);
             check.accept(door.getInputPower(face) == 0 && barrier.getOutputPower(face.getOpposite()) == 0,
-                    "uninstalled ports do not read or relay: " + face);
+                    "disabled ports do not read or relay: " + face);
             int count = player.getMainHandItem().getCount();
             var click = click(player, door.getBlockPos(), face, InteractionHand.MAIN_HAND);
             FactoryRelay.syncPower(door, input);
             check.accept(click.isCanceled() && click.getCancellationResult().consumesAction()
-                            && door.isRedstoneEnabled(face) && player.getMainHandItem().getCount() == count - 1
+                            && door.isRedstoneEnabled(face) && player.getMainHandItem().getCount() == count
+                            && player.getMainHandItem().getDamageValue() == 0
                             && barrier.getOutputPower(face.getOpposite()) == 0,
-                    "one dust activates just the entrance face and still needs an inner port: " + face);
+                    "a wrench enables one entrance face without materials or damage, still requiring its inner port: " + face);
             click(player, door.getBlockPos(), face, InteractionHand.MAIN_HAND);
-            check.accept(player.getMainHandItem().getCount() == count - 1,
-                    "repeated installation does not consume dust: " + face);
+            check.accept(!door.isRedstoneEnabled(face) && player.getMainHandItem().getCount() == count,
+                    "a second wrench click disables that face: " + face);
+            click(player, door.getBlockPos(), face, InteractionHand.MAIN_HAND);
+            FactoryRelay.syncPower(door, input);
             count = builder.getMainHandItem().getCount();
-            click(builder, wall, face.getOpposite(), InteractionHand.MAIN_HAND);
-            check.accept(builder.getMainHandItem().getCount() == count - 1
+            var innerClick = click(builder, wall, face.getOpposite(), InteractionHand.MAIN_HAND);
+            check.accept(innerClick.isCanceled() && innerClick.getCancellationResult().consumesAction()
+                            && builder.getMainHandItem().getCount() == count
                             && barrier.getOutputPower(face.getOpposite()) == 9 && !other.isRemotePowered()
                             && barrier.redstonePortCount() == 1,
-                    "installing one barrier immediately receives existing input without enabling its wall: " + face);
+                    "sneaking empty-handed enables one barrier and immediately receives existing input: " + face);
             check.accept(FactoryRelay.emittedSignal(barrier.getBlockState(), barrier, face) == 9
                             && FactoryRelay.emittedSignal(barrier.getBlockState(), barrier, face.getOpposite()) == 0,
                     "active output emits only into its own room: " + face);
@@ -81,20 +86,23 @@ final class RedstoneChecks {
         b[Direction.SOUTH.ordinal()] = 11;
         FactoryRelay.syncPower(north, a);
         FactoryRelay.syncPower(another, b);
-        check.accept(door.getOutputPower(Direction.NORTH) == 11, "multiple installed barriers combine by maximum strength");
-        FactoryRelay.syncPower(another, new int[6]);
-        check.accept(door.getOutputPower(Direction.NORTH) == 5, "removing the strongest input preserves another active barrier");
+        check.accept(door.getOutputPower(Direction.NORTH) == 11, "multiple enabled barriers combine by maximum strength");
+        click(builder, another.getBlockPos(), Direction.SOUTH, InteractionHand.MAIN_HAND);
+        check.accept(!another.isRedstoneEnabled(Direction.SOUTH) && door.getOutputPower(Direction.NORTH) == 5,
+                "disabling the strongest barrier preserves another active barrier's input");
         FactoryRelay.syncPower(north, new int[6]);
 
         CompoundTag saved = north.saveWithoutMetadata(inside.registryAccess());
         var loaded = new FactoryBarrierBlockEntity(north.getBlockPos(), north.getBlockState());
         loaded.loadWithComponents(saved, inside.registryAccess());
         check.accept(loaded.isRedstoneEnabled(Direction.SOUTH) && loaded.redstonePortCount() == 1,
-                "barrier installation survives a save and load");
+                "barrier toggling survives a save and load");
+        click(player, door.getBlockPos(), Direction.SOUTH, InteractionHand.MAIN_HAND);
         saved = door.saveWithoutMetadata(outside.registryAccess());
         var loadedDoor = new RecursiveFactoryBlockEntity(door.getBlockPos(), door.getBlockState());
         loadedDoor.loadWithComponents(saved, outside.registryAccess());
-        check.accept(loadedDoor.redstonePortCount() == 6, "entrance installations survive a save and load");
+        check.accept(loadedDoor.redstonePortCount() == 5 && !loadedDoor.isRedstoneEnabled(Direction.SOUTH),
+                "both enabled and disabled entrance faces survive a save and load");
         saved.remove(EndpointBlockEntity.REDSTONE_PORTS_TAG);
         saved.putInt("OutputPower", 0xffffff);
         saved.putInt("InputPower", 0xffffff);
@@ -106,24 +114,50 @@ final class RedstoneChecks {
         var fresh = door(outside, new BlockPos(1000, 200, 100));
         player.setGameMode(GameType.CREATIVE);
         int count = player.getMainHandItem().getCount();
-        player.setShiftKeyDown(true);
         click(player, fresh.getBlockPos(), Direction.NORTH, InteractionHand.MAIN_HAND);
         check.accept(fresh.isRedstoneEnabled(Direction.NORTH) && player.getMainHandItem().getCount() == count,
-                "creative and sneaking installation works without consuming dust");
+                "creative wrench toggling also preserves the held item");
+        player.setShiftKeyDown(true);
+        var sneakWrench = click(player, fresh.getBlockPos(), Direction.NORTH, InteractionHand.MAIN_HAND);
+        check.accept(!sneakWrench.isCanceled() && fresh.isRedstoneEnabled(Direction.NORTH),
+                "sneaking with a wrench does not toggle or intercept the wrench's normal action");
         player.setShiftKeyDown(false);
         player.setGameMode(GameType.ADVENTURE);
         click(player, fresh.getBlockPos(), Direction.SOUTH, InteractionHand.MAIN_HAND);
         check.accept(!fresh.isRedstoneEnabled(Direction.SOUTH), "players without build permission cannot activate ports");
         player.setGameMode(GameType.SURVIVAL);
         player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
-        player.setItemInHand(InteractionHand.OFF_HAND, new ItemStack(Items.REDSTONE, 2));
+        player.setItemInHand(InteractionHand.OFF_HAND, AllItems.WRENCH.asStack());
         click(player, fresh.getBlockPos(), Direction.SOUTH, InteractionHand.MAIN_HAND);
-        check.accept(fresh.isRedstoneEnabled(Direction.SOUTH) && player.getOffhandItem().getCount() == 1,
-                "offhand dust is handled before an empty main hand can teleport");
+        check.accept(fresh.isRedstoneEnabled(Direction.SOUTH) && AllItems.WRENCH.isIn(player.getOffhandItem())
+                        && player.getOffhandItem().getCount() == 1,
+                "an offhand wrench is handled before an empty main hand can teleport");
+        player.setShiftKeyDown(true);
+        check.accept(!click(player, fresh.getBlockPos(), Direction.SOUTH, InteractionHand.MAIN_HAND).isCanceled()
+                        && fresh.isRedstoneEnabled(Direction.SOUTH), "sneaking with an offhand wrench is not an empty-hand toggle");
+        player.setItemInHand(InteractionHand.OFF_HAND, ItemStack.EMPTY);
+        var bareClick = click(player, fresh.getBlockPos(), Direction.SOUTH, InteractionHand.MAIN_HAND);
+        check.accept(bareClick.isCanceled() && bareClick.getCancellationResult().consumesAction()
+                        && !fresh.isRedstoneEnabled(Direction.SOUTH) && fresh.isRedstoneEnabled(Direction.NORTH),
+                "sneaking empty-handed disables only the clicked face and consumes block use");
+        click(player, fresh.getBlockPos(), Direction.SOUTH, InteractionHand.MAIN_HAND);
+        check.accept(fresh.isRedstoneEnabled(Direction.SOUTH), "sneaking empty-handed can enable the same face again");
+        player.setShiftKeyDown(false);
+        check.accept(!click(player, fresh.getBlockPos(), Direction.SOUTH, InteractionHand.MAIN_HAND).isCanceled()
+                        && fresh.isRedstoneEnabled(Direction.SOUTH), "normal empty-hand use remains available for teleporting");
+        player.setShiftKeyDown(true);
+        player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.DIAMOND));
+        check.accept(!click(player, fresh.getBlockPos(), Direction.SOUTH, InteractionHand.MAIN_HAND).isCanceled()
+                        && !click(player, fresh.getBlockPos(), Direction.SOUTH, InteractionHand.OFF_HAND).isCanceled()
+                        && fresh.isRedstoneEnabled(Direction.SOUTH), "an empty offhand cannot toggle while the main hand holds another item");
+        player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.REDSTONE, 2));
+        check.accept(!click(player, fresh.getBlockPos(), Direction.EAST, InteractionHand.MAIN_HAND).isCanceled()
+                        && !fresh.isRedstoneEnabled(Direction.EAST) && player.getMainHandItem().getCount() == 2,
+                "redstone dust no longer activates connections or gets consumed by the connection handler");
         count = builder.getMainHandItem().getCount();
         click(builder, north.getBlockPos(), Direction.NORTH, InteractionHand.MAIN_HAND);
         check.accept(!north.isRedstoneEnabled(Direction.NORTH) && builder.getMainHandItem().getCount() == count,
-                "the back of a barrier cannot consume dust or activate");
+                "the back of a barrier cannot toggle a connection");
 
         // Actual neighbour sampling: a pre-existing source begins transmitting when the final port opens.
         var freshRecord = FactoryData.get(outside.getServer()).factory(fresh.getFactoryId());
@@ -132,23 +166,60 @@ final class RedstoneChecks {
         click(builder, wall, Direction.EAST, InteractionHand.MAIN_HAND);
         outside.setBlockAndUpdate(fresh.getBlockPos().west(), Blocks.REDSTONE_BLOCK.defaultBlockState());
         check.accept(!receiver.isRemotePowered(), "physical source is blocked until the entrance is activated");
-        player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.REDSTONE));
+        player.setShiftKeyDown(false);
+        player.setItemInHand(InteractionHand.MAIN_HAND, AllItems.WRENCH.asStack());
         click(player, fresh.getBlockPos(), Direction.WEST, InteractionHand.MAIN_HAND);
         check.accept(receiver.getOutputPower(Direction.EAST) == 15, "activating the final port samples existing neighbour power immediately");
+        click(builder, wall, Direction.EAST, InteractionHand.MAIN_HAND);
+        check.accept(receiver.getOutputPower(Direction.EAST) == 0 && !receiver.isRedstoneEnabled(Direction.EAST),
+                "disabling the receiving barrier immediately clears an existing physical signal");
+        click(builder, wall, Direction.EAST, InteractionHand.MAIN_HAND);
+        check.accept(receiver.getOutputPower(Direction.EAST) == 15, "reopening the barrier restores the existing source");
+        click(player, fresh.getBlockPos(), Direction.WEST, InteractionHand.MAIN_HAND);
+        check.accept(fresh.getInputPower(Direction.WEST) == 0 && receiver.getOutputPower(Direction.EAST) == 0,
+                "disabling the sending entrance immediately clears both local and remote power");
+        click(player, fresh.getBlockPos(), Direction.WEST, InteractionHand.MAIN_HAND);
+        check.accept(receiver.getOutputPower(Direction.EAST) == 15, "reopening the entrance samples the source again");
         outside.removeBlock(fresh.getBlockPos().west(), false);
-        check.accept(!receiver.isRemotePowered(), "physical source removal clears the installed link");
+        check.accept(!receiver.isRemotePowered(), "physical source removal clears the enabled link");
+        inside.setBlockAndUpdate(wall.east(), Blocks.REDSTONE_BLOCK.defaultBlockState());
+        check.accept(fresh.getOutputPower(Direction.WEST) == 15, "a physical inner source drives the entrance in reverse");
+        click(player, fresh.getBlockPos(), Direction.WEST, InteractionHand.MAIN_HAND);
+        check.accept(fresh.getOutputPower(Direction.WEST) == 0, "disabling the receiving entrance clears reverse output");
+        click(player, fresh.getBlockPos(), Direction.WEST, InteractionHand.MAIN_HAND);
+        check.accept(fresh.getOutputPower(Direction.WEST) == 15, "reopening the entrance restores reverse output");
+        click(builder, wall, Direction.EAST, InteractionHand.MAIN_HAND);
+        check.accept(receiver.getInputPower(Direction.EAST) == 0 && fresh.getOutputPower(Direction.WEST) == 0,
+                "disabling the sending barrier clears reverse input and remote output");
+        click(builder, wall, Direction.EAST, InteractionHand.MAIN_HAND);
+        check.accept(fresh.getOutputPower(Direction.WEST) == 15, "reopening the sending barrier restores reverse transmission");
+        inside.removeBlock(wall.east(), false);
         outside.setBlockAndUpdate(fresh.getBlockPos().west().below(), Blocks.STONE.defaultBlockState());
         outside.setBlockAndUpdate(fresh.getBlockPos().west(), Blocks.REDSTONE_WIRE.defaultBlockState());
         outside.setBlockAndUpdate(fresh.getBlockPos().west(2), Blocks.REDSTONE_BLOCK.defaultBlockState());
         check.accept(outside.getBlockState(fresh.getBlockPos().west())
                         .getValue(net.minecraft.world.level.block.RedStoneWireBlock.EAST).isConnected()
                         && receiver.getOutputPower(Direction.EAST) == 14,
-                "real dust connects to the installed face and relays with one strength lost");
+                "real dust connects to the enabled face and relays with one strength lost");
+        // A straight vanilla wire extends its unused end visually. A perpendicular branch lets this
+        // fixture distinguish the entrance connection from that automatic straight-line stub.
+        outside.setBlockAndUpdate(fresh.getBlockPos().west().north().below(), Blocks.STONE.defaultBlockState());
+        outside.setBlockAndUpdate(fresh.getBlockPos().west().north(), Blocks.REDSTONE_WIRE.defaultBlockState());
+        click(player, fresh.getBlockPos(), Direction.WEST, InteractionHand.MAIN_HAND);
+        check.accept(!outside.getBlockState(fresh.getBlockPos().west())
+                        .getValue(net.minecraft.world.level.block.RedStoneWireBlock.EAST).isConnected()
+                        && receiver.getOutputPower(Direction.EAST) == 0,
+                "closing a live entrance also disconnects the physical dust shape and signal");
+        click(player, fresh.getBlockPos(), Direction.WEST, InteractionHand.MAIN_HAND);
+        check.accept(outside.getBlockState(fresh.getBlockPos().west())
+                        .getValue(net.minecraft.world.level.block.RedStoneWireBlock.EAST).isConnected()
+                        && receiver.getOutputPower(Direction.EAST) == 14,
+                "reopening a live entrance restores physical dust shape and strength");
         outside.removeBlock(fresh.getBlockPos().west(2), false);
         check.accept(!receiver.isRemotePowered(), "a powered dust line does not latch after its source is removed");
         check.accept(!fresh.getBlockState().canRedstoneConnectTo(outside, fresh.getBlockPos(), Direction.WEST)
                         && fresh.getBlockState().canRedstoneConnectTo(outside, fresh.getBlockPos(), Direction.EAST),
-                "dust connections distinguish installed and uninstalled entrance faces");
+                "dust connections distinguish enabled and disabled entrance faces");
     }
 
     private static RecursiveFactoryBlockEntity door(ServerLevel level, BlockPos pos) {
@@ -175,17 +246,17 @@ final class RedstoneChecks {
         extraBarrier.activateRedstone(Direction.DOWN);
         var builder = new FakePlayer(outside, new GameProfile(UUID.randomUUID(), "RedstoneExpansion"));
         builder.setGameMode(GameType.SURVIVAL);
-        builder.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.REDSTONE));
+        builder.setItemInHand(InteractionHand.MAIN_HAND, AllItems.WRENCH.asStack());
         click(builder, source.getBlockPos(), Direction.EAST, InteractionHand.MAIN_HAND);
         check.accept(!source.isRedstoneEnabled(Direction.EAST) && builder.getMainHandItem().getCount() == 1,
-                "a merged internal entrance face rejects installation without consuming dust");
+                "a merged internal entrance face rejects toggling without changing the held wrench");
         var blueprint = FactoryBlueprint.capture(inside, data, record, cell, "redstone-copy");
         var restored = FactoryBlueprint.read(outside.getServer(), "redstone-copy", blueprint.serialize(outside.registryAccess()));
         check.accept(restored != null && restored.blocks().size() == 4
                         && restored.blocks().stream().allMatch(entry -> entry.nbt() != null
                                 && entry.nbt().getInt(EndpointBlockEntity.REDSTONE_PORTS_TAG) != 0
                                 && !entry.nbt().contains("FactoryId") && !entry.nbt().contains("OutputPower")),
-                "blueprints retain installed wall, ceiling and bottom ports without runtime identity or power");
+                "blueprints retain enabled wall, ceiling and bottom ports without runtime identity or power");
         var prepared = FactoryCopyLink.resolve(outside.getServer(), GlobalPos.of(outside.dimension(), source.getBlockPos())).capture();
         BlockPos target = source.getBlockPos().east(20);
         outside.setBlockAndUpdate(target, ModBlocks.RECURSIVE_FACTORY.get().defaultBlockState());
@@ -204,11 +275,11 @@ final class RedstoneChecks {
             portsMatch &= barrier.getFactoryId() == copy.getFactoryId()
                     && barrier.redstonePorts() == entry.nbt().getInt(EndpointBlockEntity.REDSTONE_PORTS_TAG);
         }
-        check.accept(portsMatch, "copied barriers keep new factory bindings and all installed ports");
+        check.accept(portsMatch, "copied barriers keep new factory bindings and all enabled ports");
         CompoundTag safe = new CompoundTag();
         source.writeSafe(safe, outside.registryAccess());
         check.accept(safe.getInt(EndpointBlockEntity.REDSTONE_PORTS_TAG) == source.redstonePorts(),
-                "Create safe NBT includes installed entrance connections");
+                "Create safe NBT includes enabled entrance connections");
         int[] signal = new int[6];
         signal[Direction.NORTH.ordinal()] = 8;
         FactoryRelay.syncPower(copy, signal);
@@ -220,7 +291,7 @@ final class RedstoneChecks {
         door(outside, source.getBlockPos().above());
         click(builder, source.getBlockPos(), Direction.UP, InteractionHand.MAIN_HAND);
         check.accept(!source.isRedstoneEnabled(Direction.UP) && builder.getMainHandItem().getCount() == 1,
-                "a vertically merged entrance face rejects installation without consuming dust");
+                "a vertically merged entrance face rejects toggling without changing the held wrench");
     }
 
     static void cannon(ServerLevel outside, ServerLevel inside, BiConsumer<Boolean, String> check) {
@@ -234,6 +305,7 @@ final class RedstoneChecks {
                         FactoryDimension.wallLine(record, record.anchorCell(), side).getFirst());
                 barrier.activateRedstone(side.getOpposite());
             }
+            inside.setBlockAndUpdate(FactoryBlueprint.origin(record.anchorCell()).offset(4, 0, 4), Blocks.STONE.defaultBlockState());
             BlockPos target = source.getBlockPos().east(20);
             outside.getChunk(target);
             outside.getChunk(target.south(4));
@@ -247,25 +319,22 @@ final class RedstoneChecks {
             stack.set(com.simibubi.create.AllDataComponents.SCHEMATIC_DEPLOYED, true);
             var inventory = new net.neoforged.neoforge.items.ItemStackHandler(2);
             inventory.setStackInSlot(0, ModBlocks.RECURSIVE_FACTORY_ITEM.toStack());
-            inventory.setStackInSlot(1, new ItemStack(Items.REDSTONE));
             var cannon = new TestCannon(target.south(4));
             cannon.setLevel(outside);
             cannon.inventory.setStackInSlot(0, stack);
             cannon.state = com.simibubi.create.content.schematics.cannon.SchematicannonBlockEntity.State.RUNNING;
             cannon.remainingFuel = 100;
             cannon.step();
+            check.accept(cannon.checklist.required.getInt(Items.REDSTONE) == 0,
+                    "the cannon checklist charges no dust for entrance or barrier settings");
             cannon.attachedInventories.add(inventory);
             for (int i = 0; i < 6; i++) { cannon.resume(); cannon.step(); cannon.land(outside); }
             var entrance = (RecursiveFactoryBlockEntity) outside.getBlockEntity(target);
             var printed = data.factory(entrance.getFactoryId());
             check.accept(entrance.isRedstoneEnabled(Direction.NORTH) && inventory.getStackInSlot(0).isEmpty()
-                            && inventory.getStackInSlot(1).isEmpty() && cannon.missingItem.is(Items.REDSTONE),
-                    "cannon pays for the entrance port and pauses before unpaid barrier connections");
-            check.accept(java.util.Arrays.stream(new Direction[]{Direction.NORTH, Direction.UP, Direction.DOWN}).allMatch(side ->
-                            ((EndpointBlockEntity) inside.getBlockEntity(FactoryDimension.wallLine(printed, printed.anchorCell(), side).getFirst()))
-                                    .redstonePortCount() == 0),
-                    "missing redstone cannot create free connections in the generated shell");
-            inventory.setStackInSlot(1, new ItemStack(Items.REDSTONE, 3));
+                            && inventory.getStackInSlot(1).isEmpty() && cannon.missingItem != null && cannon.missingItem.is(Items.STONE),
+                    "the cannon restores the entrance toggle for free and pauses only for real building materials");
+            inventory.setStackInSlot(1, new ItemStack(Items.STONE));
             cannon.resume();
             cannon.step();
             var progress = cannon.saveWithFullMetadata(outside.registryAccess());
@@ -278,7 +347,9 @@ final class RedstoneChecks {
                 resumed.resume(); resumed.step(); resumed.land(outside);
             }
             check.accept(resumed.statusMsg.equals("finished") && inventory.getStackInSlot(1).isEmpty(),
-                    "resumed cannon charges each of three barrier connections exactly once");
+                    "the resumed cannon finishes all connection settings without any redstone supply");
+            check.accept(inside.getBlockState(FactoryBlueprint.origin(printed.anchorCell()).offset(4, 0, 4)).is(Blocks.STONE),
+                    "real room construction still consumes and places its requested material");
             check.accept(java.util.Arrays.stream(new Direction[]{Direction.NORTH, Direction.UP, Direction.DOWN}).allMatch(side -> {
                 var barrier = (EndpointBlockEntity) inside.getBlockEntity(
                         FactoryDimension.wallLine(printed, printed.anchorCell(), side).getFirst());

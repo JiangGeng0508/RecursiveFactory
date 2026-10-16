@@ -1,5 +1,6 @@
 package com.zinzinc.recursivefactory.world;
 
+import com.simibubi.create.AllItems;
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
@@ -11,12 +12,11 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 
-/** Dust installs a connection before block use can teleport the player or place a wire. */
+/** Toggle a connection before block use can teleport the player or invoke the wrench. */
 @EventBusSubscriber(modid = RecursiveFactory.MODID)
 public final class FactoryRedstone {
     private FactoryRedstone() {}
@@ -25,10 +25,12 @@ public final class FactoryRedstone {
     public static void interact(PlayerInteractEvent.RightClickBlock event) {
         var player = event.getEntity();
         ItemStack stack = event.getItemStack();
-        // An empty main hand would otherwise enter/leave before Minecraft tries the off hand.
+        // An empty main hand would otherwise enter/leave before Minecraft tries an offhand wrench.
         if (event.getHand() == InteractionHand.MAIN_HAND && stack.isEmpty())
             stack = player.getOffhandItem();
-        if (!stack.is(Items.REDSTONE)
+        boolean wrench = !player.isShiftKeyDown() && AllItems.WRENCH.isIn(stack);
+        boolean emptyHand = player.isShiftKeyDown() && event.getHand() == InteractionHand.MAIN_HAND && stack.isEmpty();
+        if (!(wrench || emptyHand)
                 || !(event.getLevel().getBlockEntity(event.getPos()) instanceof EndpointBlockEntity endpoint)) return;
 
         event.setCanceled(true);
@@ -39,13 +41,12 @@ public final class FactoryRedstone {
             player.displayClientMessage(Component.translatable("message.recursivefactory.redstone.invalid"), true);
             return;
         }
-        if (!endpoint.activateRedstone(face)) {
-            player.displayClientMessage(Component.translatable("message.recursivefactory.redstone.installed"), true);
-            return;
-        }
-        stack.consume(1, player);
-        level.playSound(null, event.getPos(), SoundEvents.STONE_BUTTON_CLICK_ON, SoundSource.BLOCKS, 0.6F, 1.2F);
-        player.displayClientMessage(Component.translatable("message.recursivefactory.redstone.activated"), true);
+        boolean enabled = !endpoint.isRedstoneEnabled(face);
+        endpoint.setRedstoneEnabled(face, enabled);
+        level.playSound(null, event.getPos(), enabled ? SoundEvents.STONE_BUTTON_CLICK_ON : SoundEvents.STONE_BUTTON_CLICK_OFF,
+                SoundSource.BLOCKS, 0.6F, enabled ? 1.2F : 0.9F);
+        player.displayClientMessage(Component.translatable(enabled
+                ? "message.recursivefactory.redstone.activated" : "message.recursivefactory.redstone.deactivated"), true);
     }
 
     private static boolean validFace(ServerLevel level, EndpointBlockEntity endpoint, Direction face) {

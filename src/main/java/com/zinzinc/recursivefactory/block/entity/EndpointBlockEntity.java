@@ -123,7 +123,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
     private final int[] inputPower = new int[FACE_COUNT];
     /** Strength emitted from each face, 0-15: what the far end of the link drives this end with. */
     private final int[] outputPower = new int[FACE_COUNT];
-    /** Installed redstone connections, one bit per face. Missing tags leave old worlds closed too. */
+    /** Enabled redstone connections, one bit per face. Missing tags leave old worlds closed too. */
     private int redstonePorts;
 
     /** The face {@link #noteBlockedTransport} last reported; see there. Not saved on purpose. */
@@ -188,7 +188,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
         return redstonePorts;
     }
 
-    /** Restore installed connections without copying transient signal strengths or factory identity. */
+    /** Restore enabled connections without copying transient signal strengths or factory identity. */
     public void restoreRedstonePorts(int ports) {
         for (Direction face : Direction.values()) {
             if ((ports & faceMask(face)) != 0) activateRedstone(face);
@@ -206,8 +206,13 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
     }
 
     public boolean activateRedstone(Direction face) {
-        if (isRedstoneEnabled(face)) return false;
-        redstonePorts |= faceMask(face);
+        return setRedstoneEnabled(face, true);
+    }
+
+    public boolean setRedstoneEnabled(Direction face, boolean enabled) {
+        if (isRedstoneEnabled(face) == enabled) return false;
+        if (enabled) redstonePorts |= faceMask(face);
+        else redstonePorts &= ~faceMask(face);
         setChanged();
         if (level != null && !level.isClientSide) {
             getBlockState().updateNeighbourShapes(level, worldPosition, Block.UPDATE_ALL);

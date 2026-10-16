@@ -34,7 +34,6 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.LevelReader;
@@ -503,11 +502,6 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock
         boolean copiesRoom = false;
         add(items, new ItemStack(asItem()), ItemRequirement.ItemUseType.CONSUME, false);
         if (blockEntity instanceof RecursiveFactoryBlockEntity door) {
-            if (door.redstonePortCount() > 0) {
-                copiesRoom = true;
-                add(items, new ItemStack(Items.REDSTONE, door.redstonePortCount()),
-                        ItemRequirement.ItemUseType.CONSUME, false);
-            }
             if (RecursiveFactory.powerAvailable()) {
                 var nodes = door.blueprintEntranceNodes();
                 if (!nodes.isEmpty()) {
