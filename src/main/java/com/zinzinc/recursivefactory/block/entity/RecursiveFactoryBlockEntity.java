@@ -277,6 +277,11 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
         }
     }
 
+    /** Nested entrances need an initial snapshot even when nobody is inside the outer room. */
+    public void ensurePreviewSnapshot() {
+        if (lastRefreshTick == Long.MIN_VALUE) refreshPreviewSnapshot();
+    }
+
     /** Several remote displays can share the sample already taken during this tick. */
     public void refreshPreviewForDisplay() {
         if (level instanceof ServerLevel serverLevel && lastRefreshTick != serverLevel.getGameTime()) {
@@ -335,6 +340,7 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
     @Override
     protected void read(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.read(tag, registries, clientPacket);
+        if (!clientPacket) lastRefreshTick = Long.MIN_VALUE;
         entranceNodes = tag.getCompound(ENTRANCE_NODES_TAG).copy();
         entranceWires = tag.getCompound(ENTRANCE_WIRES_TAG).copy();
         pendingEntranceWires = tag.getCompound(PENDING_WIRES_TAG).copy();

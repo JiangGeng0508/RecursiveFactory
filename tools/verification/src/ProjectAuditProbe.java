@@ -56,6 +56,7 @@ public final class ProjectAuditProbe {
         run("redstone activation", () -> RedstoneChecks.run(outside, inside, ProjectAuditProbe::check));
         run("redstone copies", () -> RedstoneChecks.copies(outside, inside, ProjectAuditProbe::check));
         run("redstone cannon", () -> RedstoneChecks.cannon(outside, inside, ProjectAuditProbe::check));
+        run("preview persistence", () -> PreviewPersistenceChecks.run(outside, inside, ProjectAuditProbe::check));
         run("requests and placement", () -> requests(outside, inside));
         run("materials", () -> materials(outside));
         run("cannon", () -> {

@@ -1,7 +1,6 @@
 package com.zinzinc.recursivefactory.network;
 
 import com.zinzinc.recursivefactory.RecursiveFactory;
-import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.FactoryPreviewSource;
 import com.zinzinc.recursivefactory.block.entity.FactoryPreviewBlockEntity;
 import com.zinzinc.recursivefactory.block.entity.RecursiveFactoryBlockEntity;
@@ -59,11 +58,7 @@ public final class EndpointPreviewPackets {
                 else endpoint.refreshPreviewSnapshot();
                 PacketDistributor.sendToPlayer(player, new Sync(
                         packet.pos(),
-                        EndpointBlockEntity.writePreview(
-                                endpoint.getPreviewBlocks(),
-                                endpoint.getPreviewEntities(),
-                                endpoint.getPreviewBlockEntities(), endpoint.getPreviewWires(), endpoint.getPreviewBodies(), endpoint.getPreviewRopes()
-                        )
+                        endpoint.previewTag()
                 ));
             });
         }

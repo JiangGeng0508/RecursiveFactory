@@ -77,7 +77,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
     /** Saves from when a link could only ever drive one face, and only ever at full strength. */
     private static final String LEGACY_OUTPUT_DIRECTION_TAG = "OutputDirection";
     private static final String LEGACY_REMOTE_POWERED_TAG = "RemotePowered";
-    private static final String PREVIEW_BLOCKS_TAG = "PreviewBlocks";
+    public static final String PREVIEW_BLOCKS_TAG = "PreviewBlocks";
     private static final String PREVIEW_BLOCKS_LIST_TAG = "Blocks";
     private static final String PREVIEW_ENTITIES_LIST_TAG = "Entities";
     private static final String PREVIEW_BLOCK_ENTITIES_LIST_TAG = "BlockEntities";
@@ -764,7 +764,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
         previewWires = updatedWires.copy();
         previewBodies = List.copyOf(updatedBodies);
         previewRopes = List.copyOf(updatedRopes);
-        setChanged();
+        // A new display snapshot does not change anything that belongs in the chunk save.
         broadcastPreview(blocksChanged);
     }
 
@@ -792,7 +792,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
                 new ChunkPos(worldPosition),
                 new EndpointPreviewPackets.Sync(
                         worldPosition,
-                        writePreview(previewBlocks, previewEntities, previewBlockEntities, previewWires, previewBodies, previewRopes)
+                        previewTag()
                 )
         );
     }
@@ -931,6 +931,12 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
                 continue;
             }
             CompoundTag tag = blockEntity.saveWithId(level.registryAccess());
+            if (blockEntity instanceof EndpointBlockEntity endpoint) {
+                // Nested entrances still render their contents, but only the preview transport carries
+                // this cache. Ordinary saves, schematics and debug NBT queries must not include it.
+                if (endpoint instanceof RecursiveFactoryBlockEntity entrance) entrance.ensurePreviewSnapshot();
+                tag.put(PREVIEW_BLOCKS_TAG, endpoint.previewTag());
+            }
             if (tag.getString("id").startsWith("simulated:") && tag.contains("OwnStrand")) {
                 // Ropes have their own preview stream. Do not recreate server physics objects in a
                 // virtual client world or rebuild the entire room mesh whenever rope points move.
@@ -1024,7 +1030,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
         }
         tag.putInt(INPUT_POWER_TAG, powerMask(inputPower));
         tag.putInt(OUTPUT_POWER_TAG, powerMask(outputPower));
-        tag.put(PREVIEW_BLOCKS_TAG, writePreview(previewBlocks, previewEntities, previewBlockEntities, previewWires, previewBodies, previewRopes));
+        if (clientPacket) tag.put(PREVIEW_BLOCKS_TAG, previewTag());
     }
 
     @Override
@@ -1089,12 +1095,13 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
                 }
             }
         }
-        previewBlocks = readPreviewBlocks(tag, registries);
-        previewEntities = readPreviewEntities(tag);
-        previewBlockEntities = readPreviewBlockEntities(tag);
-        previewWires = readPreviewWires(tag);
-        previewBodies = readPreviewBodies(tag);
-        previewRopes = readPreviewRopes(tag);
+        if (!clientPacket) {
+            // Ignore snapshots embedded in older saves. The first viewer rebuilds from the live room.
+            clearPreview();
+        } else if (tag.contains(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND)) {
+            // A state-only packet must not erase a snapshot received on the separate preview channel.
+            acceptPreviewTag(tag.getCompound(PREVIEW_BLOCKS_TAG), registries);
+        }
     }
 
     /** Four bits per face is all a strength needs, so both tables fit in one int each. */

@@ -57,6 +57,8 @@ Crafting: glass in the top centre; iron ingot, Eye of Ender, iron ingot in the m
 
 Loaded entrances keep their rooms running. Players inside nested factories keep the entrance chain loaded; nearby preview viewers also keep the displayed room running. Temporary loading requests are released when no longer needed.
 
+Preview caches are rebuilt from the room when viewed after loading. They are excluded from world saves, schematics and F3+I data; factory bindings, connection settings and buffered items/fluids remain saved. Old saved preview caches are ignored and removed when the chunk next saves.
+
 Open **Mods → Recursive Factory → Config → Common → Entrance transfer** to toggle rotation/stress, fluids and items separately. Settings are also saved in `config/recursivefactory-common.toml`; multiplayer transfer follows the server's settings.
 
 | Setting | Default | Purpose |

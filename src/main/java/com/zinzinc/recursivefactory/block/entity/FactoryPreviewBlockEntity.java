@@ -99,10 +99,6 @@ public final class FactoryPreviewBlockEntity extends BlockEntity implements Fact
     @Override public List<CompoundTag> getPreviewBodies() { return bodies; }
     @Override public List<CompoundTag> getPreviewRopes() { return ropes; }
 
-    private CompoundTag previewTag() {
-        return EndpointBlockEntity.writePreview(blocks, entities, blockEntities, wires, bodies, ropes);
-    }
-
     @Override
     protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.saveAdditional(tag, registries);

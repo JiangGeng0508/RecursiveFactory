@@ -314,6 +314,11 @@ public final class FactoryProjectionCache {
         }
         blockEntity.setLevel(renderWorld);
         blockEntity.loadWithComponents(tag, renderWorld.registryAccess());
+        if (blockEntity instanceof EndpointBlockEntity endpoint) {
+            // This tag came from the preview stream, not from disk. Restore nested display data
+            // explicitly after the normal block loader discards any saved preview cache.
+            endpoint.acceptPreviewTag(tag.getCompound(EndpointBlockEntity.PREVIEW_BLOCKS_TAG), renderWorld.registryAccess());
+        }
         renderWorld.setBlockEntity(blockEntity);
         blockEntities.add(blockEntity);
     }
