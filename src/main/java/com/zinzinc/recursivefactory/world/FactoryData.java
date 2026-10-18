@@ -51,12 +51,13 @@ public final class FactoryData extends SavedData {
     private static FactoryData load(CompoundTag tag, HolderLookup.Provider registries) {
         FactoryData data = new FactoryData();
         data.nextFactoryId = Math.max(1, tag.getInt("NextFactoryId"));
-        data.nextSlotIndex = tag.getInt("NextSlotIndex");
+        data.nextSlotIndex = Math.max(0, tag.getInt("NextSlotIndex"));
 
         ListTag factoriesTag = tag.getList("Factories", Tag.TAG_COMPOUND);
         for (Tag entry : factoriesTag) {
             FactoryRecord record = FactoryRecord.load((CompoundTag) entry);
             data.factories.put(record.id(), record);
+            data.nextFactoryId = Math.max(data.nextFactoryId, record.id() + 1);
         }
         return data;
     }
@@ -84,10 +85,18 @@ public final class FactoryData extends SavedData {
     }
 
     public FactoryRecord create(@Nullable UUID owner) {
+        int slotX;
+        int slotZ;
+        do {
+            slotX = nextSlotIndex % 64;
+            slotZ = nextSlotIndex / 64;
+            if (nextSlotIndex < 0 || (long) slotZ * SLOT_SPACING_BLOCKS + 16 > 29_999_968
+                    || nextFactoryId <= 0 || nextFactoryId == Integer.MAX_VALUE) {
+                throw new IllegalStateException("No factory room slots remain inside the world bounds");
+            }
+            nextSlotIndex++;
+        } while (!canOccupy(-1, 16 + slotX * SLOT_SPACING_BLOCKS, 16 + slotZ * SLOT_SPACING_BLOCKS));
         int factoryId = nextFactoryId++;
-        int slotX = nextSlotIndex % 64;
-        int slotZ = nextSlotIndex / 64;
-        nextSlotIndex++;
 
         FactoryRecord record = new FactoryRecord(
                 factoryId,
@@ -128,13 +137,41 @@ public final class FactoryData extends SavedData {
      * Grows a factory by one entrance cell. The room cell is given rather than derived so that removing
      * cells later never shifts the room layout: each cell keeps the room position it was placed with.
      */
-    public void addEntrance(int factoryId, ResourceLocation dimension, BlockPos pos, int roomX, int roomZ) {
+    public boolean addEntrance(int factoryId, ResourceLocation dimension, BlockPos pos, int roomX, int roomZ) {
         FactoryRecord record = factories.get(factoryId);
-        if (record != null && dimension.equals(record.entranceDimension())) {
+        if (record != null && dimension.equals(record.entranceDimension())
+                && factoryWithEntranceCell(dimension, pos) == null && canOccupy(factoryId, roomX, roomZ)
+                && record.cells().stream().noneMatch(cell -> cell.roomX() == roomX && cell.roomZ() == roomZ)) {
             List<FactoryRecord.Cell> cells = new ArrayList<>(record.cells());
             cells.add(new FactoryRecord.Cell(pos, roomX, roomZ));
             update(record.withCells(cells));
+            return true;
         }
+        return false;
+    }
+
+    /** Reserve whole room columns, including slots whose entrance has not been bound yet. */
+    public boolean canOccupy(int factoryId, int roomX, int roomZ) {
+        if (roomX < -29_999_984 || roomX > 29_999_968 || roomZ < -29_999_984 || roomZ > 29_999_968) return false;
+        for (FactoryRecord other : factories.values()) {
+            if (other.id() == factoryId) continue;
+            if (other.cells().isEmpty()
+                    && Math.abs((long) other.baseChunk().getMinBlockX() - roomX) < 16
+                    && Math.abs((long) other.baseChunk().getMinBlockZ() - roomZ) < 16) return false;
+            for (FactoryRecord.Cell cell : other.cells()) {
+                if (Math.abs((long) cell.roomX() - roomX) < 16
+                        && Math.abs((long) cell.roomZ() - roomZ) < 16) return false;
+            }
+        }
+        return true;
+    }
+
+    public void markFloorLaid(int factoryId, int roomX, int roomZ) {
+        FactoryRecord record = factories.get(factoryId);
+        if (record == null) return;
+        List<FactoryRecord.Cell> cells = record.cells().stream().map(cell ->
+                cell.roomX() == roomX && cell.roomZ() == roomZ ? cell.withFloorLaid() : cell).toList();
+        if (!cells.equals(record.cells())) update(record.withCells(cells));
     }
 
     /**
@@ -213,7 +250,18 @@ public final class FactoryData extends SavedData {
          * room layout never shifts when cells are removed; the layout as a whole is the entrance layout,
          * translated, with each cell sixteen blocks across.
          */
-        public record Cell(BlockPos entrance, int roomX, int roomZ) {
+        public record Cell(BlockPos entrance, int roomX, int roomZ, boolean floorLaid) {
+            public Cell {
+                entrance = entrance.immutable();
+            }
+
+            public Cell(BlockPos entrance, int roomX, int roomZ) {
+                this(entrance, roomX, roomZ, false);
+            }
+
+            public Cell withFloorLaid() {
+                return new Cell(entrance, roomX, roomZ, true);
+            }
         }
 
         public FactoryRecord {
@@ -270,6 +318,7 @@ public final class FactoryData extends SavedData {
                 cellTag.putInt("Z", cell.entrance().getZ());
                 cellTag.putInt("RoomX", cell.roomX());
                 cellTag.putInt("RoomZ", cell.roomZ());
+                cellTag.putBoolean("FloorLaid", cell.floorLaid());
                 cellsTag.add(cellTag);
             }
             tag.put("Cells", cellsTag);
@@ -287,7 +336,8 @@ public final class FactoryData extends SavedData {
                 cells.add(new Cell(
                         new BlockPos(cellTag.getInt("X"), cellTag.getInt("Y"), cellTag.getInt("Z")),
                         cellTag.getInt("RoomX"),
-                        cellTag.getInt("RoomZ")
+                        cellTag.getInt("RoomZ"),
+                        !cellTag.contains("FloorLaid") || cellTag.getBoolean("FloorLaid")
                 ));
             }
             FactoryRecord record = new FactoryRecord(
@@ -306,7 +356,8 @@ public final class FactoryData extends SavedData {
                 record = record.withCells(List.of(new Cell(
                         record.entrancePos(),
                         record.baseChunk().getMinBlockX(),
-                        record.baseChunk().getMinBlockZ()
+                        record.baseChunk().getMinBlockZ(),
+                        true
                 )));
             }
             return record;
@@ -323,7 +374,7 @@ public final class FactoryData extends SavedData {
 
         private static Endpoint readEndpoint(CompoundTag tag, String prefix) {
             ResourceLocation dimension = tag.contains(prefix + "Dimension", Tag.TAG_STRING)
-                    ? ResourceLocation.parse(tag.getString(prefix + "Dimension"))
+                    ? ResourceLocation.tryParse(tag.getString(prefix + "Dimension"))
                     : null;
             BlockPos pos = new BlockPos(
                     tag.getInt(prefix + "X"),

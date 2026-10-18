@@ -20,6 +20,26 @@ Recursive Factory is a NeoForge mod for Minecraft 1.21.1. It provides a reusable
 4. Right-click the Mirror Factory to exit, or walk outside the room's chunk boundary.
 5. Place another Recursive Factory block inside a room to create a nested factory. Exiting each level returns to the level that contained it.
 
+## Progress imported from master
+
+The portal branch now includes nine item input buffers with independent routing faces,
+complete remote inventory slot access for extraction, and cycle detection for nested item links.
+Simulation respects the same item and capacity limits as execution. Existing single-stack buffers
+load into slot zero.
+
+Room allocation skips another factory's expanded footprint, and expansion refuses occupied room
+columns. Floors are generated once and retain player edits, including holes. To fill only missing
+floor blocks when a room is prepared, enable `room.repairBrokenFloor` in
+`config/recursivefactory-common.toml` (default: `false`), also available through the mod config screen.
+
+Display snapshots are synchronized separately from saved factory data. Preview refreshes no longer
+dirty chunks; preview requests are limited to nearby players and throttled per player and endpoint.
+
+The existing high/short portal rooms, horizontal expansion and Immersive Portals rendering remain
+in use. [The integration record](docs/master-progress.md) lists the imported commits and the master
+features that require further portal-specific design. [Regression checks](tools/verification/README.md)
+run in fresh isolated worlds and are also part of CI.
+
 ## Development
 
 ```powershell

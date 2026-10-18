@@ -4,6 +4,7 @@ import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.capabilities.Capabilities;
@@ -59,38 +60,71 @@ public final class ModBlockEntities {
     private record EndpointItemHandler(EndpointBlockEntity endpoint, Direction side) implements IItemHandler {
         @Override
         public int getSlots() {
-            return 1;
-        }
-
-        @Override
-        public net.minecraft.world.item.ItemStack getStackInSlot(int slot) {
-            return slot == 0 ? endpoint.getPendingStack() : net.minecraft.world.item.ItemStack.EMPTY;
-        }
-
-        @Override
-        public net.minecraft.world.item.ItemStack insertItem(int slot, net.minecraft.world.item.ItemStack stack, boolean simulate) {
-            if (slot != 0) {
-                return stack;
+            int slots = EndpointBlockEntity.PENDING_SLOTS;
+            for (IItemHandler source : FactoryRelay.itemSources(endpoint, side)) {
+                slots += source.getSlots();
             }
-            if (simulate) {
-                return endpoint.getPendingStack().isEmpty() ? net.minecraft.world.item.ItemStack.EMPTY : stack;
+            return slots;
+        }
+
+        /**
+         * Input buffers come first, followed by every slot in the far end's inventories. Buffers only
+         * accept items; remote slots only allow extraction. Reading and extracting a remote slot must
+         * address the same stack, so a filtered funnel can reach items beyond the first occupied slot.
+         */
+        @Override
+        public ItemStack getStackInSlot(int slot) {
+            if (slot < EndpointBlockEntity.PENDING_SLOTS) {
+                return endpoint.getPendingStack(slot);
             }
-            return endpoint.offer(stack, side);
+            RemoteSlot remote = remoteSlot(slot);
+            return remote == null ? ItemStack.EMPTY : remote.handler().getStackInSlot(remote.slot());
         }
 
         @Override
-        public net.minecraft.world.item.ItemStack extractItem(int slot, int amount, boolean simulate) {
-            return net.minecraft.world.item.ItemStack.EMPTY;
+        public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
+            return endpoint.offer(slot, stack, side, simulate);
+        }
+
+        @Override
+        public ItemStack extractItem(int slot, int amount, boolean simulate) {
+            if (amount <= 0) {
+                return ItemStack.EMPTY;
+            }
+            RemoteSlot remote = remoteSlot(slot);
+            return remote == null ? ItemStack.EMPTY : remote.handler().extractItem(remote.slot(), amount, simulate);
         }
 
         @Override
         public int getSlotLimit(int slot) {
-            return 64;
+            if (slot >= 0 && slot < EndpointBlockEntity.PENDING_SLOTS) {
+                return 64;
+            }
+            RemoteSlot remote = remoteSlot(slot);
+            return remote == null ? 0 : remote.handler().getSlotLimit(remote.slot());
         }
 
         @Override
-        public boolean isItemValid(int slot, net.minecraft.world.item.ItemStack stack) {
-            return slot == 0;
+        public boolean isItemValid(int slot, ItemStack stack) {
+            return slot >= 0 && slot < EndpointBlockEntity.PENDING_SLOTS
+                    && side != null && endpoint.hasFactoryId();
+        }
+
+        private record RemoteSlot(IItemHandler handler, int slot) { }
+
+        private RemoteSlot remoteSlot(int slot) {
+            slot -= EndpointBlockEntity.PENDING_SLOTS;
+            if (slot < 0) {
+                return null;
+            }
+            for (IItemHandler source : FactoryRelay.itemSources(endpoint, side)) {
+                int size = source.getSlots();
+                if (slot < size) {
+                    return new RemoteSlot(source, slot);
+                }
+                slot -= size;
+            }
+            return null;
         }
     }
 }

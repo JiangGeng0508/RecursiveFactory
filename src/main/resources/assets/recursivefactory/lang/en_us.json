@@ -5,5 +5,10 @@
   "block.recursivefactory.mirror_factory": "Mirror Factory",
   "message.recursivefactory.entered": "Entered recursive factory #%s.",
   "message.recursivefactory.exited": "Left recursive factory #%s.",
-  "message.recursivefactory.missing": "That recursive factory no longer exists."
+  "message.recursivefactory.missing": "That recursive factory no longer exists.",
+  "recursivefactory.configuration.title": "Recursive Factory Settings",
+  "recursivefactory.configuration.room": "Factory room",
+  "recursivefactory.configuration.room.button": "Factory room",
+  "recursivefactory.configuration.repairBrokenFloor": "Repair broken floor",
+  "recursivefactory.configuration.repairBrokenFloor.tooltip": "Restore missing checkerboard tiles when preparing a room. Existing blocks are preserved."
 }

@@ -4,6 +4,12 @@ import com.zinzinc.recursivefactory.block.MirrorFactoryBlock;
 import com.zinzinc.recursivefactory.block.RecursiveFactoryBlock;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import java.util.Optional;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import com.simibubi.create.api.packager.InventoryIdentifier;
+import net.createmod.catnip.math.BlockFace;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -24,28 +30,72 @@ public final class FactoryRelay {
     }
 
     public static void transport(EndpointBlockEntity local) {
-        if (local.getPendingStack().isEmpty() || local.getPendingInput() == null || !(local.getLevel() instanceof ServerLevel localLevel)) {
-            return;
-        }
-
+        if (!(local.getLevel() instanceof ServerLevel localLevel) || !local.hasFactoryId()) return;
         RemoteEndpoint remote = resolveRemote(localLevel, local.getFactoryId(), isMirror(local));
-        if (remote == null) {
+        if (remote == null) return;
+        for (int slot = 0; slot < EndpointBlockEntity.PENDING_SLOTS; slot++) {
+            ItemStack waiting = local.getPendingStack(slot);
+            Direction input = local.getPendingInput(slot);
+            if (waiting.isEmpty() || input == null) continue;
+            BlockPos outputPos = remote.pos().relative(input.getOpposite());
+            if (!remote.level().isLoaded(outputPos) || remote.level().getBlockEntity(outputPos) == local) continue;
+            IItemHandler target = remote.level().getCapability(Capabilities.ItemHandler.BLOCK, outputPos, input);
+            if (target != null) local.setTransportResult(slot, ItemHandlerHelper.insertItem(target, waiting, false));
+        }
+    }
+
+    static List<IItemHandler> itemSources(EndpointBlockEntity local, @Nullable Direction face) {
+        List<ItemSource> sources = new ArrayList<>();
+        collectItemSources(local, face, new HashSet<>(), sources);
+        return sources.stream().map(ItemSource::handler).toList();
+    }
+
+    private record ItemRoute(EndpointBlockEntity endpoint, Direction face) { }
+    private record ItemSource(ServerLevel level, InventoryIdentifier inventory, IItemHandler handler) { }
+
+    private static void collectItemSources(EndpointBlockEntity local, @Nullable Direction face,
+                                           Set<ItemRoute> path, List<ItemSource> sources) {
+        if (!(local.getLevel() instanceof ServerLevel localLevel)) {
             return;
         }
-
-        Direction outputSide = local.getPendingInput().getOpposite();
-        BlockPos outputPos = remote.pos().relative(outputSide);
-        IItemHandler target = remote.level().getCapability(
-                Capabilities.ItemHandler.BLOCK,
-                outputPos,
-                outputSide.getOpposite()
-        );
-        if (target == null) {
-            return;
+        for (Direction inputFace : face == null ? Direction.values() : new Direction[]{face}) {
+            ItemRoute route = new ItemRoute(local, inputFace);
+            if (!path.add(route)) {
+                continue;
+            }
+            Direction outputSide = inputFace.getOpposite();
+            RemoteEndpoint resolved = resolveRemote(localLevel, local.getFactoryId(), isMirror(local));
+            for (RemoteEndpoint remote : resolved == null ? List.<RemoteEndpoint>of() : List.of(resolved)) {
+                BlockPos outputPos = remote.pos().relative(outputSide);
+                if (!remote.level().isLoaded(outputPos)) continue;
+                IItemHandler target = remote.level().getCapability(
+                        Capabilities.ItemHandler.BLOCK,
+                        outputPos,
+                        outputSide.getOpposite()
+                );
+                if (target == null) {
+                    continue;
+                }
+                if (remote.level().getBlockEntity(outputPos) instanceof EndpointBlockEntity next) {
+                    // Follow nested links without exposing their incoming buffers or recursing in a loop.
+                    collectItemSources(next, outputSide.getOpposite(), path, sources);
+                } else {
+                    BlockFace access = new BlockFace(outputPos, outputSide.getOpposite());
+                    boolean duplicate = sources.stream().anyMatch(source -> source.level() == remote.level()
+                            && (source.handler().equals(target) || source.inventory().contains(access)));
+                    if (!duplicate) {
+                        // A double chest or vault can touch several wall positions. Exposing it twice
+                        // would let exact-count extraction simulations spend the same items twice.
+                        InventoryIdentifier inventory = InventoryIdentifier.get(remote.level(), access);
+                        if (inventory == null) {
+                            inventory = new InventoryIdentifier.MultiFace(outputPos, Set.of(access.getFace()));
+                        }
+                        sources.add(new ItemSource(remote.level(), inventory, target));
+                    }
+                }
+            }
+            path.remove(route);
         }
-
-        ItemStack remainder = ItemHandlerHelper.insertItem(target, local.getPendingStack(), false);
-        local.setTransportResult(remainder);
     }
 
     public static void syncPower(EndpointBlockEntity local, boolean localPowered, @Nullable Direction inputDirection) {
@@ -128,7 +178,7 @@ public final class FactoryRelay {
         }
 
         ServerLevel remoteLevel = server.getLevel(dimensionKey);
-        if (remoteLevel == null) {
+        if (remoteLevel == null || !remoteLevel.isLoaded(pos)) {
             return null;
         }
 
@@ -136,7 +186,8 @@ public final class FactoryRelay {
         boolean valid = localIsMirror
                 ? state.getBlock() instanceof RecursiveFactoryBlock
                 : state.getBlock() instanceof MirrorFactoryBlock;
-        return valid ? new RemoteEndpoint(remoteLevel, pos) : null;
+        return valid && remoteLevel.getBlockEntity(pos) instanceof EndpointBlockEntity endpoint
+                && endpoint.getFactoryId() == factoryId ? new RemoteEndpoint(remoteLevel, pos) : null;
     }
 
     public static Optional<EndpointBlockEntity> endpoint(Level level, BlockPos pos) {

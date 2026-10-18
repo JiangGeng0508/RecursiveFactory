@@ -5,5 +5,10 @@
   "block.recursivefactory.mirror_factory": "镜像工厂",
   "message.recursivefactory.entered": "已进入递归工厂 #%s。",
   "message.recursivefactory.exited": "已离开递归工厂 #%s。",
-  "message.recursivefactory.missing": "该递归工厂已不存在。"
+  "message.recursivefactory.missing": "该递归工厂已不存在。",
+  "recursivefactory.configuration.title": "递归工厂设置",
+  "recursivefactory.configuration.room": "工厂房间",
+  "recursivefactory.configuration.room.button": "工厂房间",
+  "recursivefactory.configuration.repairBrokenFloor": "修复缺失地板",
+  "recursivefactory.configuration.repairBrokenFloor.tooltip": "准备房间时补回缺失的棋盘地板，保留已放置的其它方块。"
 }

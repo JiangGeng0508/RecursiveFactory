@@ -4,6 +4,8 @@ import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity;
 import com.zinzinc.recursivefactory.client.network.ClientEndpointPreviewHandler;
 import io.netty.buffer.ByteBuf;
+import java.util.Map;
+import java.util.WeakHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -15,6 +17,19 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 public final class EndpointPreviewPackets {
+    private static final Map<EndpointBlockEntity, Map<ServerPlayer, Long>> REQUESTS = new WeakHashMap<>();
+
+    public static boolean allowRequest(ServerPlayer player, EndpointBlockEntity endpoint) {
+        if (player.level() != endpoint.getLevel() || endpoint.isRemoved()
+                || endpoint.getBlockPos().distToCenterSqr(player.position()) >= 160.0 * 160.0) return false;
+        long now = player.level().getGameTime();
+        Map<ServerPlayer, Long> viewers = REQUESTS.computeIfAbsent(endpoint, ignored -> new WeakHashMap<>());
+        Long previous = viewers.get(player);
+        if (previous != null && now >= previous && now - previous < 40) return false;
+        viewers.put(player, now);
+        return true;
+    }
+
     private EndpointPreviewPackets() {
     }
 
@@ -33,7 +48,8 @@ public final class EndpointPreviewPackets {
             context.enqueueWork(() -> {
                 if (!(context.player() instanceof ServerPlayer player)
                         || !player.level().isLoaded(packet.pos())
-                        || !(player.level().getBlockEntity(packet.pos()) instanceof EndpointBlockEntity endpoint)) {
+                        || !(player.level().getBlockEntity(packet.pos()) instanceof EndpointBlockEntity endpoint)
+                        || !allowRequest(player, endpoint)) {
                     return;
                 }
                 endpoint.refreshPreviewSnapshot();

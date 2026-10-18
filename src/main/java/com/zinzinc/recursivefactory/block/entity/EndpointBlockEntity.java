@@ -3,11 +3,13 @@ package com.zinzinc.recursivefactory.block.entity;
 import com.mojang.logging.LogUtils;
 import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.core.NonNullList;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -36,8 +38,9 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     private static final String PREVIEW_BLOCKS_TAG = "PreviewBlocks";
 
     private int factoryId = -1;
-    private ItemStack pendingStack = ItemStack.EMPTY;
-    private @Nullable Direction pendingInput;
+    public static final int PENDING_SLOTS = 9;
+    private final NonNullList<ItemStack> pendingStacks = NonNullList.withSize(PENDING_SLOTS, ItemStack.EMPTY);
+    private final Direction[] pendingInputs = new Direction[PENDING_SLOTS];
     private boolean localPowered;
     private boolean remotePowered;
     private @Nullable Direction outputDirection;
@@ -61,47 +64,66 @@ public abstract class EndpointBlockEntity extends BlockEntity {
     }
 
     public ItemStack offer(ItemStack stack, @Nullable Direction inputSide) {
-        if (stack.isEmpty() || !hasFactoryId()) {
+        return offer(stack, inputSide, false);
+    }
+
+    /** Merge matching stacks first; each buffered stack retains the face it entered through. */
+    public ItemStack offer(ItemStack stack, @Nullable Direction inputSide, boolean simulate) {
+        ItemStack remainder = stack;
+        for (int pass = 0; pass < 2; pass++) {
+            for (int slot = 0; slot < PENDING_SLOTS && !remainder.isEmpty(); slot++) {
+                if (pendingStacks.get(slot).isEmpty() == (pass == 1)) {
+                    remainder = offer(slot, remainder, inputSide, simulate);
+                }
+            }
+        }
+        return remainder;
+    }
+
+    /** Simulation and execution use exactly the same capacity, item and face checks. */
+    public ItemStack offer(int slot, ItemStack stack, @Nullable Direction inputSide, boolean simulate) {
+        if (stack.isEmpty() || !hasFactoryId() || inputSide == null || slot < 0 || slot >= PENDING_SLOTS) {
             return stack;
         }
-
-        if (!pendingStack.isEmpty()) {
-            if (pendingInput != inputSide || !ItemStack.isSameItemSameComponents(pendingStack, stack)) {
-                return stack;
-            }
-
-            int space = stack.getMaxStackSize() - pendingStack.getCount();
-            int accepted = Math.min(space, stack.getCount());
-            if (accepted <= 0) {
-                return stack;
-            }
-
-            pendingStack.grow(accepted);
-            setChanged();
-            ItemStack remainder = stack.copy();
-            remainder.shrink(accepted);
-            return remainder;
+        ItemStack pending = pendingStacks.get(slot);
+        if (!pending.isEmpty() && (pendingInputs[slot] != inputSide
+                || !ItemStack.isSameItemSameComponents(pending, stack))) {
+            return stack;
         }
-
-        pendingInput = inputSide;
-        pendingStack = stack.copy();
-        setChanged();
-        return ItemStack.EMPTY;
+        int accepted = Math.min(stack.getCount(), Math.min(64, stack.getMaxStackSize()) - pending.getCount());
+        if (accepted <= 0) return stack;
+        if (!simulate) {
+            pendingStacks.set(slot, stack.copyWithCount(pending.getCount() + accepted));
+            pendingInputs[slot] = inputSide;
+            setChanged();
+        }
+        return stack.copyWithCount(stack.getCount() - accepted);
     }
 
     public ItemStack getPendingStack() {
-        return pendingStack;
+        return getPendingStack(0);
     }
 
     public @Nullable Direction getPendingInput() {
-        return pendingInput;
+        return getPendingInput(0);
     }
 
     public void setTransportResult(ItemStack remainder) {
-        pendingStack = remainder.copy();
-        if (pendingStack.isEmpty()) {
-            pendingInput = null;
-        }
+        setTransportResult(0, remainder);
+    }
+
+    public ItemStack getPendingStack(int slot) {
+        return slot < 0 || slot >= PENDING_SLOTS ? ItemStack.EMPTY : pendingStacks.get(slot);
+    }
+
+    public @Nullable Direction getPendingInput(int slot) {
+        return slot < 0 || slot >= PENDING_SLOTS ? null : pendingInputs[slot];
+    }
+
+    public void setTransportResult(int slot, ItemStack remainder) {
+        if (slot < 0 || slot >= PENDING_SLOTS || ItemStack.matches(pendingStacks.get(slot), remainder)) return;
+        pendingStacks.set(slot, remainder.copy());
+        if (remainder.isEmpty()) pendingInputs[slot] = null;
         setChanged();
     }
 
@@ -158,7 +180,6 @@ public abstract class EndpointBlockEntity extends BlockEntity {
             return;
         }
         previewBlocks = List.copyOf(updatedPreview);
-        setChanged();
         broadcastPreview();
     }
 
@@ -188,6 +209,7 @@ public abstract class EndpointBlockEntity extends BlockEntity {
                     }
 
                     BlockPos targetPos = center.offset(x, y - 1, z);
+                    if (!level.isLoaded(targetPos)) continue;
                     BlockState state = level.getBlockState(targetPos);
                     if (state.isAir() || state.is(Blocks.BEDROCK)) {
                         continue;
@@ -211,42 +233,57 @@ public abstract class EndpointBlockEntity extends BlockEntity {
         if (hasFactoryId()) {
             tag.putInt(FACTORY_ID_TAG, factoryId);
         }
-        if (!pendingStack.isEmpty()) {
-            tag.put(PENDING_STACK_TAG, pendingStack.save(registries));
-            if (pendingInput != null) {
-                tag.putString(PENDING_INPUT_TAG, pendingInput.getSerializedName());
+        ListTag pending = new ListTag();
+        for (int slot = 0; slot < PENDING_SLOTS; slot++) {
+            if (!pendingStacks.get(slot).isEmpty()) {
+                CompoundTag entry = new CompoundTag();
+                entry.putInt("Slot", slot);
+                entry.put("Item", pendingStacks.get(slot).save(registries));
+                if (pendingInputs[slot] != null) entry.putString("Face", pendingInputs[slot].getSerializedName());
+                pending.add(entry);
             }
         }
+        if (!pending.isEmpty()) tag.put("PendingItems", pending);
         tag.putBoolean(LOCAL_POWERED_TAG, localPowered);
         tag.putBoolean(REMOTE_POWERED_TAG, remotePowered);
         if (outputDirection != null) {
             tag.putString(OUTPUT_DIRECTION_TAG, outputDirection.getSerializedName());
         }
-        tag.put(PREVIEW_BLOCKS_TAG, writePreviewBlocks(previewBlocks));
     }
 
     @Override
     protected void loadAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.loadAdditional(tag, registries);
         factoryId = tag.contains(FACTORY_ID_TAG) ? tag.getInt(FACTORY_ID_TAG) : -1;
-        pendingStack = tag.contains(PENDING_STACK_TAG)
-                ? ItemStack.parse(registries, tag.getCompound(PENDING_STACK_TAG)).orElse(ItemStack.EMPTY)
-                : ItemStack.EMPTY;
-        pendingInput = tag.contains(PENDING_INPUT_TAG)
-                ? Direction.byName(tag.getString(PENDING_INPUT_TAG))
-                : null;
+        pendingStacks.replaceAll(ignored -> ItemStack.EMPTY);
+        Arrays.fill(pendingInputs, null);
+        if (tag.contains("PendingItems", Tag.TAG_LIST)) {
+            for (Tag value : tag.getList("PendingItems", Tag.TAG_COMPOUND)) {
+                CompoundTag entry = (CompoundTag) value;
+                int slot = entry.getInt("Slot");
+                if (slot < 0 || slot >= PENDING_SLOTS || !pendingStacks.get(slot).isEmpty()) continue;
+                pendingStacks.set(slot, ItemStack.parse(registries, entry.getCompound("Item")).orElse(ItemStack.EMPTY));
+                pendingInputs[slot] = Direction.byName(entry.getString("Face"));
+            }
+        } else if (tag.contains(PENDING_STACK_TAG, Tag.TAG_COMPOUND)) {
+            // The old single-stack buffer becomes slot zero without losing its routing face.
+            pendingStacks.set(0, ItemStack.parse(registries, tag.getCompound(PENDING_STACK_TAG)).orElse(ItemStack.EMPTY));
+            pendingInputs[0] = Direction.byName(tag.getString(PENDING_INPUT_TAG));
+        }
         localPowered = tag.getBoolean(LOCAL_POWERED_TAG);
         remotePowered = tag.getBoolean(REMOTE_POWERED_TAG);
         outputDirection = tag.contains(OUTPUT_DIRECTION_TAG)
                 ? Direction.byName(tag.getString(OUTPUT_DIRECTION_TAG))
                 : null;
-        previewBlocks = readPreviewBlocks(tag, registries);
+        // Snapshots embedded in old saves are stale; only network updates may populate the cache.
+        previewBlocks = List.of();
     }
 
     @Override
     public CompoundTag getUpdateTag(HolderLookup.Provider registries) {
         CompoundTag tag = new CompoundTag();
         saveAdditional(tag, registries);
+        tag.put(PREVIEW_BLOCKS_TAG, writePreviewBlocks(previewBlocks));
         return tag;
     }
 
@@ -257,13 +294,16 @@ public abstract class EndpointBlockEntity extends BlockEntity {
 
     @Override
     public void handleUpdateTag(CompoundTag tag, HolderLookup.Provider registries) {
+        List<PreviewBlock> previous = previewBlocks;
         loadAdditional(tag, registries);
+        previewBlocks = tag.contains(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND)
+                ? readPreviewBlocks(tag, registries) : previous;
     }
 
     @Override
     public void onDataPacket(Connection connection, ClientboundBlockEntityDataPacket packet, HolderLookup.Provider registries) {
         CompoundTag tag = packet.getTag();
-        loadAdditional(tag == null ? new CompoundTag() : tag, registries);
+        handleUpdateTag(tag == null ? new CompoundTag() : tag, registries);
     }
 
     public static CompoundTag writePreviewBlocks(List<PreviewBlock> blocks) {

@@ -226,25 +226,27 @@ public final class FactoryDimension {
 
     private static void generateFloor(ServerLevel level, FactoryData.FactoryRecord record,
                                       FactoryData.FactoryRecord.Cell cell) {
+        // prepare() may receive a record captured before an earlier preparation persisted this flag.
+        FactoryData data = FactoryData.get(level.getServer());
+        FactoryData.FactoryRecord current = data.factory(record.id());
+        FactoryData.FactoryRecord.Cell saved = current == null ? null : current.cellAt(cell.entrance());
+        boolean alreadyLaid = saved == null ? cell.floorLaid() : saved.floorLaid();
         BlockPos marker = new BlockPos(cell.roomX() + 8, FactoryData.FLOOR_Y, cell.roomZ() + 8);
-        BlockState markerState = level.getBlockState(marker);
-        if (markerState.is(Blocks.SNOW_BLOCK) || markerState.is(Blocks.WHITE_CONCRETE)) {
-            return;
-        }
-
-        for (int x = cell.roomX(); x < cell.roomX() + 16; x++) {
-            for (int z = cell.roomZ(); z < cell.roomZ() + 16; z++) {
-                boolean white = ((x ^ z) & 1) == 0;
-                level.setBlock(
-                        new BlockPos(x, FactoryData.FLOOR_Y, z),
-                        white ? Blocks.WHITE_CONCRETE.defaultBlockState() : Blocks.SNOW_BLOCK.defaultBlockState(),
-                        3
-                );
+        if (!alreadyLaid || com.zinzinc.recursivefactory.config.FactoryConfig.repairBrokenFloor()) {
+            for (int x = cell.roomX(); x < cell.roomX() + 16; x++) {
+                for (int z = cell.roomZ(); z < cell.roomZ() + 16; z++) {
+                    BlockPos pos = new BlockPos(x, FactoryData.FLOOR_Y, z);
+                    if (alreadyLaid && !level.getBlockState(pos).isAir()) continue;
+                    boolean white = ((x ^ z) & 1) == 0;
+                    level.setBlock(pos, white ? Blocks.WHITE_CONCRETE.defaultBlockState()
+                            : Blocks.SNOW_BLOCK.defaultBlockState(), 3);
+                }
             }
         }
+        if (!alreadyLaid) data.markFloorLaid(record.id(), cell.roomX(), cell.roomZ());
 
         // One mirror per factory, in the anchor cell's centre.
-        if (!cell.entrance().equals(record.entrancePos())) {
+        if (alreadyLaid || !cell.entrance().equals(record.entrancePos())) {
             return;
         }
         BlockPos mirrorPos = marker.above();

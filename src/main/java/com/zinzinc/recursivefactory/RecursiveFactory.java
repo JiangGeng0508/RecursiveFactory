@@ -4,6 +4,7 @@ import com.mojang.logging.LogUtils;
 import com.zinzinc.recursivefactory.block.ModBlocks;
 import com.zinzinc.recursivefactory.block.entity.ModBlockEntities;
 import com.zinzinc.recursivefactory.data.ModAttachments;
+import com.zinzinc.recursivefactory.config.FactoryConfig;
 import com.zinzinc.recursivefactory.network.ModNetworking;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import com.zinzinc.recursivefactory.world.ModEntities;
@@ -14,6 +15,8 @@ import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.server.ServerStartedEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
@@ -48,7 +51,8 @@ public final class RecursiveFactory {
                     })
                     .build());
 
-    public RecursiveFactory(IEventBus modEventBus) {
+    public RecursiveFactory(IEventBus modEventBus, ModContainer container) {
+        container.registerConfig(ModConfig.Type.COMMON, FactoryConfig.SPEC);
         ModBlocks.register(modEventBus);
         ModBlockEntities.register(modEventBus);
         ModEntities.register(modEventBus);

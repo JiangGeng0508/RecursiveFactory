@@ -128,7 +128,8 @@ public final class RecursiveFactoryBlock extends BaseEntityBlock {
             FactoryData.FactoryRecord.Cell adjacentCell = neighbour.cellAt(pos.relative(direction));
             int roomX = adjacentCell.roomX() + (pos.getX() - adjacentCell.entrance().getX()) * 16;
             int roomZ = adjacentCell.roomZ() + (pos.getZ() - adjacentCell.entrance().getZ()) * 16;
-            data.addEntrance(neighbour.id(), level.dimension().location(), pos, roomX, roomZ);
+            // A room already expanded into this slot must not be overwritten by another factory.
+            if (!data.addEntrance(neighbour.id(), level.dimension().location(), pos, roomX, roomZ)) continue;
             blockEntity.setFactoryId(neighbour.id());
             FactoryData.FactoryRecord grown = data.factory(neighbour.id());
             if (factoryLevel != null && grown != null) {

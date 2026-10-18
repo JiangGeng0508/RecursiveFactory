@@ -7,6 +7,7 @@ on:
   pull_request:
     branches:
       - master
+      - immersive-portals
 
 jobs:
   build:
@@ -24,16 +25,6 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      # The Create runtime libraries live in the git-ignored .reference folder, so the CI
-      # workspace does not have them. Fetch the same jars here; if this step fails,
-      # build.gradle falls back to the equivalent published Maven artifacts.
-      - name: Fetch reference libraries
-        continue-on-error: true
-        run: |
-          git clone --depth 1 https://github.com/AssestinaR/CreatePocketFactory.git /tmp/create-pocket-factory
-          mkdir -p .reference/CreatePocketFactory
-          cp -r /tmp/create-pocket-factory/libs .reference/CreatePocketFactory/libs
-
       # Immersive Portals for NeoForge is not published to any public Maven repository, so the build
       # cannot resolve it and the release jar has to be downloaded. The version comes from
       # gradle.properties so there is a single place to bump it.
@@ -41,7 +32,7 @@ jobs:
         run: |
           VERSION=$(grep '^immersive_portals_version=' gradle.properties | cut -d= -f2)
           mkdir -p .reference/immersive-portals
-          curl -sSL -o ".reference/immersive-portals/immersive_portals-${VERSION}-all.jar" \
+          curl -fsSL -o ".reference/immersive-portals/immersive_portals-${VERSION}-all.jar" \
             "https://github.com/iPortalTeam/ImmersivePortalsModForNeo/releases/download/v${VERSION}/immersive_portals-${VERSION}-all.jar"
           ls -l .reference/immersive-portals/
 
@@ -50,5 +41,16 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify portal branch behavior
+        run: python tools/verification/run_audit.py --timeout 600
+
       - name: Build with Gradle
         run: ./gradlew build --no-daemon --stacktrace
+
+      - name: Check distributable
+        run: python tools/verification/check_artifact.py
