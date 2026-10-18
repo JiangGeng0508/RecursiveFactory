@@ -27,3 +27,23 @@ Recursive Factory is a NeoForge mod for Minecraft 1.21.1. It provides a reusable
 ```
 
 The project targets Minecraft 1.21.1, NeoForge 21.1.249, and Create 6.0.10 or newer. The entrance model, texture, and projection renderer design are derived from the MIT-licensed Create: Pocket Factory reference project.
+
+### Immersive Portals branch
+
+This branch additionally requires Immersive Portals 6.0.7 and Cloth Config 15.0.140.
+Before the first build, download `immersive_portals-6.0.7-all.jar` from the
+[NeoForge release](https://github.com/iPortalTeam/ImmersivePortalsModForNeo/releases/tag/v6.0.7)
+into `.reference/immersive-portals/`. Gradle supplies Create, its libraries and Cloth Config.
+
+Start the development client with `gradlew.bat runClient --console=plain`, or use
+`run-client.bat` when the dependencies are already cached (offline mode).
+All development runs use `run/immersive-portals/<run-name>/`; the client stores its
+mods, saves and configuration in `run/immersive-portals/client/`.
+Existing `run/client/` and `run/server/` directories are left intact for the other branch.
+
+The separate directories prevent the portal branch from loading the other branch's mod stack.
+Sable 2.0.5 (including the stack used by Create Aeronautics 1.3.2) conflicts with
+Immersive Portals 6.0.7's player collision mixin and crashes during startup.
+Sodium 0.8.13 also changes classes targeted by that version of Immersive Portals.
+Do not copy the entire old `mods` directory into the portal profile; verify additional
+mods individually. Required Gradle dependencies must not also be copied into `mods`.

@@ -72,7 +72,10 @@ runs {
         // Please read: https://stackoverflow.com/questions/2031163/when-to-use-the-different-log-levels
         systemProperty 'forge.logging.console.level', 'debug'
 
-        workingDirectory project.layout.projectDirectory.dir('run').dir(name)
+        // This branch uses an older Immersive Portals runtime. Keep its mods, configs and worlds
+        // separate from master: run/client may contain Sable/Aeronautics and newer Sodium builds
+        // whose mixins conflict with Immersive Portals 6.0.7 before the game can start.
+        workingDirectory project.layout.projectDirectory.dir('run/immersive-portals').dir(name)
 
         modSource project.sourceSets.main
     }
