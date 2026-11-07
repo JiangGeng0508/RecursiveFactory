@@ -39,6 +39,10 @@ A face selects the **same compass side** of the room: the north face connects to
 
 Use the middle of a wall, away from corners. Open boundaries between merged cells do not forward connections to another cell's outer wall. Create package logistics are not supported.
 
+## In-game help
+
+Look at an entrance or barrier while wearing Engineer's Goggles to inspect the selected face, corresponding wall, redstone switch, server transfer settings and local buffers. Ponder tutorials cover connections, expansion and nesting, and Schematicannon printing.
+
 ## Copy a factory
 
 **Survival:** select the factory entrances with Create's **Schematic and Quill** and save the schematic. Deploy it, then load it into a **Schematicannon** with gunpowder and nearby material inventories. The cannon places the entrance first and builds the interior progressively. Missing materials pause the task; progress and the captured contents survive saving and reloading.
@@ -54,6 +58,10 @@ Hold a **Factory Preview** and right-click an entrance to bind it, then place it
 Crafting: glass in the top centre; iron ingot, Eye of Ender, iron ingot in the middle row; iron ingot, smooth stone, iron ingot in the bottom row.
 
 ## Loading and configuration
+
+Preview sampling adapts to viewing distance and a shared server budget. Remote displays share source snapshots, and viewing an outer factory also refreshes its nested factories. Configure intervals and budgets under `preview.*`; see the [development guide](docs/development.md).
+
+The preview network protocol has changed. Install the same build on the client and server; matching mod version numbers alone do not make older builds compatible.
 
 Loaded entrances keep their rooms running. Players inside nested factories keep the entrance chain loaded; nearby preview viewers also keep the displayed room running. Temporary loading requests are released when no longer needed.
 
@@ -77,6 +85,8 @@ Open **Mods → Recursive Factory → Config → Common → Entrance transfer** 
 Sable/Simulated integration adds previews of supported physics structures and ropes. These mods are optional. When upgrading from the old **32-block-high** room format, start a new world to avoid incompatible room geometry.
 
 ## Build
+
+See the [development guide](docs/development.md) for regression tests, preview settings and release checks.
 
 Start the test client in an existing development environment (Java 21 required):
 
