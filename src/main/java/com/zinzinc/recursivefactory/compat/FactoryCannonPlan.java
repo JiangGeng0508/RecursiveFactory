@@ -17,10 +17,13 @@ import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import net.createmod.catnip.levelWrappers.SchematicLevel;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.StringRepresentable;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -34,6 +37,7 @@ import java.util.Map;
 
 /** A cannon owns the immutable room snapshots and all their cursors, including nested rooms. */
 public final class FactoryCannonPlan {
+    private static final ResourceLocation ACCUMULATOR = ResourceLocation.fromNamespaceAndPath("electroenergetics", "accumulator");
     private final List<FactoryPrint> factories = new ArrayList<>();
     private ItemStack schematic = ItemStack.EMPTY;
     private CompoundTag saved;
@@ -98,6 +102,13 @@ public final class FactoryCannonPlan {
                 BlockEntity be = view.getBlockEntity(pos);
                 if (be != null && entry.nbt() != null) {
                     CompoundTag nbt = entry.nbt().copy();
+                    // CEE marks accumulators as create:safe_nbt, which includes stored charge.
+                    // Survival construction pays for empty cells, so reset both cells in this
+                    // temporary printer view. Keep the captured/source data intact for creative copies.
+                    if (isAccumulator(entry.state())) {
+                        nbt.remove("Cell1Charge");
+                        nbt.remove("Cell2Charge");
+                    }
                     nbt.putInt("x", pos.getX());
                     nbt.putInt("y", pos.getY());
                     nbt.putInt("z", pos.getZ());
@@ -312,7 +323,7 @@ public final class FactoryCannonPlan {
                     return true;
                 }
                 ((SchematicPrinterAccessor) printer).recursivefactory$position(entry.pos());
-                ItemRequirement requirement = printer.getCurrentRequirement();
+                ItemRequirement requirement = roomRequirement(printer, entry.state());
                 if (requirement.isInvalid() || !printer.shouldPlaceCurrent(level,
                         (p, s, be, old, other, solid) -> shouldPlace(cannon, room, level, p, s, be, old, other, solid))) {
                     room.cursor++;
@@ -429,6 +440,27 @@ public final class FactoryCannonPlan {
         return false;
     }
 
+    private static boolean isAccumulator(BlockState state) {
+        return BuiltInRegistries.BLOCK.getKey(state.getBlock()).equals(ACCUMULATOR);
+    }
+
+    /** CEE 1.1.2's double accumulator drops two cells but Create's default requirement charges one. */
+    private static ItemRequirement roomRequirement(SchematicPrinter printer, BlockState state) {
+        ItemRequirement requirement = printer.getCurrentRequirement();
+        if (requirement.isInvalid() || !isAccumulator(state)) return requirement;
+        boolean doubled = state.getValues().entrySet().stream().anyMatch(entry ->
+                entry.getKey().getName().equals("stack") && entry.getValue() instanceof StringRepresentable value
+                        && (value.getSerializedName().equals("double_parallel") || value.getSerializedName().equals("double_opposite")));
+        if (!doubled) return requirement;
+        int charged = requirement.getRequiredItems().stream()
+                .filter(item -> item.usage == ItemRequirement.ItemUseType.CONSUME && item.stack.is(state.getBlock().asItem()))
+                .mapToInt(item -> item.stack.getCount()).sum();
+        if (charged >= 2) return requirement; // Preserve future upstream fixes and any additional requirements.
+        var items = new ArrayList<>(requirement.getRequiredItems());
+        items.add(new ItemRequirement.StackRequirement(new ItemStack(state.getBlock(), 2 - charged), ItemRequirement.ItemUseType.CONSUME));
+        return new ItemRequirement(items);
+    }
+
     private static void pause(SchematicannonBlockEntity cannon, String message) {
         cannon.state = SchematicannonBlockEntity.State.PAUSED;
         cannon.statusMsg = message;
@@ -467,7 +499,7 @@ public final class FactoryCannonPlan {
                     continue;
                 }
                 ((SchematicPrinterAccessor) printer).recursivefactory$position(entry.pos());
-                ItemRequirement requirement = printer.getCurrentRequirement();
+                ItemRequirement requirement = roomRequirement(printer, entry.state());
                 BlockEntity be = ((SchematicPrinterAccessor) printer).recursivefactory$reader()
                         .getBlockEntity(room.origin.offset(entry.pos()));
                 if (requirement.isInvalid() || entry.state().isAir()

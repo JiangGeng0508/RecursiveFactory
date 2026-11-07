@@ -21,7 +21,7 @@ Build a factory inside a block. Expand it in three dimensions, nest more factori
 ## Get started
 
 1. Install this mod and Create on both the client and server.
-2. Craft an entrance: **4 concrete blocks of one colour** in the corners, **4 obsidian** on the edges, and **1 Eye of Ender** in the centre. All 16 concrete colours work.
+2. Craft an entrance: **4 concrete blocks of one colour** in the corners, **1 Precision Mechanism** at the top centre, **3 obsidian** at the left, right and bottom centres, and **1 Eye of Ender** in the centre. All 16 concrete colours work. Make the Precision Mechanism through Create's sequenced assembly chain.
 3. Place it and **right-click with an empty hand to enter**. Build your machines inside.
 4. **Right-click a factory barrier to leave**, returning to where you entered.
 5. Add adjacent entrances to expand, or place an entrance inside to start a nested factory.
@@ -46,6 +46,8 @@ Look at an entrance or barrier while wearing Engineer's Goggles to inspect the s
 ## Copy a factory
 
 **Survival:** select the factory entrances with Create's **Schematic and Quill** and save the schematic. Deploy it, then load it into a **Schematicannon** with gunpowder and nearby material inventories. The cannon places the entrance first and builds the interior progressively. Missing materials pause the task; progress and the captured contents survive saving and reloading.
+
+Ordinary chests, fluid tanks, furnaces, depots and basins are rebuilt without their stored items, fluids, fuel or processing progress. Entrance buffers are not copied. Printed CEE accumulators start uncharged, and a double accumulator requires two accumulator items. The source factory's contents remain unchanged.
 
 **Creative:** middle-click an entrance, then place the obtained block. It reads the source factory when placed and creates an independent copy, including its connected entrances and nested factories. Changes to the source are included in the next copy. A missing source or obstructed entrance layout prevents placement.
 
