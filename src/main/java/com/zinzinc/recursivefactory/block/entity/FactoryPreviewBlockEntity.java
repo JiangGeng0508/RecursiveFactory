@@ -2,7 +2,7 @@ package com.zinzinc.recursivefactory.block.entity;
 
 import com.zinzinc.recursivefactory.compat.sable.SablePhysicsBodies;
 import com.zinzinc.recursivefactory.data.ModDataComponents;
-import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
+import com.zinzinc.recursivefactory.preview.*;
 import com.zinzinc.recursivefactory.world.FactoryData;
 import com.zinzinc.recursivefactory.world.FactoryDimension;
 import java.util.List;
@@ -16,22 +16,15 @@ import net.minecraft.nbt.NbtOps;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
-import net.neoforged.neoforge.network.PacketDistributor;
 
 /** Receives a live preview without acquiring a room or any endpoint transport capabilities. */
 public final class FactoryPreviewBlockEntity extends BlockEntity implements FactoryPreviewSource {
     private static final double VIEW_RANGE_SQUARED = 160.0 * 160.0;
     private @Nullable GlobalPos source;
-    private List<EndpointBlockEntity.PreviewBlock> blocks = List.of();
-    private List<CompoundTag> entities = List.of();
-    private List<CompoundTag> blockEntities = List.of();
-    private CompoundTag wires = new CompoundTag();
-    private List<CompoundTag> bodies = List.of();
-    private List<CompoundTag> ropes = List.of();
+    private PreviewSnapshot preview = PreviewSnapshot.empty();
 
     public FactoryPreviewBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.FACTORY_PREVIEW.get(), pos, state);
@@ -45,59 +38,55 @@ public final class FactoryPreviewBlockEntity extends BlockEntity implements Fact
     }
 
     public void tick() {
-        if (level instanceof ServerLevel serverLevel && source != null
-                && serverLevel.players().stream().anyMatch(this::canView)) refreshPreviewSnapshot();
+        if (!(level instanceof ServerLevel serverLevel) || source == null) return;
+        var position = SablePhysicsBodies.worldPosition(serverLevel, Vec3.atCenterOf(worldPosition));
+        double nearest = Double.POSITIVE_INFINITY;
+        for (ServerPlayer player : serverLevel.players()) nearest = Math.min(nearest, player.position().distanceTo(position));
+        if (nearest < 160) PreviewScheduler.watch(this, nearest);
     }
 
-    @Override
-    public void refreshPreviewSnapshot() {
-        if (!(level instanceof ServerLevel serverLevel)) return;
+    public @Nullable RecursiveFactoryBlockEntity resolveSource() {
+        if (!(level instanceof ServerLevel serverLevel)) return null;
         ServerLevel sourceLevel = source == null ? null : serverLevel.getServer().getLevel(source.dimension());
-        if (sourceLevel != null && sourceLevel.isInWorldBounds(source.pos())) {
-            // Looking at a remote display is enough to load the linked entrance and keep its room ticking.
-            sourceLevel.getChunk(source.pos().getX() >> 4, source.pos().getZ() >> 4);
-            if (sourceLevel.getBlockEntity(source.pos()) instanceof RecursiveFactoryBlockEntity entrance) {
-                var record = FactoryData.get(serverLevel.getServer()).factory(entrance.getFactoryId());
-                if (record != null && record.cellAt(source.pos()) != null
-                        && source.dimension().location().equals(record.entranceDimension())) {
-                    FactoryDimension.keepLoaded(record.id());
-                    entrance.refreshPreviewForDisplay();
-                    updatePreview(entrance.getPreviewBlocks(), entrance.getPreviewEntities(),
-                            entrance.getPreviewBlockEntities(), entrance.getPreviewWires(), entrance.getPreviewBodies(), entrance.getPreviewRopes());
-                    return;
-                }
+        if (sourceLevel == null || !sourceLevel.isInWorldBounds(source.pos())) return null;
+        sourceLevel.getChunk(source.pos().getX() >> 4, source.pos().getZ() >> 4);
+        if (sourceLevel.getBlockEntity(source.pos()) instanceof RecursiveFactoryBlockEntity entrance) {
+            var record = FactoryData.get(serverLevel.getServer()).factory(entrance.getFactoryId());
+            if (record != null && record.cellAt(source.pos()) != null
+                    && source.dimension().location().equals(record.entranceDimension())) {
+                FactoryDimension.keepLoaded(record.id());
+                return entrance;
             }
         }
-        updatePreview(List.of(), List.of(), List.of(), new CompoundTag(), List.of(), List.of());
+        return null;
     }
 
-    private void updatePreview(List<EndpointBlockEntity.PreviewBlock> blocks, List<CompoundTag> entities,
-                               List<CompoundTag> blockEntities, CompoundTag wires, List<CompoundTag> bodies, List<CompoundTag> ropes) {
-        if (this.blocks.equals(blocks) && this.entities.equals(entities) && this.blockEntities.equals(blockEntities)
-                && this.wires.equals(wires) && this.bodies.equals(bodies) && this.ropes.equals(ropes)) return;
-        acceptPreview(blocks, entities, blockEntities, wires, bodies, ropes);
-        if (level instanceof ServerLevel serverLevel) PacketDistributor.sendToPlayersTrackingChunk(serverLevel,
-                new ChunkPos(worldPosition), new EndpointPreviewPackets.Sync(worldPosition, previewTag()));
-        // Preview contents are transient. Only the coordinate link belongs in the chunk's save data.
+    @Override public void refreshPreviewSnapshot() {
+        RecursiveFactoryBlockEntity entrance = resolveSource();
+        if (entrance == null) { show(PreviewSnapshot.empty()); return; }
+        entrance.refreshPreviewForDisplay();
+        PreviewTransport.copyTiming(entrance, this);
+        show(entrance.previewSnapshot());
     }
 
-    @Override
-    public void acceptPreview(List<EndpointBlockEntity.PreviewBlock> blocks, List<CompoundTag> entities,
-                              List<CompoundTag> blockEntities, CompoundTag wires, List<CompoundTag> bodies, List<CompoundTag> ropes) {
-        this.blocks = List.copyOf(blocks);
-        this.entities = List.copyOf(entities);
-        this.blockEntities = List.copyOf(blockEntities);
-        this.wires = wires.copy();
-        this.bodies = List.copyOf(bodies);
-        this.ropes = List.copyOf(ropes);
+    public void show(PreviewSnapshot snapshot) {
+        if (preview == snapshot || preview.equals(snapshot)) return;
+        preview = snapshot;
+        PreviewTransport.broadcast(this);
     }
 
-    @Override public List<EndpointBlockEntity.PreviewBlock> getPreviewBlocks() { return blocks; }
-    @Override public List<CompoundTag> getPreviewEntities() { return entities; }
-    @Override public List<CompoundTag> getPreviewBlockEntities() { return blockEntities; }
-    @Override public CompoundTag getPreviewWires() { return wires; }
-    @Override public List<CompoundTag> getPreviewBodies() { return bodies; }
-    @Override public List<CompoundTag> getPreviewRopes() { return ropes; }
+    @Override public void acceptPreview(List<EndpointBlockEntity.PreviewBlock> blocks, List<CompoundTag> entities,
+                              List<CompoundTag> blockEntities, CompoundTag wires,
+                              List<CompoundTag> bodies, List<CompoundTag> ropes) {
+        preview = new PreviewSnapshot(blocks, entities, blockEntities, wires, bodies, ropes);
+    }
+
+    @Override public List<EndpointBlockEntity.PreviewBlock> getPreviewBlocks() { return preview.blocks(); }
+    @Override public List<CompoundTag> getPreviewEntities() { return preview.entities(); }
+    @Override public List<CompoundTag> getPreviewBlockEntities() { return preview.blockEntities(); }
+    @Override public CompoundTag getPreviewWires() { return preview.wires(); }
+    @Override public List<CompoundTag> getPreviewBodies() { return preview.bodies(); }
+    @Override public List<CompoundTag> getPreviewRopes() { return preview.ropes(); }
 
     @Override
     protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {

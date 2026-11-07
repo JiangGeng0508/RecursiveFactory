@@ -37,6 +37,7 @@ public final class EndpointPreviewRenderer {
      */
     private static final int REQUEST_INTERVAL_TICKS = 40;
     private static final Map<FactoryPreviewSource, CachedProjection> PROJECTION_CACHE = new WeakHashMap<>();
+    private static final Map<FactoryPreviewSource, Object[]> LAST_INPUTS = new WeakHashMap<>();
     private static final Map<FactoryPreviewSource, Long> LAST_REQUEST_TICKS = new WeakHashMap<>();
     private static final Map<FactoryPreviewSource, PhysicsPreviewRenderer> PHYSICS_CACHE = new WeakHashMap<>();
     private static final Map<FactoryPreviewSource, RopePreviewRenderer> ROPE_CACHE = new WeakHashMap<>();
@@ -45,7 +46,9 @@ public final class EndpointPreviewRenderer {
     }
 
     public static void clearCaches() {
+        com.zinzinc.recursivefactory.preview.PreviewTransport.clearClient();
         PROJECTION_CACHE.clear();
+        LAST_INPUTS.clear();
         LAST_REQUEST_TICKS.clear();
         PHYSICS_CACHE.clear();
         ROPE_CACHE.clear();
@@ -62,6 +65,7 @@ public final class EndpointPreviewRenderer {
             LAST_REQUEST_TICKS.remove(blockEntity);
             return;
         }
+        if (com.zinzinc.recursivefactory.preview.PreviewTransport.synchronizedWithServer(blockEntity)) return;
         long gameTime = level.getGameTime();
         Long lastRequest = LAST_REQUEST_TICKS.get(blockEntity);
         if (lastRequest != null && gameTime - lastRequest < REQUEST_INTERVAL_TICKS) {
@@ -93,10 +97,10 @@ public final class EndpointPreviewRenderer {
         }
         if (blockEntity.getPreviewBodies().isEmpty()) PHYSICS_CACHE.remove(blockEntity);
         else PHYSICS_CACHE.computeIfAbsent(blockEntity, ignored -> new PhysicsPreviewRenderer()).render(
-                blockEntity.getLevel(), blockEntity.getPreviewBodies(), poseStack, bufferSource, partialTick, clock);
+                blockEntity.getLevel(), blockEntity.getPreviewBodies(), poseStack, bufferSource, partialTick, clock, com.zinzinc.recursivefactory.preview.PreviewTransport.interval(blockEntity));
         if (blockEntity.getPreviewRopes().isEmpty()) ROPE_CACHE.remove(blockEntity);
         else ROPE_CACHE.computeIfAbsent(blockEntity, ignored -> new RopePreviewRenderer()).render(
-                blockEntity.getPreviewRopes(), poseStack, bufferSource, clock);
+                blockEntity.getPreviewRopes(), poseStack, bufferSource, clock, com.zinzinc.recursivefactory.preview.PreviewTransport.interval(blockEntity));
         poseStack.popPose();
     }
 
@@ -110,6 +114,16 @@ public final class EndpointPreviewRenderer {
             return null;
         }
 
+        Object[] inputs = {blockEntity.getPreviewBlocks(), blockEntity.getPreviewEntities(),
+                blockEntity.getPreviewBlockEntities(), blockEntity.getPreviewWires()};
+        Object[] previousInputs = LAST_INPUTS.get(blockEntity);
+        if (previousInputs != null && PROJECTION_CACHE.containsKey(blockEntity)) {
+            boolean same = true;
+            for (int i = 0; i < inputs.length; i++) same &= inputs[i] == previousInputs[i];
+            if (same) return PROJECTION_CACHE.get(blockEntity).cache();
+        }
+        LAST_INPUTS.put(blockEntity, inputs);
+
         // The blocks are drawn again only when they change. Entities are handed the new sample instead, see
         // FactoryProjectionCache#updateEntities - building them again every tick is what made them twitch.
         int blockHash = 31 * blockEntity.getPreviewBlocks().hashCode()
@@ -120,8 +134,9 @@ public final class EndpointPreviewRenderer {
         CachedProjection cached = PROJECTION_CACHE.get(blockEntity);
         if (cached != null && cached.blockHash() == blockHash) {
             if (cached.blockEntityHash() != blockEntityHash) {
-                cached.cache().updateBeltInventories(blockEntity.getPreviewBlockEntities());
+                cached.cache().updateBlockEntities(blockEntity.getPreviewBlockEntities());
             }
+            cached.cache().setSampleInterval(com.zinzinc.recursivefactory.preview.PreviewTransport.interval(blockEntity));
             if (cached.entityHash() != entityHash) {
                 cached.cache().updateEntities(blockEntity.getPreviewEntities(), clock);
             }
@@ -147,22 +162,13 @@ public final class EndpointPreviewRenderer {
                 new AABB(-FactoryData.CELL_SIZE / 2.0, 0, -FactoryData.CELL_SIZE / 2.0,
                         FactoryData.CELL_SIZE / 2.0, FactoryData.ROOM_HEIGHT, FactoryData.CELL_SIZE / 2.0)
         );
+        rebuilt.setSampleInterval(com.zinzinc.recursivefactory.preview.PreviewTransport.interval(blockEntity));
         PROJECTION_CACHE.put(blockEntity, new CachedProjection(blockHash, entityHash, blockEntityHash, entities, rebuilt));
         return rebuilt;
     }
 
     private static int blockEntityGeometryHash(FactoryPreviewSource endpoint) {
-        int hash = 1;
-        for (CompoundTag sample : endpoint.getPreviewBlockEntities()) {
-            CompoundTag geometry = sample;
-            if (sample.getString("id").equals("create:belt")) {
-                geometry = sample.copy();
-                // Moving items change every tick, but do not change the room's static mesh.
-                geometry.remove("Inventory");
-            }
-            hash = 31 * hash + geometry.hashCode();
-        }
-        return hash;
+        return com.zinzinc.recursivefactory.preview.PreviewDisplayData.geometryHash(endpoint.getPreviewBlockEntities());
     }
 
     private record CachedProjection(int blockHash, int entityHash, int blockEntityHash,

@@ -1,45 +1,24 @@
 package com.zinzinc.recursivefactory.preview;
 
-import com.mojang.logging.LogUtils;
-import com.simibubi.create.content.kinetics.KineticNetwork;
-import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
 import com.simibubi.create.content.kinetics.belt.BeltBlockEntity;
 import com.simibubi.create.content.logistics.vault.ItemVaultBlockEntity;
-import com.zinzinc.recursivefactory.config.FactoryConfig;
-import com.zinzinc.recursivefactory.data.FactoryColors;
-import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
 import com.zinzinc.recursivefactory.world.PreviewPlayerData;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
-import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.core.HolderLookup;
-import net.minecraft.core.NonNullList;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.DoubleTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtUtils;
-import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.util.Mth;
 import net.minecraft.world.phys.AABB;
-import net.neoforged.neoforge.fluids.FluidStack;
-import net.neoforged.neoforge.network.PacketDistributor;
-import org.slf4j.Logger;
 
 import com.zinzinc.recursivefactory.block.entity.*;
 import com.zinzinc.recursivefactory.block.entity.EndpointBlockEntity.PreviewBlock;
@@ -184,13 +163,23 @@ public final class PreviewSampler {
             if (blockEntity == null) {
                 continue;
             }
-            CompoundTag tag = blockEntity.saveWithId(level.registryAccess());
+            CompoundTag tag = PreviewDisplayData.sample(blockEntity);
             if (blockEntity instanceof EndpointBlockEntity endpoint) {
                 // Nested entrances still render their contents, but only the preview transport carries
                 // this cache. Ordinary saves, schematics and debug NBT queries must not include it.
-                if (PreviewRecursion.allows(endpoint)) {
-                    if (endpoint instanceof RecursiveFactoryBlockEntity entrance) entrance.ensurePreviewSnapshot();
-                    tag.put(PREVIEW_BLOCKS_TAG, endpoint.previewTag());
+                if (!block.contextOnly() && PreviewRecursion.allows(endpoint)) {
+                    if (endpoint instanceof RecursiveFactoryBlockEntity entrance) {
+                        if (PreviewScheduler.sampling()) PreviewScheduler.nested(entrance);
+                        else entrance.ensurePreviewSnapshot();
+                    }
+                    CompoundTag nested = endpoint.previewTag();
+                    var ancestors = new java.util.HashSet<Integer>();
+                    ancestors.add(endpoint.getFactoryId());
+                    var parent = com.zinzinc.recursivefactory.world.FactoryData.get(level.getServer()).factoryAt(center);
+                    if (parent != null) ancestors.add(parent.id());
+                    PreviewDisplayData.trimNested(nested, ancestors, 2);
+                    tag.put(PREVIEW_BLOCKS_TAG, nested);
+                    tag.putInt("RecursiveFactoryPreviewInterval", PreviewTransport.sampledInterval(endpoint));
                 } else {
                     tag.put(PREVIEW_BLOCKS_TAG, new CompoundTag());
                 }

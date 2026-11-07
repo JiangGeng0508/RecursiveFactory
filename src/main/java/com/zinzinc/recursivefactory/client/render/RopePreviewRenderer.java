@@ -29,7 +29,7 @@ public final class RopePreviewRenderer {
     private static boolean broken;
     private final Map<UUID, Strand> strands = new HashMap<>();
 
-    public void render(List<CompoundTag> samples, PoseStack stack, MultiBufferSource buffers, double clock) {
+    public void render(List<CompoundTag> samples, PoseStack stack, MultiBufferSource buffers, double clock, int interval) {
         if (broken || !ModList.get().isLoaded("simulated")) return;
         try {
             if (ropeModel == null) {
@@ -44,7 +44,7 @@ public final class RopePreviewRenderer {
                 seen.add(id);
                 Strand strand = strands.computeIfAbsent(id, ignored -> new Strand());
                 strand.update(sample, clock);
-                float alpha = (float) Mth.clamp(clock - strand.arrival, 0, 1);
+                float alpha = (float) Mth.clamp((clock - strand.arrival) / Math.max(1, interval), 0, 1);
                 for (int i = 1; i < strand.points.size(); i++) {
                     Vec3 from = strand.point(i - 1, alpha), to = strand.point(i, alpha);
                     var segment = WirePreviewGeometry.clip(from, to);

@@ -84,6 +84,32 @@ public final class FactoryConfig {
             )
             .defineInRange("power.linkMaxCurrent", 1000.0D, 1.0D, 1.0E7D);
 
+    public static final ModConfigSpec.IntValue PREVIEW_STATIC_BUDGET = previewInt("staticBudget", 4, 128);
+    public static final ModConfigSpec.IntValue PREVIEW_DYNAMIC_BUDGET = previewInt("dynamicBudget", 32, 512);
+    public static final ModConfigSpec.IntValue PREVIEW_NEAR_STATIC = previewInt("nearStaticTicks", 10, 200);
+    public static final ModConfigSpec.IntValue PREVIEW_MID_STATIC = previewInt("middleStaticTicks", 20, 200);
+    public static final ModConfigSpec.IntValue PREVIEW_FAR_STATIC = previewInt("farStaticTicks", 40, 200);
+    public static final ModConfigSpec.IntValue PREVIEW_NEAR_DYNAMIC = previewInt("nearDynamicTicks", 1, 40);
+    public static final ModConfigSpec.IntValue PREVIEW_MID_DYNAMIC = previewInt("middleDynamicTicks", 4, 40);
+    public static final ModConfigSpec.IntValue PREVIEW_FAR_DYNAMIC = previewInt("farDynamicTicks", 10, 40);
+
+    private static ModConfigSpec.IntValue previewInt(String name, int value, int max) {
+        return BUILDER.translation("recursivefactory.configuration.preview." + name)
+                .defineInRange("preview." + name, value, 1, max);
+    }
+
+    public static int previewInterval(double distance, boolean geometry) {
+        ModConfigSpec.IntValue value = geometry
+                ? (distance <= 32 ? PREVIEW_NEAR_STATIC : distance <= 80 ? PREVIEW_MID_STATIC : PREVIEW_FAR_STATIC)
+                : (distance <= 32 ? PREVIEW_NEAR_DYNAMIC : distance <= 80 ? PREVIEW_MID_DYNAMIC : PREVIEW_FAR_DYNAMIC);
+        return SPEC.isLoaded() ? value.get() : value.getDefault();
+    }
+
+    public static int previewBudget(boolean geometry) {
+        var value = geometry ? PREVIEW_STATIC_BUDGET : PREVIEW_DYNAMIC_BUDGET;
+        return SPEC.isLoaded() ? value.get() : value.getDefault();
+    }
+
     public static final ModConfigSpec SPEC = BUILDER.build();
 
     public static boolean kineticTransferEnabled() {

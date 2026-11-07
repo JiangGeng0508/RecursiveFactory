@@ -52,5 +52,14 @@
   "recursivefactory.configuration.transfer.kineticEnabled.tooltip": "Allow factory entrances and room barriers to transfer rotation and stress. Enabled by default; disabled by default when Create Ender Transmission (createendertransmission) is loaded. Saved choices take priority.",
   "recursivefactory.configuration.transfer.fluidEnabled.tooltip": "Allow factory entrances and room barriers to transfer fluids. Enabled by default; disabled by default when Create Ender Transmission (createendertransmission) is loaded. Saved choices take priority.",
   "recursivefactory.configuration.transfer.itemEnabled.tooltip": "Allow factory entrances and room barriers to transfer items. Enabled by default; disabled by default when Create Ender Transmission (createendertransmission) is loaded. Saved choices take priority.",
-  "message.recursivefactory.recovered": "Returned safely from an unavailable factory."
+  "message.recursivefactory.recovered": "Returned safely from an unavailable factory.",
+  "recursivefactory.configuration.preview": "Preview performance",
+  "recursivefactory.configuration.preview.staticBudget": "Static cells per tick",
+  "recursivefactory.configuration.preview.dynamicBudget": "Dynamic cells per tick",
+  "recursivefactory.configuration.preview.nearStaticTicks": "Near geometry interval (ticks)",
+  "recursivefactory.configuration.preview.middleStaticTicks": "Middle geometry interval (ticks)",
+  "recursivefactory.configuration.preview.farStaticTicks": "Far geometry interval (ticks)",
+  "recursivefactory.configuration.preview.nearDynamicTicks": "Near animation interval (ticks)",
+  "recursivefactory.configuration.preview.middleDynamicTicks": "Middle animation interval (ticks)",
+  "recursivefactory.configuration.preview.farDynamicTicks": "Far animation interval (ticks)"
 }

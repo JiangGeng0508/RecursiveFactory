@@ -75,6 +75,8 @@ public final class RecursiveFactory {
         modContainer.registerConfig(ModConfig.Type.COMMON, FactoryConfig.SPEC);
         modEventBus.addListener(ModNetworking::register);
         NeoForge.EVENT_BUS.addListener(this::onServerStarted);
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppedEvent event) ->
+                com.zinzinc.recursivefactory.preview.PreviewScheduler.reset(event.getServer()));
         NeoForge.EVENT_BUS.addListener(this::onServerTickPre);
         NeoForge.EVENT_BUS.addListener(this::onServerTick);
         NeoForge.EVENT_BUS.addListener(this::onBlockBreakAttempt);
@@ -109,6 +111,7 @@ public final class RecursiveFactory {
     }
 
     private void onServerStarted(ServerStartedEvent event) {
+        com.zinzinc.recursivefactory.preview.PreviewScheduler.reset(event.getServer());
         FactoryDimension.initialize(event.getServer());
         if (powerAvailable()) {
             com.zinzinc.recursivefactory.power.FactoryPower.initialize();
@@ -116,6 +119,7 @@ public final class RecursiveFactory {
     }
 
     private void onServerTick(ServerTickEvent.Post event) {
+        com.zinzinc.recursivefactory.preview.PreviewScheduler.get(event.getServer()).tick(event.getServer());
         FactoryDimension.tick(event.getServer());
     }
 }

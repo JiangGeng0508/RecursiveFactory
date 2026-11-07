@@ -47,3 +47,6 @@ repo/
 .agents/
 AGENTS.md
 logs/
+
+# Python verification caches
+__pycache__/

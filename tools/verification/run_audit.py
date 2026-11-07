@@ -34,9 +34,10 @@ def run_process(command, log, timeout):
             return 124
 
 
-def audit(args, without_power):
+def audit(args, without_power, runtime=False):
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     label = "without-cee" if without_power else "with-cee"
+    if runtime: label += "-runtime"
     run_dir = ROOT / "run" / "verification" / (label + "-" + stamp)
     run_dir.mkdir(parents=True)
     (run_dir / "eula.txt").write_text("eula=true\n", encoding="utf-8")
@@ -51,6 +52,8 @@ def audit(args, without_power):
                if os.name == "nt" else [str(ROOT / "gradlew")])
     command += ["-I", "tools/verification/verify.init.gradle", "runServer", "--no-daemon",
                 "--console=plain", "-PauditRunDir=" + str(run_dir)]
+    if runtime:
+        command.append("-PauditRuntime")
     if args.offline:
         command.append("--offline")
     if without_power:
@@ -59,7 +62,7 @@ def audit(args, without_power):
     code = run_process(command, log, args.timeout)
     output = log.read_text(encoding="utf-8", errors="replace")
     for line in output.splitlines():
-        if "[rfaudit]" in line:
+        if "[rfaudit]" in line and any(marker in line for marker in ("COMPLETE", "FAIL", "preview-workload", "preview-payload")):
             print(line)
     if not successful(code, output):
         print("\n".join(output.splitlines()[-40:]))
@@ -74,11 +77,13 @@ def main():
     parser.add_argument("--offline", action="store_true")
     parser.add_argument("--timeout", type=int, default=600)
     parser.add_argument("--without-power", action="store_true")
+    parser.add_argument("--runtime", action="store_true", help="Run tick-driven scenarios in a separate world")
     parser.add_argument("--matrix", action="store_true", help="Run with and without CEE sequentially")
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error("timeout must be positive")
-    return 0 if all(audit(args, mode) for mode in ([False, True] if args.matrix else [args.without_power])) else 1
+    cases = [(power, runtime) for power in [False, True] for runtime in [False, True]] if args.matrix else [(args.without_power, args.runtime)]
+    return 0 if all(audit(args, power, runtime) for power, runtime in cases) else 1
 
 
 if __name__ == "__main__":

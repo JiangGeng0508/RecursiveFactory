@@ -180,28 +180,15 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
             }
         }
 
-        if (!hasAudience(serverLevel)) {
-            hadAudience = false;
-            return;
-        }
-
-        long gameTime = serverLevel.getGameTime();
-        if (hadAudience && gameTime - lastRefreshTick < REFRESH_INTERVAL) {
-            return;
-        }
-
-        hadAudience = true;
-        refreshPreviewSnapshot();
+        double distance = previewDistance(serverLevel);
+        if (distance < PREVIEW_RANGE) com.zinzinc.recursivefactory.preview.PreviewScheduler.watch(this, distance);
     }
 
-    private boolean hasAudience(ServerLevel serverLevel) {
+    private double previewDistance(ServerLevel serverLevel) {
         var worldPos = SablePhysicsBodies.worldPosition(serverLevel, Vec3.atCenterOf(worldPosition));
-        for (ServerPlayer player : serverLevel.players()) {
-            if (player.position().distanceToSqr(worldPos) < PREVIEW_RANGE * PREVIEW_RANGE) {
-                return true;
-            }
-        }
-        return false;
+        double nearest = Double.POSITIVE_INFINITY;
+        for (ServerPlayer player : serverLevel.players()) nearest = Math.min(nearest, player.position().distanceTo(worldPos));
+        return nearest;
     }
 
     /**
@@ -290,7 +277,9 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
     }
 
     /** Samples the middle of this entrance block's own cell, which is what its face preview shows. */
-    public void refreshPreviewSnapshot() {
+    public void refreshPreviewSnapshot() { samplePreview(true); }
+
+    public void samplePreview(boolean geometry) {
         if (!(level instanceof ServerLevel serverLevel)) {
             return;
         }
@@ -319,17 +308,17 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
         // The barrier shell is not part of the preview: only the room's free space is drawn. Its block
         // entities are dropped with it, so the shell's own block entities never travel either.
         BlockPos previewCenter = cell.previewCenter();
-        List<PreviewBlock> blocks = samplePreviewWithContext(factoryLevel, previewCenter, PREVIEW_SIZE, PREVIEW_HEIGHT)
+        List<PreviewBlock> blocks = geometry ? samplePreviewWithContext(factoryLevel, previewCenter, PREVIEW_SIZE, PREVIEW_HEIGHT)
                 .stream()
                 .filter(block -> !block.state().is(ModBlocks.FACTORY_BARRIER.get()))
-                .toList();
+                .toList() : getPreviewBlocks();
         updatePreview(
                 blocks,
                 samplePreviewEntities(factoryLevel, previewCenter, PREVIEW_SIZE, PREVIEW_HEIGHT),
                 samplePreviewBlockEntities(factoryLevel, previewCenter, blocks),
-                RecursiveFactory.powerAvailable()
+                geometry ? (RecursiveFactory.powerAvailable()
                         ? FactoryWires.capture(factoryLevel, record, previewCenter.below())
-                        : new CompoundTag(),
+                        : new CompoundTag()) : getPreviewWires(),
                 SablePhysicsBodies.sample(factoryLevel, previewCenter, PREVIEW_SIZE, PREVIEW_HEIGHT),
                 SableRopes.sample(factoryLevel, previewCenter)
         );

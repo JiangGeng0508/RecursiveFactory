@@ -52,5 +52,14 @@
   "recursivefactory.configuration.transfer.kineticEnabled.tooltip": "允许入口方块与工厂屏障传输应力。默认开启；加载末影传输（createendertransmission）时默认关闭。已保存的设置优先。",
   "recursivefactory.configuration.transfer.fluidEnabled.tooltip": "允许入口方块与工厂屏障传输流体。默认开启；加载末影传输（createendertransmission）时默认关闭。已保存的设置优先。",
   "recursivefactory.configuration.transfer.itemEnabled.tooltip": "允许入口方块与工厂屏障传输物品。默认开启；加载末影传输（createendertransmission）时默认关闭。已保存的设置优先。",
-  "message.recursivefactory.recovered": "已从失效的工厂安全返回。"
+  "message.recursivefactory.recovered": "已从失效的工厂安全返回。",
+  "recursivefactory.configuration.preview": "预览性能",
+  "recursivefactory.configuration.preview.staticBudget": "每 tick 静态扫描格数",
+  "recursivefactory.configuration.preview.dynamicBudget": "每 tick 动态采样格数",
+  "recursivefactory.configuration.preview.nearStaticTicks": "近处静态扫描间隔（tick）",
+  "recursivefactory.configuration.preview.middleStaticTicks": "中距离静态扫描间隔（tick）",
+  "recursivefactory.configuration.preview.farStaticTicks": "远处静态扫描间隔（tick）",
+  "recursivefactory.configuration.preview.nearDynamicTicks": "近处动态采样间隔（tick）",
+  "recursivefactory.configuration.preview.middleDynamicTicks": "中距离动态采样间隔（tick）",
+  "recursivefactory.configuration.preview.farDynamicTicks": "远处动态采样间隔（tick）"
 }

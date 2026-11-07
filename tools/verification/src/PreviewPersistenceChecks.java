@@ -105,6 +105,9 @@ final class PreviewPersistenceChecks {
                         && entrance.getPreviewBlocks().stream().noneMatch(block -> block.state().is(Blocks.GOLD_BLOCK)),
                 "the first preview refresh rebuilds from live room contents instead of stale saved geometry");
 
+        check.accept(entrance.getPreviewBlockEntities().stream().filter(tag -> tag.getString("id").equals("minecraft:chest"))
+                        .allMatch(tag -> !tag.contains("Items")) && chest.getItem(0).getCount() == 7,
+                "chest inventory is omitted from display data without changing the real inventory");
         var inner = door(inside, origin.offset(7, 0, 7));
         var innerRoom = FactoryData.get(outside.getServer()).factory(inner.getFactoryId());
         inside.setBlockAndUpdate(FactoryBlueprint.origin(innerRoom.anchorCell()).offset(3, 0, 3), Blocks.DIAMOND_BLOCK.defaultBlockState());

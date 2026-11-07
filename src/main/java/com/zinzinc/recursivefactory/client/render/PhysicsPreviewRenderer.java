@@ -19,7 +19,7 @@ public final class PhysicsPreviewRenderer {
     private final Map<UUID, Body> bodies = new HashMap<>();
 
     public void render(Level level, List<CompoundTag> samples, PoseStack stack, MultiBufferSource buffers,
-                       float partialTick, double clock) {
+                       float partialTick, double clock, int interval) {
         var seen = new HashSet<UUID>();
         for (CompoundTag sample : samples) {
             if (!sample.hasUUID("Id")) continue;
@@ -27,7 +27,7 @@ public final class PhysicsPreviewRenderer {
             seen.add(id);
             Body body = bodies.computeIfAbsent(id, ignored -> new Body());
             body.update(level, sample, clock);
-            float alpha = (float) Mth.clamp(clock - body.arrival, 0, 1);
+            float alpha = (float) Mth.clamp((clock - body.arrival) / Math.max(1, interval), 0, 1);
             Vec3 position = body.previousPosition.lerp(body.position, alpha);
             Quaternionf rotation = new Quaternionf(body.previousRotation).slerp(body.rotation, alpha);
             stack.pushPose();

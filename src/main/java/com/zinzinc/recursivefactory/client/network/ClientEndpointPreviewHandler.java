@@ -43,6 +43,13 @@ public final class ClientEndpointPreviewHandler {
     }
 
     public static void handle(EndpointPreviewPackets.Sync packet) {
-        handle(packet.pos(), packet.previewTag());
+        var level = net.minecraft.client.Minecraft.getInstance().level;
+        if (level == null || !(level.getBlockEntity(packet.pos()) instanceof FactoryPreviewSource source)) return;
+        CompoundTag snapshot = com.zinzinc.recursivefactory.preview.PreviewTransport.receive(source, packet.previewTag());
+        if (snapshot == null) {
+            com.zinzinc.recursivefactory.client.render.EndpointPreviewRenderer.requestPreview(source);
+            return;
+        }
+        handle(packet.pos(), snapshot);
     }
 }

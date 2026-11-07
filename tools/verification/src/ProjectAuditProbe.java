@@ -47,6 +47,14 @@ public final class ProjectAuditProbe {
     @SubscribeEvent public static void started(ServerStartedEvent event) {
         ServerLevel outside = event.getServer().overworld();
         ServerLevel inside = event.getServer().getLevel(FactoryDimension.LEVEL_KEY);
+        if (Boolean.getBoolean("rfaudit.runtime")) {
+            PreviewRuntimeChecks.start(event.getServer(), ProjectAuditProbe::check, () -> {
+                System.out.println("[rfaudit] COMPLETE checks=" + checks + " failures=" + failures);
+                event.getServer().halt(false);
+            });
+            return;
+        }
+        run("preview optimization", () -> PreviewOptimizationChecks.run(ProjectAuditProbe::check));
         run("safe returns", () -> ReturnChecks.run(outside, inside, ProjectAuditProbe::check));
         run("transfer settings", () -> TransferChecks.run(outside, inside, ProjectAuditProbe::check));
         run("item tooltips", () -> tooltips(outside, inside));

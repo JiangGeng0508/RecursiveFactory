@@ -20,6 +20,8 @@ import net.minecraft.world.entity.LivingEntity;
 public final class PreviewEntityStep {
     private List<CompoundTag> samples = List.of();
     private double sampleClock = Double.NaN;
+    private double interval = 1;
+    public void setInterval(double interval) { this.interval = Math.max(1, Math.min(40, interval)); }
 
     /**
      * Takes note of a sample list and answers whether it is a new one. A room whose blocks changed hands
@@ -40,7 +42,7 @@ public final class PreviewEntityStep {
         if (Double.isNaN(sampleClock)) {
             return 1.0F;
         }
-        return (float) Mth.clamp(clock - sampleClock, 0.0D, 1.0D);
+        return (float) Mth.clamp((clock - sampleClock) / interval, 0.0D, 1.0D);
     }
 
     /**

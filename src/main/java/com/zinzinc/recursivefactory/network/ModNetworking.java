@@ -9,7 +9,7 @@ public final class ModNetworking {
     }
 
     public static void register(RegisterPayloadHandlersEvent event) {
-        PayloadRegistrar registrar = event.registrar(RecursiveFactory.MODID).versioned("1");
+        PayloadRegistrar registrar = event.registrar(RecursiveFactory.MODID).versioned("2");
         registrar.playToServer(
                 FactoryPickBlockPacket.TYPE,
                 FactoryPickBlockPacket.STREAM_CODEC,

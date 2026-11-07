@@ -4,42 +4,26 @@ import com.zinzinc.recursivefactory.preview.*;
 import com.mojang.logging.LogUtils;
 import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
-import com.simibubi.create.content.kinetics.belt.BeltBlockEntity;
-import com.simibubi.create.content.logistics.vault.ItemVaultBlockEntity;
 import com.zinzinc.recursivefactory.config.FactoryConfig;
 import com.zinzinc.recursivefactory.data.FactoryColors;
-import com.zinzinc.recursivefactory.network.EndpointPreviewPackets;
-import com.zinzinc.recursivefactory.world.PreviewPlayerData;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedHashMap;
 import java.util.List;
 import javax.annotation.Nullable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.NonNullList;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.DoubleTag;
 import net.minecraft.nbt.ListTag;
-import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EntityType;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.util.Mth;
-import net.minecraft.world.phys.AABB;
 import net.neoforged.neoforge.fluids.FluidStack;
-import net.neoforged.neoforge.network.PacketDistributor;
 import org.slf4j.Logger;
 
 public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity implements FactoryPreviewSource {
@@ -774,14 +758,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
                     preview.blockEntities().size()
             );
         }
-        PacketDistributor.sendToPlayersTrackingChunk(
-                serverLevel,
-                new ChunkPos(worldPosition),
-                new EndpointPreviewPackets.Sync(
-                        worldPosition,
-                        previewTag()
-                )
-        );
+        PreviewTransport.broadcast(this);
     }
 
     public static List<PreviewBlock> samplePreview(ServerLevel level, BlockPos center, int size, int height) {

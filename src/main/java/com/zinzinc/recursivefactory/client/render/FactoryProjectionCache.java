@@ -224,6 +224,8 @@ public final class FactoryProjectionCache {
      * <p>A sample list handed over unchanged - a room whose blocks moved but whose entities did not - is
      * left alone, so a step that is still running is not restarted under the figures being drawn.
      */
+    public void setSampleInterval(int ticks) { store.step.setInterval(ticks); }
+
     public void updateEntities(List<CompoundTag> samples, double clock) {
         if (!store.step.note(samples, clock)) {
             return;
@@ -318,21 +320,27 @@ public final class FactoryProjectionCache {
             // This tag came from the preview stream, not from disk. Restore nested display data
             // explicitly after the normal block loader discards any saved preview cache.
             endpoint.acceptPreviewTag(tag.getCompound(EndpointBlockEntity.PREVIEW_BLOCKS_TAG), renderWorld.registryAccess());
+            com.zinzinc.recursivefactory.preview.PreviewTransport.setClientInterval(endpoint, tag.getInt("RecursiveFactoryPreviewInterval"));
         }
         renderWorld.setBlockEntity(blockEntity);
         blockEntities.add(blockEntity);
     }
 
-    /** Refresh belt item snapshots without re-tessellating thousands of unchanged room blocks. */
-    public void updateBeltInventories(List<CompoundTag> samples) {
+    /** Reuse machines and nested previews when their display data changes without changing geometry. */
+    public void updateBlockEntities(List<CompoundTag> samples) {
         for (CompoundTag tag : samples) {
-            if (!tag.getString("id").equals("create:belt") || !tag.getBoolean("IsController")) continue;
             BlockPos pos = BlockEntity.getPosFromTag(tag);
             try {
-                blockEntities.removeIf(be -> be.getBlockPos().equals(pos));
-                createBlockEntity(tag);
+                BlockEntity existing = renderWorld.getBlockEntity(pos);
+                if (existing == null) { createBlockEntity(tag); continue; }
+                existing.loadWithComponents(tag, renderWorld.registryAccess());
+                if (existing instanceof EndpointBlockEntity endpoint) {
+                    endpoint.acceptPreviewTag(tag.getCompound(EndpointBlockEntity.PREVIEW_BLOCKS_TAG), renderWorld.registryAccess());
+                    com.zinzinc.recursivefactory.preview.PreviewTransport.setClientInterval(endpoint,
+                            tag.getInt("RecursiveFactoryPreviewInterval"));
+                }
             } catch (RuntimeException exception) {
-                LOGGER.warn("Skipping belt inventory in the endpoint preview", exception);
+                LOGGER.warn("Skipping block entity update in the endpoint preview", exception);
             }
         }
     }

@@ -54,11 +54,13 @@ public final class EndpointPreviewPackets {
                         || !allowRequest(player, endpoint)) {
                     return;
                 }
-                if (endpoint instanceof RecursiveFactoryBlockEntity entrance) entrance.refreshPreviewForDisplay();
-                else endpoint.refreshPreviewSnapshot();
+                if (endpoint instanceof RecursiveFactoryBlockEntity entrance)
+                    com.zinzinc.recursivefactory.preview.PreviewScheduler.watch(entrance, 0);
+                else if (endpoint instanceof FactoryPreviewBlockEntity display)
+                    com.zinzinc.recursivefactory.preview.PreviewScheduler.watch(display, 0);
                 PacketDistributor.sendToPlayer(player, new Sync(
                         packet.pos(),
-                        endpoint.previewTag()
+                        com.zinzinc.recursivefactory.preview.PreviewTransport.full(endpoint)
                 ));
             });
         }
