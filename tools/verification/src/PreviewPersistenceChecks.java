@@ -119,6 +119,13 @@ final class PreviewPersistenceChecks {
         check.accept(virtual.getPreviewBlocks().stream().anyMatch(block -> block.state().is(Blocks.DIAMOND_BLOCK))
                         && !virtual.saveWithoutMetadata(outside.registryAccess()).contains(CACHE),
                 "nested entrances receive explicit display data while their own save NBT stays cache-free");
+        inside.setBlockAndUpdate(FactoryBlueprint.origin(innerRoom.anchorCell()).offset(3, 0, 3), Blocks.EMERALD_BLOCK.defaultBlockState());
+        entrance.refreshPreviewSnapshot();
+        var refreshed = entrance.getPreviewBlockEntities().stream()
+                .filter(tag -> tag.getString("id").equals("recursivefactory:recursive_factory")).findFirst().orElseThrow();
+        check.accept(EndpointBlockEntity.readPreviewBlocks(refreshed.getCompound(CACHE), inside.registryAccess()).stream()
+                        .anyMatch(block -> block.state().is(Blocks.EMERALD_BLOCK)),
+                "outer demand refreshes an already initialized nested factory with no players inside");
         var blueprint = FactoryBlueprint.capture(inside, FactoryData.get(outside.getServer()), room, room.anchorCell(), "preview-cache");
         check.accept(!containsCache(blueprint.serialize(outside.registryAccess())),
                 "nested factory blueprints contain no preview cache at any depth");

@@ -279,7 +279,7 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
 
     /** Nested entrances need an initial snapshot even when nobody is inside the outer room. */
     public void ensurePreviewSnapshot() {
-        if (lastRefreshTick == Long.MIN_VALUE) refreshPreviewSnapshot();
+        refreshPreviewSnapshot();
     }
 
     /** Several remote displays can share the sample already taken during this tick. */
@@ -295,6 +295,8 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
             return;
         }
 
+        if (!com.zinzinc.recursivefactory.preview.PreviewRecursion.enter(this)) return;
+        try {
         // Stamped before anything can bail out, so the interval check never sees a stale, unset tick.
         lastRefreshTick = serverLevel.getGameTime();
         FactoryData data = serverLevel.getServer() == null ? null : FactoryData.get(serverLevel.getServer());
@@ -331,7 +333,11 @@ public final class RecursiveFactoryBlockEntity extends EndpointBlockEntity imple
                 SablePhysicsBodies.sample(factoryLevel, previewCenter, PREVIEW_SIZE, PREVIEW_HEIGHT),
                 SableRopes.sample(factoryLevel, previewCenter)
         );
+        } finally {
+            com.zinzinc.recursivefactory.preview.PreviewRecursion.leave(this);
+        }
     }
+
 
     /**
      * Reads what this block was put down out of, which the file itself wrote onto the block. The block is a

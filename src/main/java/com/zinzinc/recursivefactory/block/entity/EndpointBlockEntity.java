@@ -1,5 +1,6 @@
 package com.zinzinc.recursivefactory.block.entity;
 
+import com.zinzinc.recursivefactory.preview.*;
 import com.mojang.logging.LogUtils;
 import com.simibubi.create.content.kinetics.KineticNetwork;
 import com.simibubi.create.content.kinetics.base.GeneratingKineticBlockEntity;
@@ -97,6 +98,7 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
      */
     public static final String PREVIEW_ID_TAG = "RecursiveFactoryPreviewId";
 
+    private PreviewSnapshot preview = PreviewSnapshot.empty();
     private int factoryId = -1;
     /**
      * Which of the sixteen colour kinds this block is painted, or
@@ -130,12 +132,6 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
     private @Nullable Direction lastBlockedFace;
     /** The face {@link #noteBlockedFluidTransport} last reported; see {@link #noteBlockedTransport}. */
     private @Nullable Direction lastBlockedFluidFace;
-    private List<PreviewBlock> previewBlocks = List.of();
-    private List<CompoundTag> previewEntities = List.of();
-    private List<CompoundTag> previewBlockEntities = List.of();
-    private CompoundTag previewWires = new CompoundTag();
-    private List<CompoundTag> previewBodies = List.of();
-    private List<CompoundTag> previewRopes = List.of();
     /** The speed the far end of the link turns this end at, 0 while the link is not turning it. */
     private float bridgeSpeed;
     /** The stress capacity this end hands to its own network while the link is turning it. */
@@ -716,60 +712,46 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
     }
 
     public List<PreviewBlock> getPreviewBlocks() {
-        return previewBlocks;
+        return preview.blocks();
     }
 
     public List<CompoundTag> getPreviewEntities() {
-        return previewEntities;
+        return preview.entities();
     }
 
     public List<CompoundTag> getPreviewBlockEntities() {
-        return previewBlockEntities;
+        return preview.blockEntities();
     }
 
     public CompoundTag getPreviewWires() {
-        return previewWires;
+        return preview.wires();
     }
 
     public List<CompoundTag> getPreviewBodies() {
-        return previewBodies;
+        return preview.bodies();
     }
 
     public List<CompoundTag> getPreviewRopes() {
-        return previewRopes;
+        return preview.ropes();
     }
 
-    public void acceptPreview(List<PreviewBlock> updatedPreview, List<CompoundTag> updatedEntities,
-                              List<CompoundTag> updatedBlockEntities, CompoundTag updatedWires,
-                              List<CompoundTag> updatedBodies, List<CompoundTag> updatedRopes) {
-        previewBlocks = List.copyOf(updatedPreview);
-        previewEntities = List.copyOf(updatedEntities);
-        previewBlockEntities = List.copyOf(updatedBlockEntities);
-        previewWires = updatedWires.copy();
-        previewBodies = List.copyOf(updatedBodies);
-        previewRopes = List.copyOf(updatedRopes);
+    public com.zinzinc.recursivefactory.preview.PreviewSnapshot previewSnapshot() { return preview; }
+
+    public void acceptPreview(List<PreviewBlock> blocks, List<CompoundTag> entities,
+                              List<CompoundTag> blockEntities, CompoundTag wires,
+                              List<CompoundTag> bodies, List<CompoundTag> ropes) {
+        preview = new PreviewSnapshot(blocks, entities, blockEntities, wires, bodies, ropes);
     }
 
-    public void refreshPreviewSnapshot() {
-    }
+    public void refreshPreviewSnapshot() { }
 
-    public void updatePreview(List<PreviewBlock> updatedPreview, List<CompoundTag> updatedEntities,
-                              List<CompoundTag> updatedBlockEntities, CompoundTag updatedWires,
-                              List<CompoundTag> updatedBodies, List<CompoundTag> updatedRopes) {
-        if (previewBlocks.equals(updatedPreview)
-                && previewEntities.equals(updatedEntities)
-                && previewBlockEntities.equals(updatedBlockEntities) && previewWires.equals(updatedWires)
-                && previewBodies.equals(updatedBodies) && previewRopes.equals(updatedRopes)) {
-            return;
-        }
-        boolean blocksChanged = !previewBlocks.equals(updatedPreview);
-        previewBlocks = List.copyOf(updatedPreview);
-        previewEntities = List.copyOf(updatedEntities);
-        previewBlockEntities = List.copyOf(updatedBlockEntities);
-        previewWires = updatedWires.copy();
-        previewBodies = List.copyOf(updatedBodies);
-        previewRopes = List.copyOf(updatedRopes);
-        // A new display snapshot does not change anything that belongs in the chunk save.
+    public void updatePreview(List<PreviewBlock> blocks, List<CompoundTag> entities,
+                              List<CompoundTag> blockEntities, CompoundTag wires,
+                              List<CompoundTag> bodies, List<CompoundTag> ropes) {
+        PreviewSnapshot updated = new PreviewSnapshot(blocks, entities, blockEntities, wires, bodies, ropes);
+        if (preview.equals(updated)) return;
+        boolean blocksChanged = !preview.blocks().equals(blocks);
+        preview = updated;
         broadcastPreview(blocksChanged);
     }
 
@@ -787,9 +769,9 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
             LOGGER.info(
                     "Broadcasting endpoint preview at {} with {} blocks, {} entities and {} block entities",
                     worldPosition,
-                    previewBlocks.size(),
-                    previewEntities.size(),
-                    previewBlockEntities.size()
+                    preview.blocks().size(),
+                    preview.entities().size(),
+                    preview.blockEntities().size()
             );
         }
         PacketDistributor.sendToPlayersTrackingChunk(
@@ -802,169 +784,21 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
         );
     }
 
-    /**
-     * Samples a box of {@code size} columns square around {@code center}, {@code height} blocks tall and
-     * starting with the block below the centre. Row {@code y} of the sample maps to
-     * {@code center.offset(x, y - 1, z)}, so {@code y == 0} is the block under the centre and the box
-     * grows upwards from there. The columns run from {@code -size / 2} to {@code size / 2 - 1}: for a box
-     * one room cell across, centred on the block whose minimum corner sits on the middle of that cell,
-     * that is exactly the cell, edge to edge. Air and bedrock are dropped; anything else that should stay
-     * hidden (a room's barrier shell, for example) is the caller's to filter.
-     */
     public static List<PreviewBlock> samplePreview(ServerLevel level, BlockPos center, int size, int height) {
-        return samplePreview(level, center, size, height, 0);
+        return PreviewSampler.samplePreview(level, center, size, height);
     }
 
-    /** A one-block halo supplies connected textures, face culling and neighbouring block entity data. */
     public static List<PreviewBlock> samplePreviewWithContext(ServerLevel level, BlockPos center, int size, int height) {
-        var blocks = new LinkedHashMap<BlockPos, PreviewBlock>();
-        for (PreviewBlock block : samplePreview(level, center, size, height, 1)) {
-            blocks.put(new BlockPos(block.x(), block.y(), block.z()), block);
-        }
-        // A belt's inventory lives only at its controller, possibly several cells away. Include that
-        // controller as context so each preview can draw the items within its own cell.
-        for (PreviewBlock block : List.copyOf(blocks.values())) {
-            if (block.contextOnly() || !block.state().hasBlockEntity()) continue;
-            BlockEntity be = level.getBlockEntity(center.offset(block.x(), block.y() - 1, block.z()));
-            if (!(be instanceof BeltBlockEntity belt)) continue;
-            BlockPos controller = belt.getController();
-            if (!level.hasChunkAt(controller)
-                    || !(level.getBlockEntity(controller) instanceof BeltBlockEntity controllerBE)
-                    || !controllerBE.isController()) continue;
-            BlockPos local = controller.subtract(center).above();
-            blocks.putIfAbsent(local, new PreviewBlock(local.getX(), local.getY(), local.getZ(),
-                    controllerBE.getBlockState(), true));
-        }
-        return List.copyOf(blocks.values());
+        return PreviewSampler.samplePreviewWithContext(level, center, size, height);
     }
 
-    private static List<PreviewBlock> samplePreview(ServerLevel level, BlockPos center, int size, int height,
-                                                   int padding) {
-        List<PreviewBlock> sampled = new ArrayList<>();
-        int half = size / 2;
-        for (int y = -padding; y < height + padding; y++) {
-            for (int x = -half - padding; x < size - half + padding; x++) {
-                for (int z = -half - padding; z < size - half + padding; z++) {
-                    BlockPos targetPos = center.offset(x, y - 1, z);
-                    if (!level.hasChunkAt(targetPos)) continue;
-                    BlockState state = level.getBlockState(targetPos);
-                    if (state.isAir() || state.is(Blocks.BEDROCK)) {
-                        continue;
-                    }
-                    boolean contextOnly = y < 0 || y >= height || x < -half || x >= size - half
-                            || z < -half || z >= size - half;
-                    sampled.add(new PreviewBlock(x, y, z, state, contextOnly));
-                }
-            }
-        }
-        return List.copyOf(sampled);
-    }
-
-    /**
-     * Collects the entities inside the same box {@link #samplePreview} covers, as full NBT so that items,
-     * named mobs and the like come back on the client the way they are. Positions are rebased on the centre
-     * of the sample, the local frame the blocks use. Players use a public appearance snapshot and a
-     * dedicated client proxy because their entity type cannot be rebuilt through EntityType.create.
-     */
     public static List<CompoundTag> samplePreviewEntities(ServerLevel level, BlockPos center, int size, int height) {
-        int half = size / 2;
-        AABB box = new AABB(
-                center.getX() - half,
-                center.getY() - 1,
-                center.getZ() - half,
-                center.getX() - half + size,
-                center.getY() - 1 + height,
-                center.getZ() - half + size
-        );
-        List<CompoundTag> sampled = new ArrayList<>();
-        // Players have their own level list, including arrivals before chunk entity tracking catches up.
-        // Sample every visible entity; a fixed count silently hid parts of busy rooms.
-        List<Entity> entities = new ArrayList<>();
-        for (Player player : level.players()) {
-            if (isPreviewable(player) && player.getBoundingBox().intersects(box)) entities.add(player);
-        }
-        entities.addAll(level.getEntitiesOfClass(Entity.class, box,
-                entity -> !(entity instanceof Player) && isPreviewable(entity)));
-        for (Entity entity : entities) {
-            CompoundTag tag = entity instanceof Player player ? PreviewPlayerData.sample(player) : new CompoundTag();
-            if (!(entity instanceof Player)) entity.saveWithoutId(tag);
-            // saveWithoutId deliberately leaves the type id out (its NBT is not meant to be recreated from),
-            // and EntityType.create looks the type up by exactly this key, so it has to be put back in.
-            tag.putString("id", EntityType.getKey(entity.getType()).toString());
-            tag.putString(PREVIEW_ID_TAG, entity.getStringUUID());
-            for (String volatileTag : VOLATILE_ENTITY_TAGS) {
-                tag.remove(volatileTag);
-            }
-            tag.put("Pos", newDoubleList(
-                    entity.getX() - center.getX(),
-                    entity.getY() - center.getY() + 1,
-                    entity.getZ() - center.getZ()
-            ));
-            sampled.add(tag);
-        }
-        return List.copyOf(sampled);
+        return PreviewSampler.samplePreviewEntities(level, center, size, height);
     }
 
-    private static boolean isPreviewable(Entity entity) {
-        return !entity.isSpectator() && !entity.isRemoved();
-    }
-
-    private static ListTag newDoubleList(double... values) {
-        ListTag list = new ListTag();
-        for (double value : values) {
-            list.add(DoubleTag.valueOf(value));
-        }
-        return list;
-    }
-
-    /**
-     * Collects the NBT of every block entity among the sampled blocks, so the client can build them again
-     * and let their renderers draw: a chest holds items, a bell has a swinging part, a sign has text, and
-     * none of that lives in the block state. The position in the tag is rebased on the sample centre like
-     * everything else the preview carries. Blocks the caller already filtered out (the barrier shell) are
-     * not looked at, so the shell's block entities never travel.
-     */
     public static List<CompoundTag> samplePreviewBlockEntities(ServerLevel level, BlockPos center,
                                                               List<PreviewBlock> blocks) {
-        List<CompoundTag> sampled = new ArrayList<>();
-        for (PreviewBlock block : blocks) {
-            if (!block.state().hasBlockEntity()) {
-                continue;
-            }
-            BlockEntity blockEntity = level.getBlockEntity(center.offset(block.x(), block.y() - 1, block.z()));
-            if (blockEntity == null) {
-                continue;
-            }
-            CompoundTag tag = blockEntity.saveWithId(level.registryAccess());
-            if (blockEntity instanceof EndpointBlockEntity endpoint) {
-                // Nested entrances still render their contents, but only the preview transport carries
-                // this cache. Ordinary saves, schematics and debug NBT queries must not include it.
-                if (endpoint instanceof RecursiveFactoryBlockEntity entrance) entrance.ensurePreviewSnapshot();
-                tag.put(PREVIEW_BLOCKS_TAG, endpoint.previewTag());
-            }
-            if (tag.getString("id").startsWith("simulated:") && tag.contains("OwnStrand")) {
-                // Ropes have their own preview stream. Do not recreate server physics objects in a
-                // virtual client world or rebuild the entire room mesh whenever rope points move.
-                tag.remove("Strand");
-            }
-            if (blockEntity instanceof BeltBlockEntity belt) {
-                tag.put("Controller", NbtUtils.writeBlockPos(belt.getController().subtract(center).above()));
-            }
-            if (blockEntity instanceof ItemVaultBlockEntity) {
-                // Vault CT compares each part's controller address. The controller itself uses its
-                // local block position, so leaving followers in world coordinates disconnects it.
-                for (String key : List.of("Controller", "LastKnownPos")) {
-                    NbtUtils.readBlockPos(tag, key).ifPresent(pos ->
-                            tag.put(key, NbtUtils.writeBlockPos(pos.subtract(center).above())));
-                }
-            }
-            tag.putInt("x", block.x());
-            tag.putInt("y", block.y());
-            tag.putInt("z", block.z());
-            if (block.contextOnly()) tag.putBoolean(PREVIEW_CONTEXT_TAG, true);
-            sampled.add(tag);
-        }
-        return List.copyOf(sampled);
+        return PreviewSampler.samplePreviewBlockEntities(level, center, blocks);
     }
 
     private boolean cellLinksChecked;
@@ -1135,117 +969,43 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
 
     public static CompoundTag writePreview(List<PreviewBlock> blocks, List<CompoundTag> entities,
                                            List<CompoundTag> blockEntities, CompoundTag wires) {
-        return writePreview(blocks, entities, blockEntities, wires, List.of());
+        return PreviewCodec.writePreview(blocks, entities, blockEntities, wires);
     }
 
     public static CompoundTag writePreview(List<PreviewBlock> blocks, List<CompoundTag> entities,
                                            List<CompoundTag> blockEntities, CompoundTag wires,
                                            List<CompoundTag> bodies) {
-        return writePreview(blocks, entities, blockEntities, wires, bodies, List.of());
+        return PreviewCodec.writePreview(blocks, entities, blockEntities, wires, bodies);
     }
 
     public static CompoundTag writePreview(List<PreviewBlock> blocks, List<CompoundTag> entities,
                                            List<CompoundTag> blockEntities, CompoundTag wires,
                                            List<CompoundTag> bodies, List<CompoundTag> ropes) {
-        CompoundTag root = new CompoundTag();
-        ListTag list = new ListTag();
-        for (PreviewBlock previewBlock : blocks) {
-            CompoundTag entry = new CompoundTag();
-            entry.putInt("X", previewBlock.x());
-            entry.putInt("Y", previewBlock.y());
-            entry.putInt("Z", previewBlock.z());
-            entry.put("State", NbtUtils.writeBlockState(previewBlock.state()));
-            if (previewBlock.contextOnly()) entry.putBoolean(PREVIEW_CONTEXT_TAG, true);
-            list.add(entry);
-        }
-        root.put(PREVIEW_BLOCKS_LIST_TAG, list);
-        ListTag entityList = new ListTag();
-        for (CompoundTag entity : entities) {
-            entityList.add(entity.copy());
-        }
-        root.put(PREVIEW_ENTITIES_LIST_TAG, entityList);
-        ListTag blockEntityList = new ListTag();
-        for (CompoundTag blockEntity : blockEntities) {
-            blockEntityList.add(blockEntity.copy());
-        }
-        root.put(PREVIEW_BLOCK_ENTITIES_LIST_TAG, blockEntityList);
-        if (!wires.isEmpty()) root.put("Wires", wires.copy());
-        ListTag bodyList = new ListTag();
-        for (CompoundTag body : bodies) bodyList.add(body.copy());
-        if (!bodyList.isEmpty()) root.put("PhysicsBodies", bodyList);
-        ListTag ropeList = new ListTag();
-        for (CompoundTag rope : ropes) ropeList.add(rope.copy());
-        if (!ropeList.isEmpty()) root.put("Ropes", ropeList);
-        return root;
+        return PreviewCodec.writePreview(blocks, entities, blockEntities, wires, bodies, ropes);
     }
 
     public static List<CompoundTag> readPreviewRopes(CompoundTag tag) {
-        CompoundTag root = tag.contains(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND)
-                ? tag.getCompound(PREVIEW_BLOCKS_TAG) : tag;
-        List<CompoundTag> ropes = new ArrayList<>();
-        for (Tag entry : root.getList("Ropes", Tag.TAG_COMPOUND)) ropes.add(((CompoundTag) entry).copy());
-        return List.copyOf(ropes);
+        return PreviewCodec.readPreviewRopes(tag);
     }
 
     public static List<CompoundTag> readPreviewBodies(CompoundTag tag) {
-        CompoundTag root = tag.contains(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND)
-                ? tag.getCompound(PREVIEW_BLOCKS_TAG) : tag;
-        List<CompoundTag> bodies = new ArrayList<>();
-        for (Tag entry : root.getList("PhysicsBodies", Tag.TAG_COMPOUND)) bodies.add(((CompoundTag) entry).copy());
-        return List.copyOf(bodies);
+        return PreviewCodec.readPreviewBodies(tag);
     }
 
     public static CompoundTag readPreviewWires(CompoundTag tag) {
-        CompoundTag root = tag.contains(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND)
-                ? tag.getCompound(PREVIEW_BLOCKS_TAG) : tag;
-        return root.getCompound("Wires").copy();
+        return PreviewCodec.readPreviewWires(tag);
     }
 
     public static List<PreviewBlock> readPreviewBlocks(CompoundTag tag, HolderLookup.Provider registries) {
-        List<PreviewBlock> blocks = new ArrayList<>();
-        CompoundTag root = tag.contains(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND)
-                ? tag.getCompound(PREVIEW_BLOCKS_TAG)
-                : tag;
-        ListTag list = root.getList(PREVIEW_BLOCKS_LIST_TAG, Tag.TAG_COMPOUND);
-        for (Tag entry : list) {
-            CompoundTag blockTag = (CompoundTag) entry;
-            BlockState state = NbtUtils.readBlockState(
-                    registries.lookupOrThrow(Registries.BLOCK),
-                    blockTag.getCompound("State")
-            );
-            blocks.add(new PreviewBlock(
-                    blockTag.getInt("X"),
-                    blockTag.getInt("Y"),
-                    blockTag.getInt("Z"),
-                    state,
-                    blockTag.getBoolean(PREVIEW_CONTEXT_TAG)
-            ));
-        }
-        return List.copyOf(blocks);
+        return PreviewCodec.readPreviewBlocks(tag, registries);
     }
 
     public static List<CompoundTag> readPreviewEntities(CompoundTag tag) {
-        CompoundTag root = tag.contains(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND)
-                ? tag.getCompound(PREVIEW_BLOCKS_TAG)
-                : tag;
-        ListTag list = root.getList(PREVIEW_ENTITIES_LIST_TAG, Tag.TAG_COMPOUND);
-        List<CompoundTag> entities = new ArrayList<>();
-        for (Tag entry : list) {
-            entities.add(((CompoundTag) entry).copy());
-        }
-        return List.copyOf(entities);
+        return PreviewCodec.readPreviewEntities(tag);
     }
 
     public static List<CompoundTag> readPreviewBlockEntities(CompoundTag tag) {
-        CompoundTag root = tag.contains(PREVIEW_BLOCKS_TAG, Tag.TAG_COMPOUND)
-                ? tag.getCompound(PREVIEW_BLOCKS_TAG)
-                : tag;
-        ListTag list = root.getList(PREVIEW_BLOCK_ENTITIES_LIST_TAG, Tag.TAG_COMPOUND);
-        List<CompoundTag> blockEntities = new ArrayList<>();
-        for (Tag entry : list) {
-            blockEntities.add(((CompoundTag) entry).copy());
-        }
-        return List.copyOf(blockEntities);
+        return PreviewCodec.readPreviewBlockEntities(tag);
     }
 
     public record PreviewBlock(int x, int y, int z, BlockState state, boolean contextOnly) {
