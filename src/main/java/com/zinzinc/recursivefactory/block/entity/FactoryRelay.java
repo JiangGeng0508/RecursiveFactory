@@ -67,6 +67,7 @@ public final class FactoryRelay {
     }
 
     public static void transport(EndpointBlockEntity local) {
+        local.resetItemTransportStatus();
         if (!FactoryConfig.itemTransferEnabled() || !local.hasPendingItems()
                 || !(local.getLevel() instanceof ServerLevel localLevel)) {
             return;
@@ -89,6 +90,7 @@ public final class FactoryRelay {
                                   ItemStack waiting, Direction inputFace) {
         List<RemoteEndpoint> remotes = resolveRemotes(localLevel, local, inputFace);
         if (remotes.isEmpty()) {
+            local.markItemTransportBlocked(inputFace);
             return;
         }
 
@@ -120,6 +122,7 @@ public final class FactoryRelay {
         // Nowhere to put it, anywhere along the far end. The stack stays in its slot, so the inserter backs
         // up instead of the item being lost, and the wait is reported once per face rather than once per
         // tick.
+        local.markItemTransportBlocked(inputFace);
         if (local.noteBlockedTransport(outputSide)) {
             LOGGER.info("Item {} is waiting in {}: nothing at {} would take it ({} positions tried)",
                     waiting, local.getBlockPos(), remotes.get(0).outputPos(outputSide), remotes.size());
@@ -140,6 +143,7 @@ public final class FactoryRelay {
      * fluid is not reported as having nowhere to go.
      */
     public static void transportFluid(EndpointBlockEntity local) {
+        local.resetFluidTransportStatus();
         if (!FactoryConfig.fluidTransferEnabled() || local.getPendingFluid().isEmpty() || local.getPendingFluidInput() == null
                 || !(local.getLevel() instanceof ServerLevel localLevel)) {
             return;
@@ -148,6 +152,7 @@ public final class FactoryRelay {
         List<RemoteEndpoint> remotes =
                 resolveRemotes(localLevel, local, local.getPendingFluidInput());
         if (remotes.isEmpty()) {
+            local.markFluidTransportBlocked(local.getPendingFluidInput());
             return;
         }
 
@@ -178,6 +183,7 @@ public final class FactoryRelay {
             return;
         }
 
+        if (!piped) local.markFluidTransportBlocked(local.getPendingFluidInput());
         if (!piped && local.noteBlockedFluidTransport(outputSide)) {
             LOGGER.info("Fluid {} is waiting in {}: nothing at {} would take it ({} positions tried)",
                     waiting.getHoverName(), local.getBlockPos(), remotes.get(0).outputPos(outputSide),

@@ -10,6 +10,10 @@ public final class ModNetworking {
 
     public static void register(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar(RecursiveFactory.MODID).versioned("2");
+        registrar.playToServer(FactoryDiagnosticPackets.Request.TYPE, FactoryDiagnosticPackets.Request.STREAM_CODEC,
+                FactoryDiagnosticPackets.Request::handle);
+        registrar.playToClient(FactoryDiagnosticPackets.Sync.TYPE, FactoryDiagnosticPackets.Sync.STREAM_CODEC,
+                FactoryDiagnosticPackets.Sync::handle);
         registrar.playToServer(
                 FactoryPickBlockPacket.TYPE,
                 FactoryPickBlockPacket.STREAM_CODEC,

@@ -83,6 +83,21 @@ public abstract class EndpointBlockEntity extends GeneratingKineticBlockEntity i
     public static final String PREVIEW_ID_TAG = "RecursiveFactoryPreviewId";
 
     private PreviewSnapshot preview = PreviewSnapshot.empty();
+    private final boolean[] blockedItemFaces = new boolean[6];
+    private final boolean[] blockedFluidFaces = new boolean[6];
+    public void resetItemTransportStatus() { Arrays.fill(blockedItemFaces, false); }
+    public void resetFluidTransportStatus() { Arrays.fill(blockedFluidFaces, false); }
+    public void markItemTransportBlocked(Direction face) { blockedItemFaces[face.ordinal()] = true; }
+    public void markFluidTransportBlocked(Direction face) { blockedFluidFaces[face.ordinal()] = true; }
+    public boolean itemTransportBlocked(Direction face) { return blockedItemFaces[face.ordinal()]; }
+    public boolean fluidTransportBlocked(Direction face) { return blockedFluidFaces[face.ordinal()]; }
+
+    @Override public boolean addToGoggleTooltip(List<net.minecraft.network.chat.Component> tooltip, boolean sneaking) {
+        boolean original = super.addToGoggleTooltip(tooltip, sneaking);
+        if (level == null || !level.isClientSide) return original;
+        return com.zinzinc.recursivefactory.client.FactoryGoggles.append(this, tooltip) || original;
+    }
+
     private int factoryId = -1;
     /**
      * Which of the sixteen colour kinds this block is painted, or

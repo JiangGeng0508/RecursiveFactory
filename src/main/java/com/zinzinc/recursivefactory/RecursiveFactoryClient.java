@@ -19,6 +19,9 @@ import net.neoforged.neoforge.event.level.LevelEvent;
 @Mod(value = RecursiveFactory.MODID, dist = Dist.CLIENT)
 public final class RecursiveFactoryClient {
     public RecursiveFactoryClient(IEventBus modEventBus) {
+        modEventBus.addListener((net.neoforged.fml.event.lifecycle.FMLClientSetupEvent event) ->
+                net.createmod.ponder.foundation.PonderIndex.addPlugin(
+                        new com.zinzinc.recursivefactory.client.ponder.FactoryPonderPlugin()));
         modEventBus.addListener(this::registerRenderers);
         modEventBus.addListener(this::registerBlockColors);
         modEventBus.addListener(this::registerItemColors);
@@ -26,7 +29,10 @@ public final class RecursiveFactoryClient {
         modEventBus.addListener(FactoryFrameModel::wrapModels);
         modEventBus.addListener((ModelEvent.BakingCompleted event) -> EndpointPreviewRenderer.clearCaches());
         NeoForge.EVENT_BUS.addListener((LevelEvent.Unload event) -> {
-            if (event.getLevel().isClientSide()) EndpointPreviewRenderer.clearCaches();
+            if (event.getLevel().isClientSide()) {
+                EndpointPreviewRenderer.clearCaches();
+                com.zinzinc.recursivefactory.client.FactoryGoggles.clear();
+            }
         });
     }
 

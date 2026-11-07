@@ -22,7 +22,12 @@ for path in resources.rglob("*.json"):
 for path in (resources / "assets/recursivefactory/blockstates").glob("*.json"):
     for model in re.findall(r'"model"\s*:\s*"recursivefactory:([^"]+)"', path.read_text(encoding="utf-8")):
         assert (resources / "assets/recursivefactory/models" / (model + ".json")).is_file(), model
-print("PASS resource JSON, model references, translations and format arguments")
+ponder_scenes = ("connections", "expansion", "printing")
+for scene in ponder_scenes:
+    for suffix in ("header", "text_1", "text_2", "text_3", "text_4"):
+        key = f"recursivefactory.ponder.{scene}.{suffix}"
+        assert key in languages["en_us"], key
+print("PASS resource JSON, model references, translations, Ponder text and format arguments")
 
 version = re.search(r"^mod_version=(.+)$", (root / "gradle.properties").read_text(), re.M).group(1).strip()
 artifact = Path(sys.argv[1]) if len(sys.argv) > 1 else root / f"build/libs/recursivefactory-{version}.jar"
@@ -49,5 +54,8 @@ with zipfile.ZipFile(artifact) as jar:
     for source in (root / "src/main/java").rglob("*.java"):
         name = str(source.relative_to(root / "src/main/java").with_suffix(".class")).replace("\\", "/")
         assert name in names, name
+    for scene in ponder_scenes:
+        name = f"assets/recursivefactory/ponder/{scene}.nbt"
+        assert jar.read(name) == (resources / name).read_bytes(), f"missing or stale Ponder structure: {scene}"
 print(f"PASS {artifact.name}: {len(names)} entries; correct version; own namespaces only; "
-      "no probes or removed printer")
+      "Ponder structures present; no probes or removed printer")
