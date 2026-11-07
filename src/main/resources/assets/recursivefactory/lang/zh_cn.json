@@ -51,5 +51,6 @@
   "recursivefactory.configuration.linkMaxCurrent.tooltip": "链路每端请求的最大电流。",
   "recursivefactory.configuration.transfer.kineticEnabled.tooltip": "允许入口方块与工厂屏障传输应力。默认开启；加载末影传输（createendertransmission）时默认关闭。已保存的设置优先。",
   "recursivefactory.configuration.transfer.fluidEnabled.tooltip": "允许入口方块与工厂屏障传输流体。默认开启；加载末影传输（createendertransmission）时默认关闭。已保存的设置优先。",
-  "recursivefactory.configuration.transfer.itemEnabled.tooltip": "允许入口方块与工厂屏障传输物品。默认开启；加载末影传输（createendertransmission）时默认关闭。已保存的设置优先。"
+  "recursivefactory.configuration.transfer.itemEnabled.tooltip": "允许入口方块与工厂屏障传输物品。默认开启；加载末影传输（createendertransmission）时默认关闭。已保存的设置优先。",
+  "message.recursivefactory.recovered": "已从失效的工厂安全返回。"
 }

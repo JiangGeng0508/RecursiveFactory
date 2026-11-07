@@ -59,81 +59,42 @@ public final class FactoryTeleporter {
         return true;
     }
 
-    /** Sends the player back where they came from, or beside the entrance block if that is unknown. */
+    /** Return points remain usable even after every entrance and room has been removed. */
     public static boolean exit(ServerPlayer player, int factoryId) {
         MinecraftServer server = player.getServer();
-        FactoryData.FactoryRecord record = server == null ? null : FactoryData.get(server).factory(factoryId);
-        if (server == null || record == null) {
-            player.sendSystemMessage(Component.translatable("message.recursivefactory.missing"));
-            return false;
+        if (server == null) return false;
+        ReturnStackData remaining = player.getData(ModAttachments.RETURN_STACK.get());
+        FactoryReturnTarget target = null;
+        while (!remaining.isEmpty() && target == null) {
+            ReturnStackData.ReturnPoint point = remaining.peek();
+            remaining = remaining.pop();
+            ServerLevel level = server.getLevel(point.dimensionKey());
+            if (level != null) target = FactoryReturnTarget.near(player, level,
+                    new Vec3(point.x(), point.y(), point.z()), point.yRot(), point.xRot());
         }
-
-        ReturnStackData stack = player.getData(ModAttachments.RETURN_STACK.get());
-        ReturnStackData.ReturnPoint returnPoint = stack.isEmpty() ? null : stack.peek();
-        if (!stack.isEmpty()) {
-            player.setData(ModAttachments.RETURN_STACK.get(), stack.pop());
+        FactoryData.FactoryRecord record = FactoryData.get(server).factory(factoryId);
+        if (target == null && record != null && record.entranceDimension() != null && !record.cells().isEmpty()) {
+            ServerLevel level = server.getLevel(ResourceKey.create(Registries.DIMENSION, record.entranceDimension()));
+            if (level != null) target = FactoryReturnTarget.near(player, level,
+                    Vec3.atBottomCenterOf(record.entrancePos().above()), player.getYRot(), player.getXRot());
         }
-
-        ServerLevel targetLevel;
-        double x;
-        double y;
-        double z;
-        float yRot;
-        float xRot;
-        if (returnPoint != null) {
-            ResourceKey<Level> dimensionKey = returnPoint.dimensionKey();
-            targetLevel = server.getLevel(dimensionKey);
-            x = returnPoint.x();
-            y = returnPoint.y();
-            z = returnPoint.z();
-            yRot = returnPoint.yRot();
-            xRot = returnPoint.xRot();
-        } else {
-            ResourceKey<Level> dimensionKey = record.entranceDimension() == null
-                    ? Level.OVERWORLD
-                    : ResourceKey.create(Registries.DIMENSION, record.entranceDimension());
-            targetLevel = server.getLevel(dimensionKey);
-            BlockPos fallback = record.entrancePos().above();
-            x = fallback.getX() + 0.5D;
-            y = fallback.getY() + 0.1D;
-            z = fallback.getZ() + 0.5D;
-            yRot = player.getYRot();
-            xRot = player.getXRot();
-        }
-
-        if (targetLevel == null) {
-            targetLevel = server.overworld();
-            BlockPos spawn = targetLevel.getSharedSpawnPos();
-            x = spawn.getX() + 0.5D;
-            y = spawn.getY() + 0.1D;
-            z = spawn.getZ() + 0.5D;
-            yRot = 0.0F;
-            xRot = player.getXRot();
-        }
-
-        var destination = SablePhysicsBodies.worldPosition(targetLevel, new Vec3(x, y, z));
-        player.teleportTo(targetLevel, destination.x, destination.y, destination.z, yRot, xRot);
-        player.sendSystemMessage(Component.translatable("message.recursivefactory.exited", factoryId));
+        if (target == null) target = FactoryReturnTarget.spawn(player, server.overworld());
+        if (target == null) return false;
+        player.teleportTo(target.level(), target.position().x, target.position().y, target.position().z,
+                target.yaw(), target.pitch());
+        player.setData(ModAttachments.RETURN_STACK.get(), remaining);
+        player.fallDistance = 0;
+        player.sendSystemMessage(Component.translatable(factoryId > 0
+                ? "message.recursivefactory.exited" : "message.recursivefactory.recovered", factoryId));
         return true;
     }
 
-    /** A player who ends up in the factory dimension but not in any room is sent back out. */
+    /** No nearest unrelated factory is needed to recover an orphaned player. */
     public static boolean exitFromEdge(ServerPlayer player) {
         MinecraftServer server = player.getServer();
-        if (server == null || player.level() != server.getLevel(FactoryDimension.LEVEL_KEY)) {
-            return false;
-        }
-
-        FactoryData data = FactoryData.get(server);
-        FactoryData.FactoryRecord record = data.factoryAt(player.blockPosition());
-        if (record == null) {
-            record = FactoryDimension.nearestFactory(data, player.blockPosition());
-        }
-        if (record == null) {
-            return false;
-        }
-
-        return exit(player, record.id());
+        if (server == null || player.level() != server.getLevel(FactoryDimension.LEVEL_KEY)) return false;
+        FactoryData.FactoryRecord record = FactoryData.get(server).factoryAt(player.blockPosition());
+        return exit(player, record == null ? -1 : record.id());
     }
 
     private static void pushReturnPoint(ServerPlayer player) {

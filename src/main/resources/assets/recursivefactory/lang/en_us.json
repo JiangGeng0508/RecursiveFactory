@@ -51,5 +51,6 @@
   "recursivefactory.configuration.linkMaxCurrent.tooltip": "Maximum current requested by each end of a link.",
   "recursivefactory.configuration.transfer.kineticEnabled.tooltip": "Allow factory entrances and room barriers to transfer rotation and stress. Enabled by default; disabled by default when Create Ender Transmission (createendertransmission) is loaded. Saved choices take priority.",
   "recursivefactory.configuration.transfer.fluidEnabled.tooltip": "Allow factory entrances and room barriers to transfer fluids. Enabled by default; disabled by default when Create Ender Transmission (createendertransmission) is loaded. Saved choices take priority.",
-  "recursivefactory.configuration.transfer.itemEnabled.tooltip": "Allow factory entrances and room barriers to transfer items. Enabled by default; disabled by default when Create Ender Transmission (createendertransmission) is loaded. Saved choices take priority."
+  "recursivefactory.configuration.transfer.itemEnabled.tooltip": "Allow factory entrances and room barriers to transfer items. Enabled by default; disabled by default when Create Ender Transmission (createendertransmission) is loaded. Saved choices take priority.",
+  "message.recursivefactory.recovered": "Returned safely from an unavailable factory."
 }
