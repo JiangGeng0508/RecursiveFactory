@@ -3,6 +3,8 @@
   "message.recursivefactory.redstone.deactivated": "已断开此处的红石连接。",
   "message.recursivefactory.redstone.invalid": "无法在此处切换红石连接；请选择入口外侧或朝向房间的屏障。",
   "itemGroup.recursivefactory.main": "递归工厂",
+  "item.recursivefactory.factory_frame": "工厂框架",
+  "item.recursivefactory.incomplete_factory": "未完成的工厂",
   "block.recursivefactory.recursive_factory": "递归工厂",
   "block.recursivefactory.recursive_factory.colored": "%s递归工厂",
   "block.recursivefactory.factory_barrier": "工厂屏障",

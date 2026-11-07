@@ -1,0 +1,25 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "group": "factory_frame",
+  "pattern": [
+    "C C",
+    "O O",
+    "COC"
+  ],
+  "key": {
+    "C": {
+      "item": "minecraft:brown_concrete"
+    },
+    "O": {
+      "item": "minecraft:obsidian"
+    }
+  },
+  "result": {
+    "id": "recursivefactory:factory_frame",
+    "count": 1,
+    "components": {
+      "recursivefactory:color": 12
+    }
+  }
+}

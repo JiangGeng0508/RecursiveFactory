@@ -21,7 +21,7 @@ Build a factory inside a block. Expand it in three dimensions, nest more factori
 ## Get started
 
 1. Install this mod and Create on both the client and server.
-2. Craft an entrance: **4 concrete blocks of one colour** in the corners, **1 Precision Mechanism** at the top centre, **3 obsidian** at the left, right and bottom centres, and **1 Eye of Ender** in the centre. All 16 concrete colours work. Make the Precision Mechanism through Create's sequenced assembly chain.
+2. Craft a **Factory Frame**: put **4 concrete blocks of one colour** in the corners and **3 obsidian** at the left, right and bottom centres; leave the other slots empty. Then use Create's **sequenced assembly**: a Deployer installs **1 Precision Mechanism**, a second Deployer installs **1 Eye of Ender**, and a Mechanical Press finishes the entrance. One pass always yields one entrance, preserving any of the 16 colours. Expansion and nested entrances use the same chain.
 3. Place it and **right-click with an empty hand to enter**. Build your machines inside.
 4. **Right-click a factory barrier to leave**, returning to where you entered.
 5. Add adjacent entrances to expand, or place an entrance inside to start a nested factory.

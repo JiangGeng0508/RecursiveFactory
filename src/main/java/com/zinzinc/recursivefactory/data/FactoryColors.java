@@ -12,9 +12,8 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.IntegerProperty;
 
 /**
- * The colour a factory is painted with. Everything a factory is made of is drawn as a flat white shape and
- * tinted here: the barrier shell of its room and the plinth of its entrance blocks, so the block the
- * preview sits on comes out the same colour as the walls the room is made of.
+ * The colour a factory is painted with. Grayscale surfaces on the room's barrier shell, entrance frame
+ * and item paint layer are tinted here. Steel and brass details keep their original colours.
  *
  * <p>A colour is one of the sixteen dye colours - the same sixteen the concrete an entrance block is
  * crafted from comes in - and is stored as an index into them, which is small enough to sit in a component

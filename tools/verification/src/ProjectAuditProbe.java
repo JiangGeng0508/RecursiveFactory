@@ -55,6 +55,7 @@ public final class ProjectAuditProbe {
             return;
         }
         run("diagnostics and tutorials", () -> DiagnosticChecks.run(outside, ProjectAuditProbe::check));
+        run("factory sequenced assembly", () -> AssemblyChecks.run(outside, ProjectAuditProbe::check));
         run("preview optimization", () -> PreviewOptimizationChecks.run(ProjectAuditProbe::check));
         run("safe returns", () -> ReturnChecks.run(outside, inside, ProjectAuditProbe::check));
         run("transfer settings", () -> TransferChecks.run(outside, inside, ProjectAuditProbe::check));

@@ -1,9 +1,8 @@
 """Generates the entrance block's frame models and its blockstate.
 
 The block is a frame: twelve one sixteenth bars along the edges of the block with the middle open, so the
-preview of the room shows through it (see RecursiveFactoryRenderer). Every face of every bar carries tint
-index 0, the color of the factory the block belongs to (see FactoryColors), so the whole frame comes out
-the same color as the walls of the room it leads into.
+preview of the room shows through it (see RecursiveFactoryRenderer). Painted middle sections carry tint
+index 0 (see FactoryColors); steel and brass end caps keep their original colours.
 
 Every bar lies in the plane of each of the two sides of the room it touches, so a side that carries on into
 the entrance block beside it - a factory that has grown past one cell - drops the four bars of that plane:
@@ -30,7 +29,8 @@ import os
 MODELS = "src/main/resources/assets/recursivefactory/models/block"
 BLOCKSTATES = "src/main/resources/assets/recursivefactory/blockstates"
 NAMESPACE = "recursivefactory"
-FRAME_TEXTURE = NAMESPACE + ":block/recursive_factory"
+FRAME_TEXTURE = NAMESPACE + ":block/factory_frame_paint"
+METAL_TEXTURE = NAMESPACE + ":block/factory_frame_metal"
 # Direction#get3DDataValue(), the order the sides of the room are named in.
 DIRS = ["down", "up", "north", "south", "west", "east"]
 AXES = ("x", "y", "z")
@@ -91,11 +91,24 @@ def bar_name(box):
 
 
 def bar_model(box):
-    """One bar, every face of it asking for the color of the factory the block belongs to."""
-    faces = {face: {"texture": "#0", "tintindex": 0} for face in DIRS}
+    """One bar with untinted metal end caps and a factory-coloured middle section."""
+    axis = next(i for i in range(3) if box[i + 3] - box[i] == 16)
+    elements = []
+    for start, end, painted in ((0, 2, False), (2, 14, True), (14, 16, False)):
+        low, high = list(box[:3]), list(box[3:])
+        low[axis], high[axis] = start, end
+        faces = {}
+        for face, (face_axis, is_low) in FACES.items():
+            # Interior cut faces meet exactly; omit them rather than drawing hidden duplicates.
+            if AXES[axis] == face_axis and (is_low and start > 0 or not is_low and end < 16):
+                continue
+            faces[face] = {"texture": "#0" if painted else "#metal"}
+            if painted:
+                faces[face]["tintindex"] = 0
+        elements.append({"from": low, "to": high, "faces": faces})
     return {
         "parent": NAMESPACE + ":block/frame_part",
-        "elements": [{"from": list(box[:3]), "to": list(box[3:]), "faces": faces}],
+        "elements": elements,
     }
 
 
@@ -121,11 +134,10 @@ def write(path, model):
 
 os.makedirs(MODELS, exist_ok=True)
 write(os.path.join(MODELS, "frame_part.json"),
-      {"textures": {"0": FRAME_TEXTURE, "particle": FRAME_TEXTURE}})
+      {"textures": {"0": FRAME_TEXTURE, "metal": METAL_TEXTURE, "particle": METAL_TEXTURE}})
 for box in FRAME:
     write(os.path.join(MODELS, bar_name(box) + ".json"), bar_model(box))
-# The whole frame, which is what the item is drawn as: the bars are the same ones the blockstate asks for
-# one at a time, so an entrance block with nothing joined to it is drawn exactly the way the item is.
+# Complete frame retained for model consumers; inventory items use separate layered sprites.
 write(os.path.join(MODELS, "recursive_factory.json"),
       {"parent": NAMESPACE + ":block/frame_part",
        "elements": [element for box in FRAME for element in bar_model(box)["elements"]]})

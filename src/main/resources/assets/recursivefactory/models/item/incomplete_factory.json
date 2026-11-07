@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "recursivefactory:item/incomplete_factory",
+    "layer1": "recursivefactory:item/factory_frame_paint"
+  }
+}

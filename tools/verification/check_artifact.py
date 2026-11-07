@@ -22,6 +22,16 @@ for path in resources.rglob("*.json"):
 for path in (resources / "assets/recursivefactory/blockstates").glob("*.json"):
     for model in re.findall(r'"model"\s*:\s*"recursivefactory:([^"]+)"', path.read_text(encoding="utf-8")):
         assert (resources / "assets/recursivefactory/models" / (model + ".json")).is_file(), model
+for path in (resources / "assets/recursivefactory/models").rglob("*.json"):
+    model = json.loads(path.read_text(encoding="utf-8"))
+    parent = model.get("parent", "")
+    if parent.startswith("recursivefactory:"):
+        assert (resources / "assets/recursivefactory/models" / (parent.split(":", 1)[1] + ".json")).is_file(), (path, parent)
+    for texture in model.get("textures", {}).values():
+        if texture.startswith("recursivefactory:"):
+            assert (resources / "assets/recursivefactory/textures" / (texture.split(":", 1)[1] + ".png")).is_file(), (path, texture)
+for item in ("factory_frame", "incomplete_factory"):
+    assert f"item.recursivefactory.{item}" in languages["en_us"], item
 ponder_scenes = ("connections", "expansion", "printing")
 for scene in ponder_scenes:
     for suffix in ("header", "text_1", "text_2", "text_3", "text_4"):
@@ -57,5 +67,10 @@ with zipfile.ZipFile(artifact) as jar:
     for scene in ponder_scenes:
         name = f"assets/recursivefactory/ponder/{scene}.nbt"
         assert jar.read(name) == (resources / name).read_bytes(), f"missing or stale Ponder structure: {scene}"
+    for directory in ("assets", "data"):
+        for source in (resources / directory).rglob("*"):
+            if source.is_file():
+                name = source.relative_to(resources).as_posix()
+                assert jar.read(name) == source.read_bytes(), f"missing or stale resource: {name}"
 print(f"PASS {artifact.name}: {len(names)} entries; correct version; own namespaces only; "
-      "Ponder structures present; no probes or removed printer")
+      "packaged assets and data match source; no probes or removed printer")

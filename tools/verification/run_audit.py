@@ -43,7 +43,9 @@ def audit(args, without_power, runtime=False):
     (run_dir / "eula.txt").write_text("eula=true\n", encoding="utf-8")
     (run_dir / "server.properties").write_text(
         'server-ip=127.0.0.1\nserver-port=0\nonline-mode=false\nview-distance=2\nsimulation-distance=2\n'
-        'level-type=minecraft:flat\ngenerate-structures=false\nlevel-seed=1\nspawn-protection=0\n'
+        # Construction probes deliberately do synchronous work inside ServerStartedEvent.
+        # The wrapper timeout still bounds the complete process, including save and exit.
+        'level-type=minecraft:flat\ngenerate-structures=false\nlevel-seed=1\nspawn-protection=0\nmax-tick-time=-1\n'
         'generator-settings={"layers":[{"block":"minecraft:bedrock","height":1}],"biome":"minecraft:plains"}\n',
         encoding="utf-8")
     log = ROOT / "build" / "verification" / (label + "-" + stamp + ".log")

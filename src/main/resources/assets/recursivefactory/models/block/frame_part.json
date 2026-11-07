@@ -1,6 +1,7 @@
 {
   "textures": {
-    "0": "recursivefactory:block/recursive_factory",
-    "particle": "recursivefactory:block/recursive_factory"
+    "0": "recursivefactory:block/factory_frame_paint",
+    "metal": "recursivefactory:block/factory_frame_metal",
+    "particle": "recursivefactory:block/factory_frame_metal"
   }
 }

@@ -2,6 +2,7 @@ package com.zinzinc.recursivefactory.block;
 
 import com.zinzinc.recursivefactory.RecursiveFactory;
 import com.zinzinc.recursivefactory.item.MirrorFactoryItem;
+import com.simibubi.create.content.processing.sequenced.SequencedAssemblyItem;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
@@ -76,6 +77,11 @@ public final class ModBlocks {
             "recursive_factory",
             () -> new RecursiveFactoryItem(RECURSIVE_FACTORY.get(), new Item.Properties())
     );
+
+    public static final DeferredItem<Item> FACTORY_FRAME_ITEM = ITEMS.registerSimpleItem("factory_frame");
+
+    public static final DeferredItem<SequencedAssemblyItem> INCOMPLETE_FACTORY_ITEM = ITEMS.register(
+            "incomplete_factory", () -> new SequencedAssemblyItem(new Item.Properties()));
 
     public static final DeferredItem<BlockItem> FACTORY_BARRIER_ITEM = ITEMS.registerSimpleBlockItem(
             "factory_barrier",

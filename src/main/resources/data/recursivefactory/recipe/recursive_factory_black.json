@@ -1,17 +1,82 @@
 {
-  "type": "minecraft:crafting_shaped",
-  "category": "building",
-  "group": "recursive_factory",
-  "pattern": ["CPC", "OEO", "COC"],
-  "key": {
-    "C": { "item": "minecraft:black_concrete" },
-    "O": { "item": "minecraft:obsidian" },
-    "E": { "item": "minecraft:ender_eye" },
-    "P": { "item": "create:precision_mechanism" }
+  "type": "create:sequenced_assembly",
+  "ingredient": {
+    "type": "neoforge:components",
+    "items": "recursivefactory:factory_frame",
+    "components": {
+      "recursivefactory:color": 15
+    }
   },
-  "result": {
-    "id": "recursivefactory:recursive_factory",
-    "count": 1,
-    "components": { "recursivefactory:color": 15 }
-  }
+  "loops": 1,
+  "sequence": [
+    {
+      "type": "create:deploying",
+      "ingredients": [
+        {
+          "item": "recursivefactory:incomplete_factory"
+        },
+        {
+          "item": "create:precision_mechanism"
+        }
+      ],
+      "results": [
+        {
+          "id": "recursivefactory:incomplete_factory",
+          "components": {
+            "recursivefactory:color": 15
+          }
+        }
+      ]
+    },
+    {
+      "type": "create:deploying",
+      "ingredients": [
+        {
+          "item": "recursivefactory:incomplete_factory"
+        },
+        {
+          "item": "minecraft:ender_eye"
+        }
+      ],
+      "results": [
+        {
+          "id": "recursivefactory:incomplete_factory",
+          "components": {
+            "recursivefactory:color": 15
+          }
+        }
+      ]
+    },
+    {
+      "type": "create:pressing",
+      "ingredients": [
+        {
+          "item": "recursivefactory:incomplete_factory"
+        }
+      ],
+      "results": [
+        {
+          "id": "recursivefactory:incomplete_factory",
+          "components": {
+            "recursivefactory:color": 15
+          }
+        }
+      ]
+    }
+  ],
+  "transitional_item": {
+    "id": "recursivefactory:incomplete_factory",
+    "components": {
+      "recursivefactory:color": 15
+    }
+  },
+  "results": [
+    {
+      "id": "recursivefactory:recursive_factory",
+      "count": 1,
+      "components": {
+        "recursivefactory:color": 15
+      }
+    }
+  ]
 }

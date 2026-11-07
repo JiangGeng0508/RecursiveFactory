@@ -58,6 +58,11 @@ public final class RecursiveFactory {
                         for (int colorIndex = 0; colorIndex < FactoryColors.COLOR_COUNT; colorIndex++) {
                             output.accept(RecursiveFactoryItem.colored(colorIndex));
                         }
+                        for (int colorIndex = 0; colorIndex < FactoryColors.COLOR_COUNT; colorIndex++) {
+                            var frame = ModBlocks.FACTORY_FRAME_ITEM.toStack();
+                            frame.set(ModDataComponents.COLOR.get(), colorIndex);
+                            output.accept(frame);
+                        }
                         output.accept(ModBlocks.FACTORY_BARRIER_ITEM.get());
                         output.accept(ModBlocks.FACTORY_PREVIEW_ITEM.get());
                     })

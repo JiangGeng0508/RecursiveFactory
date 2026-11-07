@@ -54,7 +54,10 @@ public final class RecursiveFactoryClient {
     /** The item is tinted with the colour kind it carries, which is what tells the sixteen apart. */
     private void registerItemColors(RegisterColorHandlersEvent.Item event) {
         event.register((stack, tintIndex) -> FactoryColors.ofStack(stack),
-                ModBlocks.FACTORY_BARRIER_ITEM.get(),
+                ModBlocks.FACTORY_BARRIER_ITEM.get());
+        // Only the paint mask is tinted; steel, brass and the core keep their own colours.
+        event.register((stack, tintIndex) -> tintIndex == 1 ? FactoryColors.ofStack(stack) : -1,
+                ModBlocks.FACTORY_FRAME_ITEM.get(), ModBlocks.INCOMPLETE_FACTORY_ITEM.get(),
                 ModBlocks.RECURSIVE_FACTORY_ITEM.get());
     }
 }

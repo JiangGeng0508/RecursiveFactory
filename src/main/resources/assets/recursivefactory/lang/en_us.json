@@ -3,6 +3,8 @@
   "message.recursivefactory.redstone.deactivated": "Redstone connection disabled.",
   "message.recursivefactory.redstone.invalid": "Cannot toggle here. Use an outer entrance face or a room-facing barrier.",
   "itemGroup.recursivefactory.main": "Recursive Factory",
+  "item.recursivefactory.factory_frame": "Factory Frame",
+  "item.recursivefactory.incomplete_factory": "Incomplete Factory",
   "block.recursivefactory.recursive_factory": "Recursive Factory",
   "block.recursivefactory.recursive_factory.colored": "%s Recursive Factory",
   "block.recursivefactory.factory_barrier": "Factory Barrier",
