@@ -1,3 +1,15 @@
+# 自动回归入口
+
+推荐运行 `python tools/verification/run_audit.py --matrix`，本地依赖已缓存时追加 `--offline`。
+需要 Java 21 和 Python 3.11+。包装器按项目既有测试约定在新目录写入测试服务端 EULA 配置。
+两个环境顺序运行，测试世界在 `run/verification/`，日志在 `build/verification/`；不会复用玩家存档。
+`--without-power` 单独运行无 CEE 环境；`--timeout 600` 指定每个环境超时秒数。
+包装器要求唯一的 `[rfaudit] COMPLETE`、正检查数、零失败和成功退出；超时终止本次启动的进程树。
+CI 执行同一入口，随后正式构建并检查产物。包装器自身检查：
+`python -m unittest discover -s tools/verification -p test_run_audit.py -v`。
+
+以下为直接调用 Gradle 的详细说明。
+
 # 项目回归验证
 
 普通 `gradlew build` 不包含这些服务器探针。测试实际方块、跨维度能力、蓝图序列化、建房边界、材料扣除及大炮弹道，不需要启动客户端。另覆盖预览方块与复制入口的物品提示：未绑定、主世界/工厂维度绑定、普通/高级提示，以及文本序列化。

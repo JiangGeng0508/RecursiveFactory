@@ -2,6 +2,8 @@ name: Build
 
 on:
   push:
+    branches:
+      - master
     tags:
       - 'v*'
   pull_request:
@@ -11,6 +13,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -29,5 +32,27 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check regression runner failure handling
+        run: python -m unittest discover -s tools/verification -p test_run_audit.py -v
+
+      - name: Verify with and without CEE
+        run: python tools/verification/run_audit.py --matrix --timeout 1200
+
       - name: Build with Gradle
         run: ./gradlew build --no-daemon --stacktrace
+
+      - name: Check distributable
+        run: python tools/verification/check_artifact.py
+
+      - name: Preserve regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: regression-logs
+          path: build/verification/*.log
+          if-no-files-found: ignore
